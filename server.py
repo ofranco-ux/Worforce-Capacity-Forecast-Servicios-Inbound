@@ -43,7 +43,7 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🧠 MOTOR WFM GALLETA PURA (ML + EMA Suavizado Exponencial)
+# 🧠 MOTOR WFM (ML + Sensor Inicio Mes + Blend Intradía Exacto)
 # =====================================================================
 def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     df_ml = df_diario_campana.sort_values(col_fecha).copy()
@@ -103,6 +103,17 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     ultimos_14 = df_diario_campana.tail(14)[col_calls]
     media_14 = ultimos_14.mean()
     cv = (ultimos_14.std() / media_14) if media_14 > 0 else 0
+    
+    historico_previo = df_diario_campana.iloc[:-7][col_calls].mean() if len(df_diario_campana) > 7 else df_diario_campana.tail(7)[col_calls].mean()
+    desfase_agresivo = True if (df_diario_campana.tail(7)[col_calls].mean() < historico_previo * 0.80) or (df_diario_campana.tail(7)[col_calls].mean() > historico_previo * 1.20) else False
+
+    df_recent_4w = df_diario_campana.tail(28).copy()
+    df_recent_4w['wd'] = df_recent_4w[col_fecha].dt.weekday
+    dow_medians = df_recent_4w.groupby('wd')[col_calls].median()
+    if dow_medians.sum() == 0: 
+        dow_medians = df_recent_4w.groupby('wd')[col_calls].mean()
+    overall_median = dow_medians.mean()
+    dow_weights = {k: (v / overall_median if overall_median > 0 else 1.0) for k, v in dow_medians.items()}
 
     historial_simulado = df_ml.to_dict('records')
     preds_finales_ajustadas = []
@@ -137,14 +148,14 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         wd = fecha_actual.weekday()
         base_oli = dow_olimpico.get(wd, media_14)
         
-        base_reciente = (lag_7_val * 0.70) + (rm_3_val * 0.30)
+        base_reciente = (lag_7_val * 0.50) + (rm_3_val * 0.50)
         
         if vol_promedio_historico < 150:
-            peso_ml, peso_oli, peso_rec = 0.10, 0.10, 0.80
+            peso_ml, peso_oli, peso_rec = 0.15, 0.05, 0.80
         elif cv < 0.20 and vol_promedio_historico >= 300:
-            peso_ml, peso_oli, peso_rec = 0.25, 0.50, 0.25
+            peso_ml, peso_oli, peso_rec = 0.30, 0.60, 0.10
         else:
-            peso_ml, peso_oli, peso_rec = 0.25, 0.25, 0.50
+            peso_ml, peso_oli, peso_rec = 0.30, 0.20, 0.50
 
         pred_final = (pred_ml * peso_ml) + (base_oli * peso_oli) + (base_reciente * peso_rec)
         pred_final = max(0.0, float(pred_final))
@@ -269,8 +280,11 @@ def erlang_c_sl_optimizado(A, N, AHT, target_time):
 def calcular_agentes_requeridos_erlang_c(A, aht, target_time, target_sl):
     if A <= 0 or aht <= 0: return 0
     base_n = int(math.floor(A + math.sqrt(A))) if A > 50 else int(math.floor(A)) + 1
-    validos = [n for n in range(base_n, base_n + 150) if erlang_c_sl_optimizado(A, n, aht, target_time) >= target_sl]
-    return validos[0] if validos else base_n
+    # OPTIMIZACIÓN EXTREMA: Detenerse apenas se cumple la meta en lugar de evaluar todo el rango
+    for n in range(base_n, base_n + 150):
+        if erlang_c_sl_optimizado(A, n, aht, target_time) >= target_sl:
+            return n
+    return base_n
 
 def parse_time_str(t_str):
     if not t_str: return None
@@ -380,6 +394,12 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
     col_inter = encontrar_columna(df_raw, ['intervalo', 'hora', 'time'])
     col_fecha = encontrar_columna(df_raw, ['fecha', 'date'])
+
+    # Filtros anti-colapso por si el excel viene distinto
+    if not col_camp: col_camp = df_raw.columns[0]
+    if not col_fecha: col_fecha = df_raw.columns[1]
+    if not col_inter: col_inter = df_raw.columns[2]
+    if not col_calls: col_calls = df_raw.columns[3]
 
     df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
     df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
@@ -559,6 +579,12 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     col_inter = encontrar_columna(df_raw, ['intervalo', 'hora', 'time'])
     col_fecha = encontrar_columna(df_raw, ['fecha', 'date'])
 
+    # Protección anti-colapso por si el excel viene distinto
+    if not col_camp: col_camp = df_raw.columns[0]
+    if not col_fecha: col_fecha = df_raw.columns[1]
+    if not col_inter: col_inter = df_raw.columns[2]
+    if not col_calls: col_calls = df_raw.columns[3]
+
     df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
     df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
     df_raw = df_raw.dropna(subset=[col_fecha])
@@ -585,8 +611,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
 
     fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
-    aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
-
+    
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
     campanas_unicas = df[col_camp].unique()
 
@@ -663,7 +688,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
             for i in range(diff):
                 if i < len(remainders): floor_calls[remainders[i][1]] += 1
 
-            aht_global = aht_global_campana.get(camp, 180.0)
+            aht_global = 180.0
             for idx_inter, inter in enumerate(intervalos_validos):
                 calls_int = floor_calls[idx_inter]
                 calls_float = exact_calls[idx_inter] 
@@ -736,6 +761,12 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill'])
     col_inter = encontrar_columna(df_raw, ['intervalo', 'hora', 'time'])
     col_fecha = encontrar_columna(df_raw, ['fecha', 'date'])
+
+    # Protección anti-colapso por si el excel viene distinto
+    if not col_camp: col_camp = df_raw.columns[0]
+    if not col_fecha: col_fecha = df_raw.columns[1]
+    if not col_inter: col_inter = df_raw.columns[2]
+    if not col_calls: col_calls = df_raw.columns[3]
 
     df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
     df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
