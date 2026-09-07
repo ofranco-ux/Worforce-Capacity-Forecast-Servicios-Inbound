@@ -504,8 +504,20 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     if not df_final.empty:
         df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
         df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes']:
+        
+        # SUMA PURA DE PICOS MÁXIMOS (LÓGICA DEDICADA)
+        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
+        
+        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
+        
+        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
+        df_final = df_final.merge(suma_mes, on='Mes', how='left')
+
+        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
             df_final[col] = df_final[col].fillna(0).astype(int)
+            
         data_processed = df_final.to_dict('records')
 
     try:
@@ -703,8 +715,20 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     if not df_final.empty:
         df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
         df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes']:
+        
+        # SUMA PURA DE PICOS MÁXIMOS (LÓGICA DEDICADA)
+        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
+        
+        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
+        
+        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
+        df_final = df_final.merge(suma_mes, on='Mes', how='left')
+
+        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
             df_final[col] = df_final[col].fillna(0).astype(int)
+            
         data_processed = df_final.to_dict('records')
 
     try:
@@ -905,8 +929,20 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     if not df_final.empty:
         df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
         df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes']:
+        
+        # SUMA PURA DE PICOS MÁXIMOS (LÓGICA DEDICADA)
+        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
+        
+        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
+        
+        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
+        df_final = df_final.merge(suma_mes, on='Mes', how='left')
+
+        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
             df_final[col] = df_final[col].fillna(0).astype(int)
+            
         data_processed = df_final.to_dict('records')
 
     try:
