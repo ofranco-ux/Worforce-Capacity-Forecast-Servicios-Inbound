@@ -7,12 +7,10 @@
     <meta http-equiv="Pragma" content="no-cache"/>
     <meta http-equiv="Expires" content="0"/>
     <title>Workforce Capacity Forecast — C-Suite Analytics</title>
-    <!-- Tailwind CSS Oficial -->
-    <script src="https://tailwindcss.com"></script>
-    <!-- Chart.js -->
-    <script src="https://jsdelivr.net"></script>
-    <!-- Google Fonts -->
-    <link href="https://googleapis.com" rel="stylesheet">
+    <!-- Enlaces corregidos (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <script>
         tailwind.config = {
@@ -81,7 +79,7 @@
 
     <header class="flex justify-between items-center bg-[#111827] border border-[#1F2937] shadow-lg rounded-2xl p-6 mb-8 relative flex-wrap gap-4">
         <div class="flex items-center gap-5 z-10">
-            <svg class="h-12 w-12 flex-shrink-0 text-brand-accentCyan transition-transform hover:scale-110 duration-300 drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]" viewBox="0 0 200 200" fill="none" xmlns="http://w3.org">
+            <svg class="h-12 w-12 flex-shrink-0 text-brand-accentCyan transition-transform hover:scale-110 duration-300 drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="100" cy="100" r="85" stroke="#3B82F6" stroke-width="12" stroke-linecap="round" stroke-dasharray="350 150" transform="rotate(-45 100 100)"/>
                 <circle cx="100" cy="100" r="65" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-dasharray="150 250" transform="rotate(135 100 100)"/>
                 <circle cx="100" cy="75" r="16" fill="#3B82F6"/>
@@ -104,7 +102,7 @@
                         <button id="btnTabGeneral" onclick="setModeWFM('general')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">🌐 Consolidado</button>
                     </div>
 
-                    <span id="tagModoOps" class="text-[10px] bg-brand-primary/20 text-brand-primary border border-brand-primary/40 px-2.5 py-0.5 rounded-full font-mono font-bold uppercase tracking-wider drop-shadow-md ml-4">Vista Operaciones</span>
+                    <span id="tagModoOps" class="hidden text-[10px] bg-brand-primary/20 text-brand-primary border border-brand-primary/40 px-2.5 py-0.5 rounded-full font-mono font-bold uppercase tracking-wider drop-shadow-md ml-4">Vista Operaciones</span>
                 </div>
                 <p class="text-xs text-slate-400 mt-1 font-medium tracking-wide">Capacity Planning & Scheduling Optimizer</p>
             </div>
@@ -127,43 +125,1004 @@
                 <span class="text-brand-accentCyan">◀</span> Ocultar Parámetros
             </button>
 
-            <form id="wfmForm" class="space-y-5 pt-2 relative z-10">
-                <div class="flex items-center justify-between pb-2 border-b border-[#1F2937]">
-                    <h2 class="text-xs font-extrabold text-white uppercase tracking-widest flex items-center gap-2">
-                        <span>⚙️</span> KEY ASSUMPTIONS
-                    </h2>
-                </div>
-
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="flex flex-col group">
-                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Target SL (%)</label>
-                        <input type="number" name="target_sl" id="targetSl" value="80" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentEmerald focus:outline-none">
+            <div id="contParametrosSimulacion">
+                <form id="wfmForm" class="space-y-5 pt-2 relative z-10" onsubmit="event.preventDefault(); procesarWFM();">
+                    <div class="flex items-center justify-between pb-2 border-b border-[#1F2937]">
+                        <h2 class="text-xs font-extrabold text-white uppercase tracking-widest flex items-center gap-2">
+                            <span>⚙️</span> KEY ASSUMPTIONS
+                        </h2>
                     </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="flex flex-col group" id="contTargetSl">
+                            <label class="text-[11px] text-slate-400 font-medium mb-1.5">Target SL (%)</label>
+                            <input type="number" name="target_sl" id="targetSl" value="80" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentEmerald focus:outline-none" onchange="debouncedActualizarGrafica()">
+                        </div>
+                        <div class="flex flex-col group" id="contTargetTime">
+                            <label class="text-[11px] text-slate-400 font-medium mb-1.5">Target ASA (s)</label>
+                            <input type="number" name="target_time" id="targetTime" value="20" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentCyan focus:outline-none" onchange="debouncedActualizarGrafica()">
+                        </div>
+                        
+                        <div class="flex flex-col group hidden col-span-2" id="contConcurrencia">
+                            <label class="text-[11px] text-slate-400 font-medium mb-1.5">Concurrencia (Chats por Agente)</label>
+                            <input type="number" id="concurrencia" value="4" step="0.5" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentCyan focus:outline-none" onchange="debouncedActualizarGrafica()">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="flex flex-col group">
+                            <label class="text-[11px] text-slate-400 font-medium mb-1.5">Shrinkage (%)</label>
+                            <input type="number" name="merma" id="merma" value="30" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentRose focus:outline-none" onchange="guardarEstadoParametros(); debouncedActualizarGrafica()">
+                        </div>
+                        <div class="flex flex-col group">
+                            <label class="text-[11px] text-slate-400 font-medium mb-1.5">Jornada (Hrs)</label>
+                            <input type="number" name="jornada" id="jornada" value="8" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentAmber focus:outline-none" onchange="guardarEstadoParametros(); debouncedActualizarGrafica()">
+                        </div>
+                    </div>
+
                     <div class="flex flex-col group">
-                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Target ASA (s)</label>
-                        <input type="number" name="target_time" id="targetTime" value="20" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentCyan focus:outline-none">
+                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte (Días)</label>
+                        <input type="number" name="dias" id="dias" value="130" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentViolet focus:outline-none">
+                    </div>
+
+                    <div class="flex items-center justify-between p-3 bg-[#0B1121] border border-[#1F2937] rounded-xl cursor-pointer">
+                        <span class="text-xs text-slate-300 font-medium font-mono flex items-center gap-2"><span class="text-brand-accentAmber text-lg">🌙</span> Turno Nocturno</span>
+                        <input type="checkbox" id="chkNocturno" name="nocturno" class="w-4 h-4 rounded border-gray-700 bg-gray-900 text-blue-600 focus:ring-blue-500 cursor-pointer" onchange="guardarEstadoParametros(); debouncedActualizarGrafica()">
+                    </div>
+
+                    <button type="submit" id="btnProcesar" class="w-full bg-gradient-to-r from-[#3B82F6] to-[#22D3EE] hover:from-[#2563EB] hover:to-[#06B6D4] text-white font-extrabold py-4 px-4 rounded-[14px] text-[13px] transition-all shadow-[0_4px_15px_-3px_rgba(34,211,238,0.4)] hover:shadow-[0_8px_25px_-5px_rgba(34,211,238,0.6)] uppercase tracking-wider mt-4">
+                        ▶ RUN PLAN
+                    </button>
+                </form>
+            </div>
+
+            <div id="contInfoGeneral" class="hidden pt-6">
+                <div class="p-4 bg-brand-primary/10 border border-brand-primary/30 rounded-xl">
+                    <p class="text-[11px] text-brand-primary font-bold uppercase tracking-widest mb-2">Vista Consolidada Activa</p>
+                    <p class="text-[11px] text-slate-300 leading-relaxed">Visualizando Inbound, Outbound y Chat integrados.</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- DASHBOARD PRINCIPAL -->
+        <main id="dashboardMain" class="col-span-12 lg:col-span-9 space-y-6 transition-all duration-300">
+
+            <!-- FILTROS -->
+            <div class="glass-panel p-4 rounded-2xl flex justify-between items-center flex-wrap gap-4 relative z-50 overflow-visible border-[#1F2937]">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-brand-primary/20 text-brand-primary rounded-lg text-sm border border-brand-primary/30 flex items-center justify-center w-8 h-8">
+                        <span class="text-base">🎯</span>
+                    </div>
+                    <div>
+                        <p class="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Filtros Operativos</p>
+                        <p class="text-xs text-slate-200 font-medium">Selecciona campaña y fechas</p>
                     </div>
                 </div>
+                
+                <div class="flex items-center gap-3 flex-wrap">
+                    <button onclick="resetAllFilters()" class="text-xs text-brand-accentRose hover:text-white bg-brand-accentRose/10 px-3 py-2 rounded-lg border border-brand-accentRose/30 mr-2 font-bold font-mono transition-colors">
+                        🔄 Resetear
+                    </button>
 
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="flex flex-col group">
-                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Shrinkage (%)</label>
-                        <input type="number" name="merma" id="merma" value="30" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentRose focus:outline-none">
+                    <div class="flex flex-col relative group">
+                        <button id="btnDropdownMes" onclick="toggleDropdown('Mes')" class="bg-[#0B1121] border border-brand-accentAmber/50 hover:border-brand-accentAmber text-xs rounded-xl px-4 py-2.5 text-brand-accentAmber font-mono-num font-bold transition-all min-w-[120px] flex items-center justify-between gap-3">
+                            <span id="mesSelectedText">MES</span> <span class="text-[10px]">▼</span>
+                        </button>
+                        <div id="dropdownMesMenu" class="hidden absolute top-full left-0 mt-2 w-56 max-h-60 bg-[#111827] border border-brand-accentAmber/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
-                    <div class="flex flex-col group">
-                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Jornada (Hrs)</label>
-                        <input type="number" name="jornada" id="jornada" value="8" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentAmber focus:outline-none">
+
+                    <div class="flex flex-col relative group">
+                        <button id="btnDropdownSemana" onclick="toggleDropdown('Semana')" class="bg-[#0B1121] border border-brand-accentRose/50 hover:border-brand-accentRose text-xs rounded-xl px-4 py-2.5 text-brand-accentRose font-mono-num font-bold transition-all min-w-[160px] flex items-center justify-between gap-3">
+                            <span id="semanaSelectedText">SEM.</span> <span class="text-[10px]">▼</span>
+                        </button>
+                        <div id="dropdownSemanaMenu" class="hidden absolute top-full left-0 mt-2 w-72 max-h-60 bg-[#111827] border border-brand-accentRose/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
+                    </div>
+
+                    <div class="flex flex-col relative group">
+                        <button id="btnDropdownCampana" onclick="toggleDropdown('Campana')" class="bg-[#0B1121] border border-brand-accentViolet/50 hover:border-brand-accentViolet text-xs rounded-xl px-4 py-2.5 text-brand-accentViolet font-mono-num font-bold transition-all min-w-[140px] flex items-center justify-between gap-3">
+                            <span id="campanaSelectedText">CAMPAÑA</span> <span class="text-[10px]">▼</span>
+                        </button>
+                        <div id="dropdownCampanaMenu" class="hidden absolute top-full left-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentViolet/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
+                    </div>
+
+                    <div class="flex flex-col relative group">
+                        <button id="btnDropdownFecha" onclick="toggleDropdown('Fecha')" class="bg-[#0B1121] border border-brand-accentCyan/50 hover:border-brand-accentCyan text-xs rounded-xl px-4 py-2.5 text-brand-accentCyan font-mono-num font-bold transition-all min-w-[140px] flex items-center justify-between gap-3">
+                            <span id="fechaSelectedText">FECHA</span> <span class="text-[10px]">▼</span>
+                        </button>
+                        <div id="dropdownFechaMenu" class="hidden absolute top-full left-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentCyan/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
+                    </div>
+
+                    <div class="flex flex-col relative group">
+                        <button id="btnDropdownIntervalo" onclick="toggleDropdown('Intervalo')" class="bg-[#0B1121] border border-brand-accentEmerald/50 hover:border-brand-accentEmerald text-xs rounded-xl px-4 py-2.5 text-brand-accentEmerald font-mono-num font-bold transition-all min-w-[120px] flex items-center justify-between gap-3">
+                            <span id="intervaloSelectedText">HORA</span> <span class="text-[10px]">▼</span>
+                        </button>
+                        <div id="dropdownIntervaloMenu" class="hidden absolute top-full right-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentEmerald/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
                 </div>
+            </div>
 
-                <div class="flex flex-col group">
-                    <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte (Días)</label>
-                    <input type="number" name="dias" id="horizonte" value="130" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentViolet focus:outline-none">
+            <!-- CARDS KPI -->
+            <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-primary relative overflow-hidden flex flex-col justify-between">
+                    <div class="flex justify-between items-start relative z-10">
+                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Demanda (FCST)</p>
+                        <div class="p-1.5 bg-brand-primary/10 rounded-lg text-brand-primary border border-brand-primary/20 w-8 h-8 flex items-center justify-center">📞</div>
+                    </div>
+                    <p id="kpiCalls" class="text-3xl font-black font-mono-num text-white mt-2 relative z-10">0</p>
                 </div>
 
-                <div class="flex items-center justify-between p-3 bg-[#0B1121] border border-[#1F2937] rounded-xl">
-                    <span class="text-xs text-slate-300 font-medium font-mono">Turno Nocturno</span>
-                    <input type="checkbox" name="nocturno" class="w-4 h-4 rounded border-gray-700 bg-gray-900 text-blue-600 focus:ring-blue-500">
+                <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-accentCyan relative overflow-hidden flex flex-col justify-between">
+                    <div class="flex justify-between items-start relative z-10">
+                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">AHT Promedio</p>
+                        <div class="p-1.5 bg-brand-accentCyan/10 rounded-lg text-brand-accentCyan border border-brand-accentCyan/20 w-8 h-8 flex items-center justify-center">⏱</div>
+                    </div>
+                    <p id="kpiAht" class="text-3xl font-black font-mono-num text-brand-accentCyan mt-2 relative z-10">00:00:00</p>
                 </div>
 
+                <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-accentViolet relative overflow-hidden flex flex-col justify-between">
+                    <div class="flex justify-between items-start relative z-10">
+                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Nómina a Contratar</p>
+                        <div class="p-1.5 bg-brand-accentViolet/10 rounded-lg text-brand-accentViolet border border-brand-accentViolet/20 w-8 h-8 flex items-center justify-center">👥</div>
+                    </div>
+                    <p id="kpiHcRequerido" class="text-3xl font-black font-mono-num text-brand-accentViolet mt-2 relative z-10">0 HC</p>
+                </div>
 
+                <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-accentEmerald relative overflow-hidden flex flex-col justify-between">
+                    <div class="flex justify-between items-start relative z-10">
+                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">HC Actual (Roster)</p>
+                        <div class="p-1.5 bg-brand-accentEmerald/10 rounded-lg text-brand-accentEmerald border border-brand-accentEmerald/20 w-8 h-8 flex items-center justify-center">🏢</div>
+                    </div>
+                    <div class="flex items-center gap-3 mt-2 relative z-10">
+                        <p id="kpiHcRoster" class="text-3xl font-black font-mono-num text-brand-accentEmerald">0 HC</p>
+                        <p id="kpiHcGap" class="text-[11px] font-bold px-2.5 py-1 rounded bg-[#1E293B] border border-[#334155] text-slate-300 font-mono-num shadow-inner">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GRÁFICAS Y TABLAS -->
+            <div class="glass-panel p-6 rounded-2xl border-t-2 border-t-brand-accentAmber shadow-[0_4px_15px_-5px_rgba(251,191,36,0.15)] relative overflow-hidden">
+                <div class="flex justify-between items-center mb-6 relative z-10">
+                    <h3 class="text-[15px] font-extrabold text-white flex items-center gap-2 tracking-wide">
+                        <span class="text-brand-accentAmber drop-shadow-[0_0_5px_rgba(251,191,36,0.6)]">📊</span> Demand vs. Capacity
+                    </h3>
+                    <button onclick="exportarCSV()" class="bg-[#1E293B] hover:bg-brand-accentAmber/20 text-slate-200 hover:text-brand-accentAmber border border-[#334155] hover:border-brand-accentAmber/50 text-xs py-2 px-4 rounded-lg transition-all duration-200 font-bold shadow-md">
+                        📥 Export CSV
+                    </button>
+                </div>
+                
+                <div class="h-64 mb-6 relative bg-[#0F172A] p-2 rounded-xl border border-[#1F2937] shadow-inner" id="contGapChart">
+                    <canvas id="gapChart"></canvas>
+                </div>
+
+                <div class="h-64 mb-6 relative bg-[#0F172A] p-4 rounded-xl border border-[#1F2937] shadow-inner hidden" id="contGeneralChart">
+                    <canvas id="generalChart"></canvas>
+                </div>
+
+                <div class="overflow-x-auto max-h-80 border border-[#1F2937] rounded-xl bg-[#0F172A] shadow-inner">
+                    <table class="w-full text-left text-xs text-slate-300">
+                        <thead class="bg-[#111827] text-slate-400 font-bold text-[10px] uppercase tracking-wider sticky top-0 border-b border-[#334155] z-10 shadow-sm" id="tableHeaderContainer">
+                            <tr id="tableHeaderRow">
+                                <th class="py-3.5 px-4">Intervalo</th>
+                                <th class="py-3.5 px-4" id="colHeaderCalls">Llamadas (FCST)</th>
+                                <th class="py-3.5 px-4">AHT (HH:MM:SS)</th>
+                                <th class="py-3.5 px-4 text-brand-accentCyan">HC Requerido</th>
+                                <th class="py-3.5 px-4 text-brand-accentEmerald">HC Actual</th>
+                                <th class="py-3.5 px-4 text-center">Gap</th>
+                            </tr>
+                        </thead>
+                        <tbody id="intervalTableBody" class="divide-y divide-[#1F2937] font-mono-num text-[11px]">
+                            <tr><td colspan="6" class="text-center py-8 text-slate-500 font-medium font-sans">Cargue datos...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // Funciones Matemáticas Nativas (Erlang C en JS)
+        function erlang_c_sl_optimizado(A, N, AHT, target_time) {
+            if (N <= A || A <= 0 || N <= 0) return 0.0;
+            let sum_terms = 1.0;
+            let current_term = 1.0;
+            let int_N = Math.min(Math.floor(N), 1000);
+            for (let k = 1; k < int_N; k++) {
+                current_term *= (A / k);
+                sum_terms += current_term;
+            }
+            let last_term = current_term * (A / N) / (1.0 - (A / N));
+            let pw = last_term / (sum_terms + last_term);
+            let intensity = N - A;
+            let sl = 1.0 - (pw * Math.exp(-intensity * (target_time / AHT)));
+            return Math.max(0.0, Math.min(100.0, sl * 100.0));
+        }
+
+        function calcular_agentes_requeridos_erlang_c_js(A, aht, target_time, target_sl) {
+            if (A <= 0 || aht <= 0) return 0;
+            let n = Math.max(1, Math.floor(A) + 1);
+            if (A > 50) n = Math.max(n, Math.floor(A + Math.sqrt(A)));
+            while (n < 3000) {
+                if (erlang_c_sl_optimizado(A, n, aht, target_time) >= target_sl) return n;
+                n++;
+            }
+            return n;
+        }
+
+        let globalData = [];
+        let gapChartInstance = null; 
+        let generalChartInstance = null;
+        
+        let allMesesOptions = [];
+        let allSemanasOptions = [];
+        let allCampanasOptions = [];
+        let allFechasOptions = [];
+        let allIntervalosOptions = [];
+
+        let selectedMeses = new Set();
+        let selectedSemanas = new Set(); 
+        let selectedCampanas = new Set();
+        let selectedFechas = new Set();
+        let selectedIntervalos = new Set();
+
+        let debounceTimer;
+        let currentMode = 'wfm';
+        let forecastMode = 'inbound';
+        let isSidebarVisible = true; 
+
+        function getProp(row, keys, def = '') {
+            for (let k of keys) {
+                if (row[k] !== undefined && row[k] !== null) return row[k];
+            }
+            return def;
+        }
+
+        function formatAHT(seconds) {
+            if (!seconds || seconds <= 0) return "00:00:00";
+            const secs = Math.round(seconds);
+            const hrs = Math.floor(secs / 3600);
+            const mins = Math.floor((secs % 3600) / 60);
+            const remainderSecs = secs % 60;
+            return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(remainderSecs).padStart(2, '0')}`;
+        }
+
+        function getWeekNumber(dateStr) {
+            if (!dateStr) return '';
+            const cleanDate = dateStr.split(' ')[0].split('T')[0];
+            const parts = cleanDate.split('-');
+            if (parts.length !== 3) return '';
+            const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+            const dayNum = d.getUTCDay() || 7; 
+            const startOfWeek = new Date(d);
+            startOfWeek.setUTCDate(d.getUTCDate() - dayNum + 1);
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 6);
+
+            const formatDt = (date) => {
+                const yyyy = date.getUTCFullYear();
+                const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+                const dd = String(date.getUTCDate()).padStart(2, '0');
+                return `${yyyy}/${mm}/${dd}`;
+            };
+            return `W${formatDt(startOfWeek)} - ${formatDt(endOfWeek)}`;
+        }
+
+        const mesesMap = {
+            "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+            "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12
+        };
+
+        function ordenarMesesCronologicamente(a, b) {
+            const partsA = a.toLowerCase().trim().split(' ');
+            const partsB = b.toLowerCase().trim().split(' ');
+            const mesA = partsA[0];
+            const anoA = partsA[1] ? parseInt(partsA[1]) : 0;
+            const mesB = partsB[0];
+            const anoB = partsB[1] ? parseInt(partsB[1]) : 0;
+            if (anoA !== anoB) return anoA - anoB;
+            return (mesesMap[mesA] || 0) - (mesesMap[mesB] || 0);
+        }
+
+        function setModeWFM(mode) {
+            if (forecastMode === mode) return; 
+            forecastMode = mode;
+            
+            const btnIn = document.getElementById('btnTabInbound');
+            const btnOut = document.getElementById('btnTabOutbound');
+            const btnChat = document.getElementById('btnTabChat');
+            const btnGen = document.getElementById('btnTabGeneral');
+
+            const inactiveClass = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200";
+            btnIn.className = inactiveClass;
+            btnOut.className = inactiveClass;
+            btnChat.className = inactiveClass;
+            btnGen.className = inactiveClass;
+
+            const contParametros = document.getElementById('wfmForm');
+            const contInfoGen = document.getElementById('contInfoGeneral');
+
+            if(mode === 'general') {
+                btnGen.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-[#070B14] shadow-md";
+                contParametros.style.display = 'none';
+                contInfoGen.style.display = 'block';
+            } else {
+                contParametros.style.display = 'block';
+                contInfoGen.style.display = 'none';
+
+                if(mode === 'inbound') {
+                    btnIn.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-primary text-white shadow-md";
+                    document.getElementById('contTargetSl').style.display = 'block';
+                    document.getElementById('contTargetTime').style.display = 'block';
+                    document.getElementById('contConcurrencia').classList.add('hidden');
+                } else if (mode === 'outbound') {
+                    btnOut.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-accentViolet text-white shadow-md";
+                    document.getElementById('contTargetSl').style.display = 'none';
+                    document.getElementById('contTargetTime').style.display = 'none';
+                    document.getElementById('contConcurrencia').classList.add('hidden');
+                } else if (mode === 'chat') {
+                    btnChat.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-accentCyan text-[#0B1121] shadow-md";
+                    document.getElementById('contTargetSl').style.display = 'block';
+                    document.getElementById('contTargetTime').style.display = 'block';
+                    document.getElementById('contConcurrencia').classList.remove('hidden');
+                }
+            }
+            fetchLatestData(mode);
+        }
+
+        function switchMode(mode) {
+            currentMode = mode;
+            const aside = document.getElementById('panelControl');
+            const main = document.getElementById('dashboardMain');
+            const tag = document.getElementById('tagModoOps');
+            const containerShow = document.getElementById('containerShowSidebar');
+
+            if (mode === 'ops' || mode === 'operaciones') {
+                if (aside) aside.style.display = 'none';
+                if (containerShow) containerShow.classList.add('hidden'); 
+                if (main) {
+                    main.classList.remove('lg:col-span-9');
+                    main.classList.add('lg:col-span-12');
+                }
+                if (tag) tag.classList.remove('hidden');
+            } else {
+                if (tag) tag.classList.add('hidden');
+                if (isSidebarVisible) {
+                    if (aside) aside.style.display = 'block';
+                    if (containerShow) containerShow.classList.add('hidden');
+                    if (main) {
+                        main.classList.remove('lg:col-span-12');
+                        main.classList.add('lg:col-span-9');
+                    }
+                }
+            }
+            setTimeout(() => { if (gapChartInstance) gapChartInstance.resize(); }, 100);
+        }
+
+        function toggleSidebar() {
+            const aside = document.getElementById('panelControl');
+            const main = document.getElementById('dashboardMain');
+            const containerShow = document.getElementById('containerShowSidebar');
+
+            if (isSidebarVisible) {
+                if (aside) aside.style.display = 'none';
+                if (main) {
+                    main.classList.remove('lg:col-span-9');
+                    main.classList.add('lg:col-span-12');
+                }
+                if (containerShow && currentMode !== 'ops' && currentMode !== 'operaciones') {
+                    containerShow.classList.remove('hidden');
+                }
+                isSidebarVisible = false;
+            } else {
+                if (aside) aside.style.display = 'block';
+                if (main) {
+                    main.classList.remove('lg:col-span-12');
+                    main.classList.add('lg:col-span-9');
+                }
+                if (containerShow) containerShow.classList.add('hidden');
+                isSidebarVisible = true;
+            }
+            setTimeout(() => { if (gapChartInstance) gapChartInstance.resize(); }, 150);
+        }
+
+        async function fetchLatestData(mode) {
+            try {
+                if (mode === 'general') {
+                    const [inRes, outRes, chatRes] = await Promise.all([
+                        fetch('/api/latest?mode=inbound&t=' + new Date().getTime()),
+                        fetch('/api/latest?mode=outbound&t=' + new Date().getTime()),
+                        fetch('/api/latest?mode=chat&t=' + new Date().getTime())
+                    ]);
+                    const inData = inRes.ok ? await inRes.json() : [];
+                    const outData = outRes.ok ? await outRes.json() : [];
+                    const chatData = chatRes.ok ? await chatRes.json() : [];
+                    
+                    globalData = [
+                        ...inData.map(d => ({...d, Canal: 'Inbound'})), 
+                        ...outData.map(d => ({...d, Canal: 'Outbound'})), 
+                        ...chatData.map(d => ({...d, Canal: 'Chat'}))
+                    ];
+                } else {
+                    const response = await fetch('/api/latest?mode=' + mode + '&t=' + new Date().getTime());
+                    if (response.ok) {
+                        const data = await response.json();
+                        const canalName = mode === 'inbound' ? 'Inbound' : (mode === 'outbound' ? 'Outbound' : 'Chat');
+                        globalData = data.map(d => ({...d, Canal: canalName}));
+                    }
+                }
+
+                if (globalData && globalData.length > 0) {
+                    inicializarFiltrosMultiples();
+                    applySavedFilters(); 
+                    debouncedActualizarGrafica();
+                } else {
+                    limpiarPantalla();
+                }
+            } catch (e) {
+                console.log("Error cargando pronóstico automático.");
+            }
+        }
+
+        async function procesarWFM() {
+            const btn = document.getElementById('btnProcesar');
+            btn.disabled = true;
+            btn.innerText = "⏳ RECALCULANDO...";
+            
+            const formData = new FormData();
+            
+            if (forecastMode === 'inbound' || forecastMode === 'chat') {
+                formData.append('target_sl', document.getElementById('targetSl').value);
+                formData.append('target_time', document.getElementById('targetTime').value);
+            }
+            if (forecastMode === 'chat') {
+                formData.append('concurrencia', document.getElementById('concurrencia').value);
+            }
+            formData.append('dias', document.getElementById('dias') ? document.getElementById('dias').value : 45);
+            formData.append('merma', document.getElementById('merma') ? document.getElementById('merma').value : 30);
+            
+            let url = '/api/process';
+            if (forecastMode === 'outbound') url = '/api/process_outbound';
+            if (forecastMode === 'chat') url = '/api/process_chat';
+
+            try {
+                const response = await fetch(url, { method: 'POST', body: formData });
+                globalData = await response.json();
+                
+                if (response.ok && Array.isArray(globalData)) {
+                    inicializarFiltrosMultiples();
+                    debouncedActualizarGrafica();
+                    guardarEstadoParametros();
+                } else {
+                    alert("Error en Servidor Python: " + (globalData.error || "Asegúrate de que 'historico.xlsx' esté cargado."));
+                }
+            } catch (e) {
+                alert("Error de conexión con el Servidor: " + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "▶ RUN PLAN";
+            }
+        }
+
+        function limpiarPantalla() {
+            document.getElementById('kpiCalls').innerText = "0";
+            document.getElementById('kpiAht').innerText = "00:00:00";
+            document.getElementById('kpiHcRequerido').innerText = "0 HC";
+            document.getElementById('kpiHcRoster').innerText = "0 HC";
+            document.getElementById('intervalTableBody').innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-500 font-medium">Sin datos. Presiona RUN PLAN.</td></tr>`;
+            if(gapChartInstance) gapChartInstance.destroy();
+        }
+
+        function inicializarFiltrosMultiples() {
+            allMesesOptions = [...new Set(globalData.map(i => String(getProp(i, ['Mes'], ''))))].filter(Boolean).sort(ordenarMesesCronologicamente);
+            allSemanasOptions = [...new Set(globalData.map(i => getWeekNumber(getProp(i, ['Fecha'], ''))))].filter(Boolean).sort();
+            allCampanasOptions = [...new Set(globalData.map(i => String(getProp(i, ['Campaña', 'Campana'], 'General'))))].filter(Boolean).sort();
+            allFechasOptions = [...new Set(globalData.map(i => String(getProp(i, ['Fecha'], '')).split(' ')[0].split('T')[0]))].filter(Boolean).sort();
+            allIntervalosOptions = [...new Set(globalData.map(i => String(getProp(i, ['Intervalo'], '00:00'))))].filter(Boolean).sort();
+
+            selectedMeses = new Set(allMesesOptions);
+            selectedSemanas = new Set(allSemanasOptions);
+            selectedCampanas = new Set(allCampanasOptions);
+            selectedFechas = new Set(allFechasOptions);
+            selectedIntervalos = new Set(allIntervalosOptions);
+
+            renderMenuOptions('Mes', allMesesOptions, selectedMeses);
+            renderMenuOptions('Semana', allSemanasOptions, selectedSemanas);
+            renderMenuOptions('Campana', allCampanasOptions, selectedCampanas);
+            renderMenuOptions('Fecha', allFechasOptions, selectedFechas);
+            renderMenuOptions('Intervalo', allIntervalosOptions, selectedIntervalos);
+            
+            actualizarTextosBotones();
+        }
+
+        function renderMenuOptions(type, optionsToRender, setRef) {
+            const menu = document.getElementById(`dropdown${type}Menu`);
+            if (!menu) return;
+            menu.innerHTML = '';
+            
+            const headerDiv = document.createElement('div');
+            let checkboxHex = type === 'Mes' ? '#FBBF24' : type === 'Semana' ? '#FB7185' : type === 'Campana' ? '#A78BFA' : type === 'Fecha' ? '#22D3EE' : '#34D399';
+
+            headerDiv.className = 'flex items-center justify-between p-2 pb-3 mb-1 border-b border-[#334155] text-[11px] font-bold tracking-wider';
+            headerDiv.innerHTML = `
+                <button type="button" onclick="selectAllFilter('${type}', true)" class="text-brand-accentCyan hover:text-white transition-colors">Todos</button>
+                <button type="button" onclick="selectAllFilter('${type}', false)" class="text-brand-accentRose hover:text-white transition-colors">Ninguno</button>
+            `;
+            menu.appendChild(headerDiv);
+            
+            optionsToRender.forEach(opt => {
+                const label = document.createElement('label');
+                label.className = `flex items-center gap-3 p-2 hover:bg-[#1E293B] rounded-lg cursor-pointer transition-colors`;
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.checked = setRef.has(opt);
+                input.className = 'w-4 h-4 cursor-pointer';
+                input.style.accentColor = checkboxHex; 
+                
+                input.addEventListener('change', (e) => {
+                    if (e.target.checked) setRef.add(opt); 
+                    else setRef.delete(opt);
+                    actualizarTextosBotones();
+                    debouncedActualizarGrafica();
+                });
+
+                const span = document.createElement('span');
+                span.className = 'truncate text-slate-200 font-medium text-[13px]';
+                span.innerText = opt;
+
+                label.appendChild(input);
+                label.appendChild(span);
+                menu.appendChild(label);
+            });
+        }
+
+        function selectAllFilter(type, selectAll) {
+            let setRef;
+            let currentOptions = [];
+            if (type === 'Mes') { setRef = selectedMeses; currentOptions = allMesesOptions; }
+            else if (type === 'Semana') { setRef = selectedSemanas; currentOptions = allSemanasOptions; }
+            else if (type === 'Campana') { setRef = selectedCampanas; currentOptions = allCampanasOptions; }
+            else if (type === 'Fecha') { setRef = selectedFechas; currentOptions = allFechasOptions; }
+            else if (type === 'Intervalo') { setRef = selectedIntervalos; currentOptions = allIntervalosOptions; }
+            
+            if (selectAll) currentOptions.forEach(o => setRef.add(o));
+            else setRef.clear();
+            
+            renderMenuOptions(type, currentOptions, setRef);
+            actualizarTextosBotones();
+            debouncedActualizarGrafica();
+        }
+
+        function resetAllFilters() {
+            selectedMeses = new Set(allMesesOptions);
+            selectedSemanas = new Set(allSemanasOptions);
+            selectedCampanas = new Set(allCampanasOptions);
+            selectedFechas = new Set(allFechasOptions);
+            selectedIntervalos = new Set(allIntervalosOptions);
+
+            renderMenuOptions('Mes', allMesesOptions, selectedMeses);
+            renderMenuOptions('Semana', allSemanasOptions, selectedSemanas);
+            renderMenuOptions('Campana', allCampanasOptions, selectedCampanas);
+            renderMenuOptions('Fecha', allFechasOptions, selectedFechas);
+            renderMenuOptions('Intervalo', allIntervalosOptions, selectedIntervalos);
+            
+            actualizarTextosBotones();
+            debouncedActualizarGrafica();
+        }
+
+        function toggleDropdown(type) {
+            ['Mes', 'Semana', 'Campana', 'Fecha', 'Intervalo'].forEach(t => {
+                if (t !== type) {
+                    const menu = document.getElementById(`dropdown${t}Menu`);
+                    if (menu) menu.classList.add('hidden');
+                }
+            });
+            const selectedMenu = document.getElementById(`dropdown${type}Menu`);
+            if (selectedMenu) selectedMenu.classList.toggle('hidden');
+        }
+
+        window.addEventListener('click', function(e) {
+            ['Mes', 'Semana', 'Campana', 'Fecha', 'Intervalo'].forEach(type => {
+                const btn = document.getElementById(`btnDropdown${type}`);
+                const menu = document.getElementById(`dropdown${type}Menu`);
+                if (btn && menu && !btn.contains(e.target) && !menu.contains(e.target)) {
+                    menu.classList.add('hidden');
+                }
+            });
+        });
+
+        function actualizarTextosBotones() {
+            const btnMes = document.getElementById('mesSelectedText');
+            if (btnMes) btnMes.innerText = `MES (${selectedMeses.size})`;
+            const btnSem = document.getElementById('semanaSelectedText');
+            if (btnSem) btnSem.innerText = `SEM. (${selectedSemanas.size})`;
+            document.getElementById('campanaSelectedText').innerText = `CAMPAÑA (${selectedCampanas.size})`;
+            document.getElementById('fechaSelectedText').innerText = `FECHA (${selectedFechas.size})`;
+            document.getElementById('intervaloSelectedText').innerText = `HORA (${selectedIntervalos.size})`;
+        }
+
+        function guardarEstadoParametros() {
+            if (forecastMode !== 'general' && currentMode !== 'ops' && currentMode !== 'operaciones') {
+                const config = {
+                    targetSl: document.getElementById('targetSl').value,
+                    targetTime: document.getElementById('targetTime').value,
+                    merma: document.getElementById('merma').value,
+                    opsView: {
+                        tab: forecastMode,
+                        meses: Array.from(selectedMeses),
+                        semanas: Array.from(selectedSemanas),
+                        campanas: Array.from(selectedCampanas),
+                        fechas: Array.from(selectedFechas),
+                        intervalos: Array.from(selectedIntervalos)
+                    }
+                };
+                fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) }).catch(()=>{});
+            }
+        }
+
+        function applySavedFilters() {
+            if (window.savedFilters && (currentMode === 'ops' || currentMode === 'operaciones')) {
+                const f = window.savedFilters;
+                if (f.meses && f.meses.length > 0) selectedMeses = new Set(f.meses.filter(x => allMesesOptions.includes(x)));
+                if (f.semanas && f.semanas.length > 0) selectedSemanas = new Set(f.semanas.filter(x => allSemanasOptions.includes(x)));
+                if (f.campanas && f.campanas.length > 0) selectedCampanas = new Set(f.campanas.filter(x => allCampanasOptions.includes(x)));
+                if (f.fechas && f.fechas.length > 0) selectedFechas = new Set(f.fechas.filter(x => allFechasOptions.includes(x)));
+                if (f.intervalos && f.intervalos.length > 0) selectedIntervalos = new Set(f.intervalos.filter(x => allIntervalosOptions.includes(x)));
+                
+                renderMenuOptions('Mes', allMesesOptions, selectedMeses);
+                renderMenuOptions('Semana', allSemanasOptions, selectedSemanas);
+                renderMenuOptions('Campana', allCampanasOptions, selectedCampanas);
+                renderMenuOptions('Fecha', allFechasOptions, selectedFechas);
+                renderMenuOptions('Intervalo', allIntervalosOptions, selectedIntervalos);
+                actualizarTextosBotones();
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const mode = urlParams.get('mode') || urlParams.get('role') || 'wfm';
+            switchMode(mode);
+
+            try {
+                const response = await fetch('/api/config?t=' + new Date().getTime());
+                if (response.ok) {
+                    const config = await response.json();
+                    if(config.targetSl) document.getElementById('targetSl').value = config.targetSl;
+                    if(config.targetTime) document.getElementById('targetTime').value = config.targetTime;
+                    if(config.merma) document.getElementById('merma').value = config.merma;
+                    if (config.opsView) window.savedFilters = config.opsView;
+                }
+            } catch (e) {}
+
+            if ((mode === 'ops' || mode === 'operaciones') && window.savedFilters) {
+                if (forecastMode !== window.savedFilters.tab) {
+                    setModeWFM(window.savedFilters.tab);
+                    return; 
+                }
+            }
+            fetchLatestData(forecastMode);
+        });
+
+        function debouncedActualizarGrafica() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => { actualizarGrafica(); }, 50); 
+        }
+
+        async function actualizarGrafica() {
+            const durJornada = parseFloat(document.getElementById('jornada') ? document.getElementById('jornada').value : 8) || 8;
+            const usarNocturnoActual = document.getElementById('chkNocturno') ? document.getElementById('chkNocturno').checked : false;
+            const targetSlObj = parseFloat(document.getElementById('targetSl') ? document.getElementById('targetSl').value : 80) || 80;
+            const targetTimeObj = parseFloat(document.getElementById('targetTime') ? document.getElementById('targetTime').value : 20) || 20;
+            const concurrenciaVal = parseFloat(document.getElementById('concurrencia') ? document.getElementById('concurrencia').value : 4) || 4;
+
+            const dfFiltered = [];
+            for (let i = 0; i < globalData.length; i++) {
+                let item = globalData[i];
+                let m = String(getProp(item, ['Mes'], ''));
+                let s = getWeekNumber(getProp(item, ['Fecha'], ''));
+                let c = String(getProp(item, ['Campaña', 'Campana'], 'General'));
+                let f = String(getProp(item, ['Fecha'], '')).split(' ')[0].split('T')[0];
+                let inv = String(getProp(item, ['Intervalo'], '00:00'));
+
+                if (selectedMeses.has(m) && selectedSemanas.has(s) && selectedCampanas.has(c) && selectedFechas.has(f) && selectedIntervalos.has(inv)) {
+                    dfFiltered.push(item);
+                }
+            }
+
+            if (!dfFiltered || dfFiltered.length === 0) {
+                limpiarPantalla();
+                return;
+            }
+
+            let aggInter = {};
+            let fechasSet = new Set();
+            let totalCallsGlobal = 0;
+            let totalHTGlobal = 0;
+
+            for (let i = 0; i < dfFiltered.length; i++) {
+                let r = dfFiltered[i];
+                let c = String(getProp(r, ['Campaña', 'Campana'], 'General'));
+                let inv = String(getProp(r, ['Intervalo'], '00:00'));
+                let d = String(getProp(r, ['Fecha'], '')).split(' ')[0].split('T')[0];
+                
+                let calls = Number(getProp(r, ['Llamadas', 'Recibidas', 'Recibidos'], 0)) || 0;
+                let aht = Number(getProp(r, ['AHT_Segundos'], 180)) || 180;
+                let rosInter = Number(getProp(r, ['HC_Actual_Roster'], 0)) || 0;
+
+                fechasSet.add(d);
+                totalCallsGlobal += calls;
+                totalHTGlobal += (calls * aht);
+
+                if (!aggInter[inv]) aggInter[inv] = { calls: 0, ht: 0, req: 0, rosSet: new Set(), rosSum: 0, silos: {} };
+                aggInter[inv].calls += calls;
+                aggInter[inv].ht += (calls * aht);
+                
+                let rosKey = c + '|' + d;
+                if (!aggInter[inv].rosSet.has(rosKey)) {
+                    aggInter[inv].rosSet.add(rosKey);
+                    aggInter[inv].rosSum += rosInter;
+                }
+
+                if (!aggInter[inv].silos[c]) aggInter[inv].silos[c] = {};
+                if (!aggInter[inv].silos[c][d]) aggInter[inv].silos[c][d] = {calls: 0, ht: 0};
+                
+                aggInter[inv].silos[c][d].calls += calls;
+                aggInter[inv].silos[c][d].ht += (calls * aht);
+            }
+
+            document.getElementById('kpiCalls').innerText = totalCallsGlobal.toLocaleString();
+            document.getElementById('kpiAht').innerText = formatAHT(totalCallsGlobal > 0 ? Math.round(totalHTGlobal / totalCallsGlobal) : 0);
+
+            const numDias = fechasSet.size || 1;
+            const todosIntervalos = Object.keys(aggInter).sort();
+
+            if (forecastMode === 'general') {
+                let aggGen = { 'Inbound': {}, 'Outbound': {}, 'Chat': {} };
+                ['Inbound', 'Outbound', 'Chat'].forEach(ch => {
+                    todosIntervalos.forEach(inv => { aggGen[ch][inv] = { silos: {} }; });
+                });
+
+                for (let i = 0; i < dfFiltered.length; i++) {
+                    let r = dfFiltered[i];
+                    let ch = r.Canal || 'Inbound';
+                    let c = String(getProp(r, ['Campaña', 'Campana'], 'General'));
+                    let inv = String(getProp(r, ['Intervalo'], '00:00'));
+                    let d = String(getProp(r, ['Fecha'], '')).split(' ')[0].split('T')[0];
+                    let calls = Number(getProp(r, ['Llamadas', 'Recibidas', 'Recibidos'], 0)) || 0;
+                    let aht = Number(getProp(r, ['AHT_Segundos'], 180)) || 180;
+                    
+                    if (!aggGen[ch][inv].silos[c]) aggGen[ch][inv].silos[c] = {};
+                    if (!aggGen[ch][inv].silos[c][d]) aggGen[ch][inv].silos[c][d] = {calls: 0, ht: 0};
+                    aggGen[ch][inv].silos[c][d].calls += calls;
+                    aggGen[ch][inv].silos[c][d].ht += (calls * aht);
+                }
+
+                const factorDescanso = usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0);
+                const mermaValLocal = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
+                const factorAsistencia = Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
+
+                let hcReqDict = { 'Inbound': 0, 'Outbound': 0, 'Chat': 0 };
+                let hcDispDict = { 'Inbound': 0, 'Outbound': 0, 'Chat': 0 };
+
+                ['Inbound', 'Outbound', 'Chat'].forEach(ch => {
+                    let canalFechas = new Set(dfFiltered.filter(r => r.Canal === ch).map(r => String(getProp(r, ['Fecha'], '')).split(' ')[0]));
+                    let nDiasCanal = canalFechas.size || 1;
+                    
+                    let totalFteIntervals = 0;
+                    todosIntervalos.forEach(inv => {
+                        let invData = aggGen[ch][inv];
+                        let interReqSum = 0;
+                        if(invData) {
+                            for(let c in invData.silos) {
+                                let campData = invData.silos[c];
+                                for(let d in campData) {
+                                    let callsD = campData[d].calls;
+                                    let avgAhtD = callsD > 0 ? campData[d].ht / callsD : 180;
+                                    let aht_efectivo = ch === 'Chat' ? avgAhtD / Math.max(1.0, concurrenciaVal) : avgAhtD;
+                                    if(callsD >= 0.05) {
+                                        let a_erlang = (callsD * aht_efectivo) / 1800.0;
+                                        interReqSum += calcular_agentes_requeridos_erlang_c_js(a_erlang, aht_efectivo, targetTimeObj, targetSlObj);
+                                    }
+                                }
+                            }
+                        }
+                        totalFteIntervals += (interReqSum / nDiasCanal);
+                    });
+                    
+                    hcReqDict[ch] = Math.ceil((((totalFteIntervals * 0.5) / durJornada) * factorDescanso) / factorAsistencia);
+                    
+                    let disp = 0;
+                    let rosterPorCampanaGeneral = {};
+                    dfFiltered.forEach(r => {
+                        if (r.Canal === ch) {
+                            let camp = String(getProp(r, ['Campaña', 'Campana'], 'General'));
+                            let max_val = Math.max(Number(getProp(r, ['Total_Roster_Campana'], 0)), Number(getProp(r, ['Total_Roster_Dia'], 0)), Number(getProp(r, ['HC_Actual_Roster'], 0)));
+                            if (!rosterPorCampanaGeneral[camp] || max_val > rosterPorCampanaGeneral[camp]) rosterPorCampanaGeneral[camp] = max_val;
+                        }
+                    });
+                    new Set(dfFiltered.filter(r => r.Canal === ch).map(r => String(getProp(r, ['Campaña', 'Campana'], 'General')))).forEach(camp => {
+                         if(rosterPorCampanaGeneral[camp]) disp += rosterPorCampanaGeneral[camp];
+                    });
+                    hcDispDict[ch] = disp;
+                });
+
+                const totalReqGlobal = hcReqDict['Inbound'] + hcReqDict['Outbound'] + hcReqDict['Chat'];
+                const totalDispGlobal = hcDispDict['Inbound'] + hcDispDict['Outbound'] + hcDispDict['Chat'];
+
+                document.getElementById('kpiHcRequerido').innerText = totalReqGlobal.toLocaleString() + ' HC';
+                document.getElementById('kpiHcRoster').innerText = totalDispGlobal.toLocaleString() + ' HC';
+
+                const gapTotal = totalDispGlobal - totalReqGlobal;
+                const gapEl = document.getElementById('kpiHcGap');
+                if (gapTotal > 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#34D399]/20 text-[#34D399]', gapEl.innerText = `+${gapTotal}`;
+                else if (gapTotal < 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#FB7185]/20 text-[#FB7185]', gapEl.innerText = `${gapTotal}`;
+                else gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#1E293B] text-slate-300', gapEl.innerText = `0`;
+
+                document.getElementById('tableHeaderRow').innerHTML = `
+                    <th class="py-3.5 px-4 text-left">Canal Operativo</th>
+                    <th class="py-3.5 px-4 text-brand-primary">Nómina a Contratar</th>
+                    <th class="py-3.5 px-4 text-brand-accentEmerald">Nómina Roster</th>
+                    <th class="py-3.5 px-4 text-center">Delta (Gap)</th>
+                `;
+
+                const tbody = document.getElementById('intervalTableBody');
+                tbody.innerHTML = '';
+                [
+                    { name: '🎯 Inbound', req: hcReqDict['Inbound'], disp: hcDispDict['Inbound'] },
+                    { name: '🚀 Outbound', req: hcReqDict['Outbound'], disp: hcDispDict['Outbound'] },
+                    { name: '💬 Chat', req: hcReqDict['Chat'], disp: hcDispDict['Chat'] },
+                    { name: '🌐 TOTAL', req: totalReqGlobal, disp: totalDispGlobal }
+                ].forEach(ch => {
+                    const gap = ch.disp - ch.req;
+                    let gapHtml = gap > 0 ? `<span class="bg-[#34D399]/20 text-[#34D399] px-2 py-0.5 rounded-md font-bold">+${gap}</span>` : gap < 0 ? `<span class="bg-[#FB7185]/20 text-[#FB7185] px-2 py-0.5 rounded-md font-bold">${gap}</span>` : `<span class="text-slate-500 font-bold">0</span>`;
+                    let rowClass = ch.name === '🌐 TOTAL' ? "bg-[#1E293B] font-bold border-t border-[#334155]" : "hover:bg-[#1E293B] transition-colors";
+                    tbody.innerHTML += `<tr class="${rowClass}"><td class="py-3.5 px-4 font-bold text-white">${ch.name}</td><td class="py-3.5 px-4 text-brand-primary font-black">${ch.req}</td><td class="py-3.5 px-4 text-brand-accentEmerald font-black">${ch.disp}</td><td class="py-3.5 px-4 text-center">${gapHtml}</td></tr>`;
+                });
+
+                document.getElementById('contGapChart').classList.add('hidden');
+                document.getElementById('contGeneralChart').classList.remove('hidden');
+
+                if(generalChartInstance) generalChartInstance.destroy();
+                generalChartInstance = new Chart(document.getElementById('generalChart').getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['Inbound', 'Outbound', 'Chat'],
+                        datasets: [
+                            { label: 'HC Requerido', data: [hcReqDict['Inbound'], hcReqDict['Outbound'], hcReqDict['Chat']], backgroundColor: '#A78BFA', borderRadius: 4 },
+                            { label: 'HC Disponible', data: [hcDispDict['Inbound'], hcDispDict['Outbound'], hcDispDict['Chat']], backgroundColor: '#34D399', borderRadius: 4 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94A3B8' } } }, scales: { x: { grid: { display: false }, ticks: { color: '#64748B' } }, y: { grid: { color: '#1F2937', borderDash: [4, 4] }, ticks: { color: '#64748B' }, beginAtZero: true } } }
+                });
+                return; 
+            }
+
+            let llamadasAgrupadasGlobal = [];
+            let ahtAgrupadoGlobal = [];
+            let fteAgrupadoGlobal = [];
+            let rosterAgrupadoGlobal = [];
+
+            for (let i = 0; i < todosIntervalos.length; i++) {
+                let inter = todosIntervalos[i];
+                let invData = aggInter[inter];
+                let interCallSum = 0;
+                let interHtSum = 0;
+                let interReqSum = 0;
+
+                for (let c in invData.silos) {
+                    for(let d of fechasSet) {
+                        if(invData.silos[c][d]) {
+                            let callsDay = invData.silos[c][d].calls;
+                            let htDay = invData.silos[c][d].ht;
+                            interCallSum += callsDay;
+                            interHtSum += htDay;
+                            
+                            let avgAhtD = callsDay > 0 ? htDay / callsDay : 180;
+                            let aht_efectivo = forecastMode === 'chat' ? avgAhtD / Math.max(1.0, concurrenciaVal) : avgAhtD;
+                            if (callsDay >= 0.05) interReqSum += calcular_agentes_requeridos_erlang_c_js((callsDay * aht_efectivo) / 1800.0, aht_efectivo, targetTimeObj, targetSlObj);
+                        }
+                    }
+                }
+                llamadasAgrupadasGlobal.push(interCallSum / numDias);
+                ahtAgrupadoGlobal.push(interCallSum > 0 ? interHtSum / interCallSum : 180);
+                fteAgrupadoGlobal.push(interReqSum / numDias); 
+                rosterAgrupadoGlobal.push(Math.round(invData.rosSum / numDias));
+            }
+
+            const reqAgrupadoGlobalParaPlot = fteAgrupadoGlobal.map(val => Math.ceil(val));
+            let rosterPorCampana = {};
+            globalData.forEach(r => {
+                let camp = String(getProp(r, ['Campaña', 'Campana'], 'General'));
+                let max_val = Math.max(Number(getProp(r, ['Total_Roster_Campana'], 0)), Number(getProp(r, ['Total_Roster_Dia'], 0)), Number(getProp(r, ['HC_Actual_Roster'], 0)));
+                if (!rosterPorCampana[camp] || max_val > rosterPorCampana[camp]) rosterPorCampana[camp] = max_val;
+            });
+
+            let totalRosterKPI = 0;
+            new Set(dfFiltered.map(r => String(getProp(r, ['Campaña', 'Campana'], 'General')))).forEach(camp => { if(rosterPorCampana[camp]) totalRosterKPI += rosterPorCampana[camp]; });
+
+            const factorDescanso = usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0);
+            const mermaValLocal = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
+            const factorAsistencia = Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
+            const totalHorasRequeridas = fteAgrupadoGlobal.reduce((a, b) => a + b, 0) * 0.5;
+            const hcNominaCalculado = Math.ceil(((totalHorasRequeridas / durJornada) * factorDescanso) / factorAsistencia);
+            
+            document.getElementById('kpiHcRequerido').innerText = hcNominaCalculado.toLocaleString() + ' HC';
+            document.getElementById('kpiHcRoster').innerText = totalRosterKPI.toLocaleString() + ' HC';
+
+            const gapTotal = totalRosterKPI - hcNominaCalculado;
+            const gapEl = document.getElementById('kpiHcGap');
+            if (gapTotal > 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#34D399]/20 text-[#34D399]', gapEl.innerText = `+${gapTotal} Sobran`;
+            else if (gapTotal < 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#FB7185]/20 text-[#FB7185]', gapEl.innerText = `${Math.abs(gapTotal)} Faltan`;
+            else gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#1E293B] text-slate-300', gapEl.innerText = `✓ OK`;
+
+            let legendInteractions = forecastMode === 'outbound' ? 'Contactos' : forecastMode === 'chat' ? 'Mensajes' : 'Llamadas';
+            document.getElementById('tableHeaderRow').innerHTML = `
+                <th class="py-3.5 px-4 text-left">Intervalo</th>
+                <th class="py-3.5 px-4">${legendInteractions}</th>
+                <th class="py-3.5 px-4">AHT (HH:MM:SS)</th>
+                <th class="py-3.5 px-4 text-brand-accentCyan">HC Requerido</th>
+                <th class="py-3.5 px-4 text-brand-accentEmerald">HC Actual</th>
+                <th class="py-3.5 px-4 text-center">Gap</th>
+            `;
+
+            const tbody = document.getElementById('intervalTableBody');
+            tbody.innerHTML = '';
+            todosIntervalos.forEach((inter, idx) => {
+                const rowLlamadas = Math.round(llamadasAgrupadasGlobal[idx]);
+                const rowReq = reqAgrupadoGlobalParaPlot[idx] || 0; 
+                const rowRoster = rosterAgrupadoGlobal[idx] || 0;
+                const gap = rowRoster - rowReq;
+                let gapHtml = gap > 0 ? `<span class="bg-[#34D399]/20 text-[#34D399] px-2 py-0.5 rounded-md font-bold">+${gap}</span>` : gap < 0 ? `<span class="bg-[#FB7185]/20 text-[#FB7185] px-2 py-0.5 rounded-md font-bold">${gap}</span>` : `<span class="text-slate-500 font-bold">0</span>`;
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-[#1E293B] transition-colors">
+                        <td class="py-2.5 px-4 font-bold text-slate-200 text-left">${inter}</td>
+                        <td class="py-2.5 px-4 text-slate-300">${rowLlamadas.toLocaleString()}</td>
+                        <td class="py-2.5 px-4 text-slate-300">${formatAHT(ahtAgrupadoGlobal[idx])}</td>
+                        <td class="py-2.5 px-4 text-brand-primary font-black">${rowReq}</td>
+                        <td class="py-2.5 px-4 text-brand-accentEmerald font-black">${rowRoster}</td>
+                        <td class="py-2.5 px-4 text-center">${gapHtml}</td>
+                    </tr>
+                `;
+            });
+
+            document.getElementById('contGapChart').classList.remove('hidden');
+            if (document.getElementById('contGeneralChart')) document.getElementById('contGeneralChart').classList.add('hidden');
+
+            if (gapChartInstance) gapChartInstance.destroy();
+            gapChartInstance = new Chart(document.getElementById('gapChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: todosIntervalos,
+                    datasets: [
+                        { label: 'HC Requerido', data: reqAgrupadoGlobalParaPlot, borderColor: '#22D3EE', backgroundColor: 'rgba(34, 211, 238, 0.1)', fill: true, tension: 0.4, borderWidth: 3, pointRadius: 0, pointHoverRadius: 6 },
+                        { label: 'HC Actual', data: rosterAgrupadoGlobal, borderColor: '#34D399', backgroundColor: '#34D399', fill: false, tension: 0.4, borderWidth: 2, borderDash: [5, 5], pointRadius: 0, pointHoverRadius: 6 }
+                    ]
+                },
+                options: { 
+                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { labels: { color: '#94A3B8' } }, tooltip: { backgroundColor: '#111827', titleColor: '#F8FAFC', bodyColor: '#cbd5e1', borderColor: '#1F2937', borderWidth: 1 } }, 
+                    scales: { x: { grid: { display: false }, ticks: { color: '#64748B' } }, y: { grid: { color: '#1F2937', borderDash: [4, 4] }, ticks: { color: '#64748B' }, beginAtZero: true } } 
+                }
+            });
+        }
+
+        function exportarCSV() {
+            if (!globalData || globalData.length === 0) return alert("No hay datos cargados.");
+            const csvRows = [["Campana", "Canal", "Mes", "Fecha", "Dia_Semana", "Intervalo", "Volumen", "AHT_HH_MM_SS", "HC_Requerido", "HC_Actual", "Gap"].join(",")];
+            globalData.forEach(r => {
+                csvRows.push([
+                    getProp(r, ['Campaña', 'Campana'], 'General'), getProp(r, ['Canal'], 'N/A'), getProp(r, ['Mes'], ''),
+                    String(getProp(r, ['Fecha'], '')).split(' ')[0].split('T')[0], getProp(r, ['Día_Semana', 'Dia_Semana'], ''),
+                    getProp(r, ['Intervalo'], '00:00'), getProp(r, ['Llamadas', 'Recibidas', 'Recibidos'], 0), formatAHT(Number(getProp(r, ['AHT_Segundos'], 180))),
+                    getProp(r, ['Agentes_Requeridos'], 0), getProp(r, ['HC_Actual_Roster', 'Total_Roster_Campana'], 0), 
+                    Number(getProp(r, ['HC_Actual_Roster', 'Total_Roster_Campana'], 0)) - Number(getProp(r, ['Agentes_Requeridos'], 0))
+                ].join(","));
+            });
+            const a = document.createElement('a');
+            a.href = window.URL.createObjectURL(new Blob([csvRows.join("\n")], { type: 'text/csv' }));
+            a.download = `WFM_Reporte_Ejecutivo_HC_${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+        }
+    </script>
+</body>
+</html>
