@@ -43,32 +43,34 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🛠️ ALINEADOR DE PICOS (Fuerza la Suma Dedicada en el Tablero)
+# 🛠️ ALINEADOR DE PICOS DE FUERZA BRUTA (Cuadre perfecto para Dashboards)
 # =====================================================================
 def alinear_picos_dashboard(df_final):
     if df_final.empty: return df_final
     
-    # 1. Cuadre Diario: Alinear los picos máximos del día a la misma hora global
-    for fecha, group in df_final.groupby('Fecha'):
-        suma_intradia = group.groupby('Intervalo')['Agentes_Requeridos'].sum()
-        hora_pico_global = suma_intradia.idxmax()
+    # 1. CUADRE MENSUAL: Forzamos el pico máximo absoluto en el mismo instante
+    for mes in df_final['Mes'].unique():
+        df_mes = df_final[df_final['Mes'] == mes]
+        suma_por_hora = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
+        fecha_ancla, hora_ancla = suma_por_hora.idxmax()
         
-        for campana in group['Campaña'].unique():
-            pico_real_campana = group[group['Campaña'] == campana]['Agentes_Requeridos'].max()
-            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_pico_global) & (df_final['Campaña'] == campana)].index
-            if len(idx) > 0:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_real_campana
-
-    # 2. Cuadre Mensual: Alinear el pico máximo absoluto del mes a la misma hora y día
-    for mes, group_mes in df_final.groupby('Mes'):
-        suma_mes_intradia = group_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
-        fecha_pico_mes, hora_pico_mes = suma_mes_intradia.idxmax()
+        for campana in df_mes['Campaña'].unique():
+            pico_max_mensual = df_mes[df_mes['Campaña'] == campana]['Agentes_Requeridos'].max()
+            idx = df_final[(df_final['Mes'] == mes) & (df_final['Fecha'] == fecha_ancla) & (df_final['Intervalo'] == hora_ancla) & (df_final['Campaña'] == campana)].index
+            if not idx.empty:
+                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_max_mensual
+                
+    # 2. CUADRE DIARIO: Hacemos lo mismo día por día para los gráficos diarios
+    for fecha in df_final['Fecha'].unique():
+        df_dia = df_final[df_final['Fecha'] == fecha]
+        suma_por_hora_dia = df_dia.groupby('Intervalo')['Agentes_Requeridos'].sum()
+        hora_ancla_dia = suma_por_hora_dia.idxmax()
         
-        for campana in group_mes['Campaña'].unique():
-            pico_real_mensual = group_mes[group_mes['Campaña'] == campana]['Agentes_Requeridos'].max()
-            idx = df_final[(df_final['Mes'] == mes) & (df_final['Fecha'] == fecha_pico_mes) & (df_final['Intervalo'] == hora_pico_mes) & (df_final['Campaña'] == campana)].index
-            if len(idx) > 0:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_real_mensual
+        for campana in df_dia['Campaña'].unique():
+            pico_max_diario = df_dia[df_dia['Campaña'] == campana]['Agentes_Requeridos'].max()
+            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_ancla_dia) & (df_final['Campaña'] == campana)].index
+            if not idx.empty:
+                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_max_diario
 
     return df_final
 
@@ -515,8 +517,8 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
                 if calls_int <= 0: aht = 0.0
 
                 req_ftes = (calls_float * aht) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
-                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0.0
-
+                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
+                
                 hc_roster = roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0)
                 tot_camp = roster_total_camp.get(str(camp), 0)
                 tot_camp_dia = roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0)
@@ -711,8 +713,8 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
                 if calls_int <= 0: aht = 0.0
 
                 req_ftes = (calls_float * aht) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
-                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0.0
-
+                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
+                
                 hc_roster = roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0)
                 tot_camp = roster_total_camp.get(str(camp), 0)
                 tot_camp_dia = roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0)
