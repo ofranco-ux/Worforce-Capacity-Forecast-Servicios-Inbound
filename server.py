@@ -137,38 +137,6 @@ def buscar_archivo_excel():
         return os.path.join(BASE_DIR, archivos[0])
     except: return None
 
-@app.route('/')
-@app.route('/index.html')
-def serve_index():
-    rutas_a_buscar = [BASE_DIR, os.getcwd(), os.path.dirname(BASE_DIR)]
-    for ruta in rutas_a_buscar:
-        target_path = os.path.join(ruta, 'index.html')
-        if os.path.exists(target_path):
-            response = make_response(send_from_directory(ruta, 'index.html'))
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-            return response
-    return jsonify({"error": "ALERTA CRITICA: No se encontro el archivo index.html."}), 404
-
-@app.route('/favicon.ico')
-def favicon(): return '', 204
-
-@app.route('/api/config', methods=['GET', 'POST'])
-def manage_config():
-    if request.method == 'POST':
-        try:
-            new_config = request.get_json(force=True)
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(new_config, f)
-            return jsonify({'status': 'Guardado'}), 200
-        except Exception as e: return jsonify({'error': str(e)}), 500
-    else:
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f: return jsonify(json.load(f)), 200
-            except: pass
-        return jsonify({'targetSl': 80, 'targetTime': 20, 'merma': 30}), 200
-
 def clean_num(val, default=0.0):
     if pd.isna(val) or val is None: return default
     try:
@@ -293,7 +261,6 @@ def procesar_hoja_roster(df_roster):
         if col_agente:
             agente_val = str(row[col_agente]).strip()
             if agente_val.lower() == 'nan' or agente_val == '': continue
-            
         camp = str(row[col_camp]).strip().title()
         if camp == 'Nan' or camp == '': continue
         
@@ -315,6 +282,39 @@ def procesar_hoja_roster(df_roster):
                                 roster_cov[(camp, dia_real, inv)] = roster_cov.get((camp, dia_real, inv), 0) + 1
     return roster_cov, roster_total_camp, roster_total_dia_camp
 
+# =====================================================================
+# 🛠️ ALINEADOR DE PICOS PARA TABLEROS (Sincroniza el Max Multiskill con Dedicado)
+# =====================================================================
+def alinear_picos_dashboard(df_final):
+    if df_final.empty: return df_final
+    
+    # Calculamos la Nómina Dedicada (Suma de los picos máximos individuales del mes)
+    max_por_campana_mes = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+    nomina_dedicada_mes = max_por_campana_mes.groupby('Mes')['Agentes_Requeridos'].sum().to_dict()
+
+    for mes, nomina_dedicada in nomina_dedicada_mes.items():
+        df_mes = df_final[df_final['Mes'] == mes]
+        # Calculamos el Pico Multiskill (La suma real por intervalo que lee tu tablero)
+        suma_por_intervalo = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum().reset_index()
+        pico_multiskill = suma_por_intervalo['Agentes_Requeridos'].max()
+        
+        diferencia = nomina_dedicada - pico_multiskill
+        
+        if diferencia > 0:
+            # Encontramos la hora exacta donde el tablero marca su tope
+            intervalos_pico = suma_por_intervalo[suma_por_intervalo['Agentes_Requeridos'] == pico_multiskill]
+            fecha_pico = intervalos_pico.iloc[0]['Fecha']
+            hora_pico = intervalos_pico.iloc[0]['Intervalo']
+            
+            # Buscamos la campaña dominante a esa hora y le inyectamos los agentes fantasma
+            campana_mayor = df_mes[(df_mes['Fecha'] == fecha_pico) & (df_mes['Intervalo'] == hora_pico)].sort_values('Agentes_Requeridos', ascending=False).iloc[0]['Campaña']
+            
+            idx = df_final[(df_final['Mes'] == mes) & (df_final['Fecha'] == fecha_pico) & (df_final['Intervalo'] == hora_pico) & (df_final['Campaña'] == campana_mayor)].index
+            if len(idx) > 0:
+                df_final.loc[idx[0], 'Agentes_Requeridos'] += diferencia
+
+    return df_final
+
 def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_calls = xls_file.sheet_names[0]
@@ -325,8 +325,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     for s in xls_file.sheet_names:
         s_lower = s.lower()
         if ('roster' in s_lower or 'plantilla' in s_lower or 'platilla' in s_lower or 'horario' in s_lower) and 'out' not in s_lower and 'salida' not in s_lower and 'chat' not in s_lower and 'mensaje' not in s_lower: 
-            sheet_roster = s
-            break
+            sheet_roster = s; break
             
     if not sheet_roster:
         for s in xls_file.sheet_names:
@@ -501,24 +500,8 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
                 })
 
     df_final = pd.DataFrame(data_processed)
-    if not df_final.empty:
-        df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
-        df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        
-        # SUMA PURA DE PICOS MÁXIMOS (LÓGICA DEDICADA)
-        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
-        
-        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
-        
-        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
-        df_final = df_final.merge(suma_mes, on='Mes', how='left')
-
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
-            df_final[col] = df_final[col].fillna(0).astype(int)
-            
-        data_processed = df_final.to_dict('records')
+    df_final = alinear_picos_dashboard(df_final)
+    data_processed = df_final.to_dict('records')
 
     try:
         with open(CACHE_FILE_IN, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
@@ -531,18 +514,15 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     sheet_out = None
     for s in xls_file.sheet_names:
         if 'out' in s.lower() or 'salida' in s.lower(): 
-            sheet_out = s
-            break
+            sheet_out = s; break
             
-    if not sheet_out:
-        raise ValueError("No se encontró una pestaña llamada 'Out' o 'Salida' en el archivo Excel para procesar Outbound.")
+    if not sheet_out: raise ValueError("No se encontró pestaña Outbound.")
 
     sheet_roster = None
     for s in xls_file.sheet_names:
         s_lower = s.lower()
         if ('plantilla' in s_lower or 'platilla' in s_lower or 'roster' in s_lower) and ('out' in s_lower or 'salida' in s_lower):
-            sheet_roster = s
-            break
+            sheet_roster = s; break
 
     roster_coverage, roster_total_camp, roster_total_dia_camp = {}, {}, {}
     if sheet_roster:
@@ -599,15 +579,12 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        
         ultimos_14_dias = sub.tail(14)[col_calls]
         cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        
         if cv < 0.20 and ultimos_14_dias.mean() >= 250:
             preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         else:
             preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
@@ -634,9 +611,6 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     todos_los_intervalos_crudos = [f"{int(h):02d}:{int(m):02d}" for h in range(24) for m in (0, 30)]
     intervalos_operativos_por_camp = {camp: [i for i in todos_los_intervalos_crudos if esta_en_ventana_servicio(camp, i)] for camp in campanas_unicas}
 
-    del df_raw, df, df_diario, df_filtrado, df_reciente
-    gc.collect()
-
     factor_asistencia = max(0.01, 1.0 - merma)
     data_processed = []
 
@@ -662,9 +636,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
                 pesos_crudos.append(w_final)
 
             suma_pesos = sum(pesos_crudos)
-            if suma_pesos > 0: pesos_norm = [p / suma_pesos for p in pesos_crudos]
-            elif len(intervalos_validos) > 0: pesos_norm = [1.0 / len(intervalos_validos)] * len(intervalos_validos)
-            else: pesos_norm = []
+            pesos_norm = [p / suma_pesos for p in pesos_crudos] if suma_pesos > 0 else []
 
             exact_calls = [vol_diario * p for p in pesos_norm]
             floor_calls = [int(math.floor(c)) for c in exact_calls]
@@ -682,10 +654,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
 
                 info_p = mapa_dia.get((camp, nombre_dia, inter), {})
                 aht_real = info_p.get('aht', 0.0)
-                
-                if aht_real > 0 and not pd.isna(aht_real): aht = aht_real
-                else: aht = aht_global
-
+                aht = aht_real if aht_real > 0 else aht_global
                 if calls_int <= 0: aht = 0.0
 
                 req_ftes = (calls_float * aht) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
@@ -712,24 +681,8 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
                 })
 
     df_final = pd.DataFrame(data_processed)
-    if not df_final.empty:
-        df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
-        df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        
-        # SUMA PURA DE PICOS MÁXIMOS (LÓGICA DEDICADA)
-        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
-        
-        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
-        
-        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
-        df_final = df_final.merge(suma_mes, on='Mes', how='left')
-
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
-            df_final[col] = df_final[col].fillna(0).astype(int)
-            
-        data_processed = df_final.to_dict('records')
+    df_final = alinear_picos_dashboard(df_final)
+    data_processed = df_final.to_dict('records')
 
     try:
         with open(CACHE_FILE_OUT, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
@@ -742,18 +695,15 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     sheet_chat = None
     for s in xls_file.sheet_names:
         if ('chat' in s.lower() or 'mensaje' in s.lower()) and ('plantilla' not in s.lower() and 'roster' not in s.lower() and 'platilla' not in s.lower()): 
-            sheet_chat = s
-            break
+            sheet_chat = s; break
             
-    if not sheet_chat:
-        raise ValueError("No se encontró una pestaña llamada 'Chat' o 'Mensajes' en el archivo Excel.")
+    if not sheet_chat: raise ValueError("No se encontró pestaña Chat.")
 
     sheet_roster = None
     for s in xls_file.sheet_names:
         s_lower = s.lower()
         if ('plantilla' in s_lower or 'platilla' in s_lower or 'roster' in s_lower) and ('chat' in s_lower or 'mensaje' in s_lower):
-            sheet_roster = s
-            break
+            sheet_roster = s; break
 
     roster_coverage, roster_total_camp, roster_total_dia_camp = {}, {}, {}
     if sheet_roster:
@@ -810,15 +760,12 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        
         ultimos_14_dias = sub.tail(14)[col_calls]
         cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        
         if cv < 0.20 and ultimos_14_dias.mean() >= 250:
             preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         else:
             preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
@@ -873,9 +820,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
                 pesos_crudos.append(w_final)
 
             suma_pesos = sum(pesos_crudos)
-            if suma_pesos > 0: pesos_norm = [p / suma_pesos for p in pesos_crudos]
-            elif len(intervalos_validos) > 0: pesos_norm = [1.0 / len(intervalos_validos)] * len(intervalos_validos)
-            else: pesos_norm = []
+            pesos_norm = [p / suma_pesos for p in pesos_crudos] if suma_pesos > 0 else []
 
             exact_calls = [vol_diario * p for p in pesos_norm]
             floor_calls = [int(math.floor(c)) for c in exact_calls]
@@ -893,10 +838,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
                 info_p = mapa_dia.get((camp, nombre_dia, inter), {})
                 aht_real = info_p.get('aht', 0.0)
-                
-                if aht_real > 0 and not pd.isna(aht_real): aht = aht_real
-                else: aht = aht_global
-
+                aht = aht_real if aht_real > 0 else aht_global
                 if calls_int <= 0: aht = 0.0
 
                 aht_efectivo = aht / max(1.0, concurrencia)
@@ -926,24 +868,8 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
                 })
 
     df_final = pd.DataFrame(data_processed)
-    if not df_final.empty:
-        df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
-        df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        
-        # SUMA PURA DE PICOS MÁXIMOS (LÓGICA DEDICADA)
-        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
-        
-        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
-        
-        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
-        df_final = df_final.merge(suma_mes, on='Mes', how='left')
-
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
-            df_final[col] = df_final[col].fillna(0).astype(int)
-            
-        data_processed = df_final.to_dict('records')
+    df_final = alinear_picos_dashboard(df_final)
+    data_processed = df_final.to_dict('records')
 
     try:
         with open(CACHE_FILE_CHAT, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
