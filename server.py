@@ -8,6 +8,8 @@ from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
+
+# --- LIBRERÍAS DE MACHINE LEARNING ---
 import holidays
 from sklearn.ensemble import RandomForestRegressor
 
@@ -41,7 +43,36 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🧠 MOTOR WFM MULTIPLICATIVO (Detrended Ratio ML + Perfil Suavizado)
+# 🧠 CEREBRO 1: ESTADÍSTICA DE PRECISIÓN (Para Macro Campañas Estables)
+# =====================================================================
+def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
+    sub = df_diario_campana.sort_values(col_fecha).copy()
+    sub['dia_semana'] = sub[col_fecha].dt.weekday
+    
+    dow_median = {}
+    for i in range(7):
+        # Tomamos los últimos 5 días iguales, eliminamos ceros y sacamos mediana
+        vols = sub[(sub['dia_semana'] == i) & (sub[col_calls] > 0)][col_calls].tail(5)
+        if len(vols) > 0:
+            dow_median[i] = vols.median()
+        else:
+            dow_median[i] = sub[col_calls].mean()
+            
+    recent_mean = sub[col_calls].tail(14).mean()
+    
+    preds_finales = []
+    fecha_actual = fecha_inicio_forecast
+    for d in range(dias_futuros):
+        wd = fecha_actual.weekday()
+        # Fusión perfecta: 70% El perfil del día, 30% La tendencia de las últimas 2 semanas
+        pred = dow_median.get(wd, recent_mean) * 0.70 + recent_mean * 0.30
+        preds_finales.append(max(0.0, float(pred)))
+        fecha_actual += timedelta(days=1)
+        
+    return preds_finales
+
+# =====================================================================
+# 🧠 CEREBRO 2: MACHINE LEARNING MULTIPLICATIVO (Para Micro / Volátiles)
 # =====================================================================
 def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     df_ml = df_diario_campana.sort_values(col_fecha).copy()
@@ -49,26 +80,19 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     anos_presentes = list(df_ml[col_fecha].dt.year.unique())
     anos_presentes.append(fecha_inicio_forecast.year)
     anos_presentes.append((fecha_inicio_forecast + timedelta(days=dias_futuros)).year)
-    anos_unicos = list(set(anos_presentes))
-    festivos_pais = holidays.CountryHoliday('MX', years=anos_unicos)
+    festivos_pais = holidays.CountryHoliday('MX', years=list(set(anos_presentes)))
     
-    # 1. ESTABLECER LA LÍNEA BASE (TREND)
-    # Suavizamos outliers extremos históricos antes de sacar promedios
     q1, q3 = df_ml[col_calls].quantile(0.25), df_ml[col_calls].quantile(0.75)
     iqr = q3 - q1
     df_ml['calls_clean'] = np.clip(df_ml[col_calls], max(0, q1 - 1.5 * iqr), q3 + 1.5 * iqr)
     
-    # Baseline: Promedio móvil de 10 días (persigue la realidad actual)
     df_ml['baseline'] = df_ml['calls_clean'].shift(1).rolling(window=10, min_periods=1).mean()
-    
-    # 2. CALCULAR EL RATIO (SEASONALITY)
     df_ml['ratio'] = np.where(df_ml['baseline'] > 0, df_ml['calls_clean'] / df_ml['baseline'], 1.0)
-    # Suavizar ratios extremos
+    
     r_q1, r_q3 = df_ml['ratio'].quantile(0.25), df_ml['ratio'].quantile(0.75)
     r_iqr = r_q3 - r_q1
     df_ml['ratio_smooth'] = np.clip(df_ml['ratio'], max(0.2, r_q1 - 1.5 * r_iqr), r_q3 + 1.5 * r_iqr)
 
-    # 3. EXTRAER FEATURES DE CALENDARIO
     df_ml['dia_semana'] = df_ml[col_fecha].dt.weekday
     df_ml['dia_mes'] = df_ml[col_fecha].dt.day
     df_ml['es_inicio_mes'] = df_ml['dia_mes'].apply(lambda x: 1 if x <= 5 else 0)
@@ -76,12 +100,9 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     df_ml['es_festivo'] = df_ml[col_fecha].apply(lambda x: 1 if x in festivos_pais else 0)
     
     df_train = df_ml.dropna().copy()
-    
-    # Si la campaña es muy nueva o tiene muy pocos datos, usamos el último promedio
     if len(df_train) < 14:
         return [max(0.0, float(df_diario_campana.tail(7)[col_calls].mean()))] * dias_futuros
 
-    # 4. ENTRENAR EL MACHINE LEARNING SOBRE EL RATIO
     features = ['dia_semana', 'es_inicio_mes', 'es_quincena', 'es_festivo']
     modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2)
     modelo.fit(df_train[features], df_train['ratio_smooth'])
@@ -90,9 +111,7 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     preds_finales = []
     fecha_actual = fecha_inicio_forecast
     
-    # 5. PROYECTAR EL FUTURO
     for d in range(dias_futuros):
-        # Actualizar Baseline
         ultimas_llamadas = [r.get('calls_clean', r.get(col_calls, 0)) for r in historial_simulado]
         current_baseline = np.mean(ultimas_llamadas[-10:]) if len(ultimas_llamadas) >= 10 else np.mean(ultimas_llamadas)
         
@@ -103,10 +122,8 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
             'es_festivo': 1 if fecha_actual in festivos_pais else 0
         }])
         
-        # Predecimos el Ratio y lo multiplicamos por la Baseline
         pred_ratio = float(modelo.predict(X_pred[features])[0])
         pred_vol = max(0.0, float(current_baseline * pred_ratio))
-        
         preds_finales.append(pred_vol)
         
         historial_simulado.append({
@@ -375,7 +392,16 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+        
+        ultimos_14_dias = sub.tail(14)[col_calls]
+        cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
+        
+        # EL DECISOR: Si la campaña es estable (CV < 0.20) usamos Estadística, sino usamos ML
+        if cv < 0.20 and ultimos_14_dias.mean() >= 250:
+            preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+        else:
+            preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
@@ -386,21 +412,17 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     df_reciente = df_filtrado[df_filtrado[col_fecha] >= (max_fecha_real - timedelta(days=28))]
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
-    # 🌟 PERFIL INTRADÍA EXACTO (Suavizado Anti-Ceros)
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'sum'),
+        total_calls=(col_calls, 'mean'),
         avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
     ).reset_index()
-    # Pseudo-conteo para evitar 0 absoluto en campañas chicas
-    perfil_dia['total_calls'] = perfil_dia['total_calls'] + 0.1 
     totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
-    perfil_dia['weight'] = perfil_dia['total_calls'] / totales_dia
+    perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
     mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
 
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'sum')).reset_index()
-    perfil_global['total_calls'] = perfil_global['total_calls'] + 0.1
+    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
     totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
-    perfil_global['weight'] = perfil_global['total_calls'] / totales_global
+    perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
     mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
     
     todos_los_intervalos_crudos = [f"{int(h):02d}:{int(m):02d}" for h in range(24) for m in (0, 30)]
@@ -414,8 +436,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
-        # Blend Factor: Micro campañas (0% dia, 100% global), Macro campañas (100% dia, 0% global)
-        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 100) / 300.0))
+        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
@@ -558,7 +579,15 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+        
+        ultimos_14_dias = sub.tail(14)[col_calls]
+        cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
+        
+        if cv < 0.20 and ultimos_14_dias.mean() >= 250:
+            preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+        else:
+            preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
@@ -570,18 +599,16 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'sum'),
+        total_calls=(col_calls, 'mean'),
         avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
     ).reset_index()
-    perfil_dia['total_calls'] = perfil_dia['total_calls'] + 0.1
     totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
-    perfil_dia['weight'] = perfil_dia['total_calls'] / totales_dia
+    perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
     mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
 
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'sum')).reset_index()
-    perfil_global['total_calls'] = perfil_global['total_calls'] + 0.1
+    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
     totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
-    perfil_global['weight'] = perfil_global['total_calls'] / totales_global
+    perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
     mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
     
     todos_los_intervalos_crudos = [f"{int(h):02d}:{int(m):02d}" for h in range(24) for m in (0, 30)]
@@ -595,7 +622,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
 
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
-        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 100) / 300.0))
+        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
@@ -738,7 +765,15 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+        
+        ultimos_14_dias = sub.tail(14)[col_calls]
+        cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
+        
+        if cv < 0.20 and ultimos_14_dias.mean() >= 250:
+            preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+        else:
+            preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
+            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
@@ -750,18 +785,16 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'sum'),
+        total_calls=(col_calls, 'mean'),
         avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
     ).reset_index()
-    perfil_dia['total_calls'] = perfil_dia['total_calls'] + 0.1
     totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
-    perfil_dia['weight'] = perfil_dia['total_calls'] / totales_dia
+    perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
     mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
 
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'sum')).reset_index()
-    perfil_global['total_calls'] = perfil_global['total_calls'] + 0.1
+    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
     totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
-    perfil_global['weight'] = perfil_global['total_calls'] / totales_global
+    perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
     mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
     
     todos_los_intervalos_crudos = [f"{int(h):02d}:{int(m):02d}" for h in range(24) for m in (0, 30)]
@@ -775,7 +808,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
-        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 100) / 300.0))
+        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
