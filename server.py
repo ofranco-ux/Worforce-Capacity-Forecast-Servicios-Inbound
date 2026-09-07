@@ -43,7 +43,7 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🧠 MOTOR WFM ULTRA-PERRÓN (Medianas Inmunes y Anti-Serrucho)
+# 🧠 MOTOR WFM PERRONSÍSIMO (ML + Inicio de Mes + Inercia Viva)
 # =====================================================================
 def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     df_ml = df_diario_campana.sort_values(col_fecha).copy()
@@ -56,6 +56,7 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     festivos_pais = holidays.CountryHoliday('MX', years=anos_unicos)
     df_ml['dia_semana'] = df_ml[col_fecha].dt.weekday
     
+    # 1. BASE ESTABLE: Mediana Olímpica
     dow_olimpico = {}
     for i in range(7):
         vols_dow = df_ml[(df_ml['dia_semana'] == i) & (df_ml[col_calls] > 0)][col_calls]
@@ -76,6 +77,7 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         
     df_ml['calls_smooth'] = df_ml.groupby('dia_semana')[col_calls].transform(cap_outliers) if len(df_ml) >= 14 else df_ml[col_calls]
 
+    # Lags e inercias
     df_ml['lag_1'] = df_ml['calls_smooth'].shift(1)
     df_ml['lag_2'] = df_ml['calls_smooth'].shift(2)
     df_ml['lag_7'] = df_ml['calls_smooth'].shift(7)
@@ -84,8 +86,10 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     df_ml['rolling_mean_3'] = df_ml['calls_smooth'].shift(1).rolling(window=3, min_periods=1).mean()
     df_ml['rolling_mean_7'] = df_ml['calls_smooth'].shift(1).rolling(window=7, min_periods=1).mean()
     
+    # ¡NUEVO! Detectores de calendario
     df_ml['dia_mes'] = df_ml[col_fecha].dt.day
-    df_ml['es_quincena'] = df_ml['dia_mes'].apply(lambda x: 1 if x in [14, 15, 16, 29, 30, 31, 1] else 0)
+    df_ml['es_inicio_mes'] = df_ml['dia_mes'].apply(lambda x: 1 if x <= 5 else 0)  # Fuego para los primeros 5 días
+    df_ml['es_quincena'] = df_ml['dia_mes'].apply(lambda x: 1 if x in [14, 15, 16, 29, 30, 31] else 0)
     df_ml['es_festivo'] = df_ml[col_fecha].apply(lambda x: 1 if x in festivos_pais else 0)
     
     df_train = df_ml.dropna().copy()
@@ -94,8 +98,10 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     if len(df_train) < 14:
         return [max(0.0, float(vol_promedio_historico))] * dias_futuros
 
-    features = ['lag_1', 'lag_2', 'lag_7', 'lag_14', 'rolling_mean_3', 'rolling_mean_7', 'dia_semana', 'dia_mes', 'es_quincena', 'es_festivo']
-    modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=7)
+    features = ['lag_1', 'lag_2', 'lag_7', 'lag_14', 'rolling_mean_3', 'rolling_mean_7', 
+                'dia_semana', 'dia_mes', 'es_inicio_mes', 'es_quincena', 'es_festivo']
+                
+    modelo = RandomForestRegressor(n_estimators=150, random_state=42, max_depth=8)
     modelo.fit(df_train[features], df_train['calls_smooth'])
     
     ultimos_7_media = df_diario_campana.tail(7)[col_calls].mean()
@@ -105,8 +111,8 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     cv = (std_14 / media_14) if media_14 > 0 else 0
     
     historico_previo = df_diario_campana.iloc[:-7][col_calls].mean() if len(df_diario_campana) > 7 else ultimos_7_media
-    desfase_agresivo = True if (ultimos_7_media < historico_previo * 0.85) or (ultimos_7_media > historico_previo * 1.15) else False
-    
+    desfase_agresivo = True if (ultimos_7_media < historico_previo * 0.80) or (ultimos_7_media > historico_previo * 1.20) else False
+
     df_recent_4w = df_diario_campana.tail(28).copy()
     df_recent_4w['wd'] = df_recent_4w[col_fecha].dt.weekday
     dow_medians = df_recent_4w.groupby('wd')[col_calls].median()
@@ -138,7 +144,8 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
             'rolling_mean_7': rm_7_val,
             'dia_semana': fecha_actual.weekday(),
             'dia_mes': fecha_actual.day,
-            'es_quincena': 1 if fecha_actual.day in [14, 15, 16, 29, 30, 31, 1] else 0,
+            'es_inicio_mes': 1 if fecha_actual.day <= 5 else 0,
+            'es_quincena': 1 if fecha_actual.day in [14, 15, 16, 29, 30, 31] else 0,
             'es_festivo': 1 if fecha_actual in festivos_pais else 0
         }])
         
@@ -146,29 +153,33 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         pred_ml = max(0.0, pred_ml)
         wd = fecha_actual.weekday()
         base_oli = dow_olimpico.get(wd, media_14)
-        
         base_reciente = ultimos_7_media * dow_weights.get(wd, 1.0)
         
-        if desfase_agresivo or media_14 < 200:
-            peso_ml, peso_oli, peso_rec = 0.10, 0.05, 0.85
-        elif cv < 0.15 and vol_promedio_historico >= 200:
-            peso_ml, peso_oli, peso_rec = 0.20, 0.70, 0.10
+        # ÁRBITRO ENSAMBLADO
+        if desfase_agresivo:
+            peso_ml, peso_oli, peso_rec = 0.20, 0.05, 0.75
+        elif cv < 0.15 and vol_promedio_historico >= 300:
+            peso_ml, peso_oli, peso_rec = 0.25, 0.65, 0.10
         else:
-            peso_ml, peso_oli, peso_rec = 0.40, 0.30, 0.30
+            peso_ml, peso_oli, peso_rec = 0.50, 0.25, 0.25
 
         pred_ensamblada = (pred_ml * peso_ml) + (base_oli * peso_oli) + (base_reciente * peso_rec)
+        
+        # ACELERADOR DE INERCIA VIVA (Si los últimos 3 días superan por mucho a la semana pasada)
+        aceleracion = rm_3_val / max(1.0, lag_7_val)
+        if aceleracion > 1.15 and vol_promedio_historico < 1000:
+            multiplicador = min(1.25, aceleracion)
+            # Solo aplicamos el nitro los primeros días del forecast
+            pred_ensamblada = pred_ensamblada * (1.0 + ((multiplicador - 1.0) * max(0.0, 1.0 - (d * 0.20))))
+
         pred_final = max(0.0, float(pred_ensamblada))
-        
-        if media_14 < 200:
-            tendencia = min(1.10, max(0.90, rm_3_val / rm_7_val if rm_7_val > 0 else 1.0))
-            pred_final = pred_final * (1.0 + ((tendencia - 1.0) * max(0.0, 1.0 - (d * 0.15))))
-        
         preds_finales_ajustadas.append(pred_final)
         
         historial_simulado.append({
             col_fecha: fecha_actual,
             col_calls: pred_final,
-            'calls_smooth': pred_final
+            'calls_smooth': pred_final,
+            'dia_semana': wd
         })
         fecha_actual += timedelta(days=1)
         
@@ -434,7 +445,6 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
         preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         predicciones_futuras[camp] = preds_finales
 
-    # CORRECCIÓN: Guardamos los promedios ANTES de borrar el DataFrame para que el Árbitro lo pueda leer
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
 
     df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
@@ -467,7 +477,10 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
-        es_micro_campana = vol_historico_camp < 250
+        
+        # LA MAGIA: Mezcla Inteligente de Intradía (Blend Factor)
+        # 0.0 = 100% Global (Micro Campañas), 1.0 = 100% Día de la Semana (Macro Campañas)
+        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
@@ -480,12 +493,13 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
             pesos_crudos = []
             for inter in intervalos_validos:
-                if es_micro_campana:
-                    w = mapa_perfil_global.get((camp, inter), 0.0)
-                else:
-                    w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
-                    if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
-                pesos_crudos.append(w)
+                w_dia = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
+                w_glob = mapa_perfil_global.get((camp, inter), 0.0)
+                if w_dia == 0.0: w_dia = w_glob
+                
+                # Fusión suavizada para no generar "serruchos"
+                w_final = (w_dia * blend_factor) + (w_glob * (1.0 - blend_factor))
+                pesos_crudos.append(w_final)
 
             suma_pesos = sum(pesos_crudos)
             if suma_pesos > 0: pesos_norm = [p / suma_pesos for p in pesos_crudos]
@@ -646,7 +660,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
 
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
-        es_micro_campana = vol_historico_camp < 250
+        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
@@ -659,12 +673,11 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
 
             pesos_crudos = []
             for inter in intervalos_validos:
-                if es_micro_campana:
-                    w = mapa_perfil_global.get((camp, inter), 0.0)
-                else:
-                    w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
-                    if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
-                pesos_crudos.append(w)
+                w_dia = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
+                w_glob = mapa_perfil_global.get((camp, inter), 0.0)
+                if w_dia == 0.0: w_dia = w_glob
+                w_final = (w_dia * blend_factor) + (w_glob * (1.0 - blend_factor))
+                pesos_crudos.append(w_final)
 
             suma_pesos = sum(pesos_crudos)
             if suma_pesos > 0: pesos_norm = [p / suma_pesos for p in pesos_crudos]
@@ -825,7 +838,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
-        es_micro_campana = vol_historico_camp < 250
+        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
@@ -838,12 +851,11 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
             pesos_crudos = []
             for inter in intervalos_validos:
-                if es_micro_campana:
-                    w = mapa_perfil_global.get((camp, inter), 0.0)
-                else:
-                    w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
-                    if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
-                pesos_crudos.append(w)
+                w_dia = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
+                w_glob = mapa_perfil_global.get((camp, inter), 0.0)
+                if w_dia == 0.0: w_dia = w_glob
+                w_final = (w_dia * blend_factor) + (w_glob * (1.0 - blend_factor))
+                pesos_crudos.append(w_final)
 
             suma_pesos = sum(pesos_crudos)
             if suma_pesos > 0: pesos_norm = [p / suma_pesos for p in pesos_crudos]
