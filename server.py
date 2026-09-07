@@ -137,24 +137,18 @@ def buscar_archivo_excel():
         return os.path.join(BASE_DIR, archivos[0])
     except: return None
 
-# =====================================================================
-# 🛠️ RUTEADOR SPA CATCH-ALL (Elimina los Errores 404)
-# =====================================================================
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
-    # Si la petición es para la API, no devolvemos index.html
     if path.startswith('api/'):
         return jsonify({"error": "Endpoint API no encontrado"}), 404
 
     rutas_a_buscar = [BASE_DIR, os.getcwd(), os.path.dirname(BASE_DIR)]
     
-    # 1. Intentar servir el archivo estático exacto (.js, .css, .png)
     for ruta in rutas_a_buscar:
         if path != "" and os.path.exists(os.path.join(ruta, path)):
             return send_from_directory(ruta, path)
 
-    # 2. Si no es un archivo, o el usuario recargó en un sub-link, servimos index.html
     for ruta in rutas_a_buscar:
         target_path = os.path.join(ruta, 'index.html')
         if os.path.exists(target_path):
@@ -330,35 +324,55 @@ def procesar_hoja_roster(df_roster):
     return roster_cov, roster_total_camp, roster_total_dia_camp
 
 # =====================================================================
-# 🛠️ ALINEADOR DE PICOS PARA TABLEROS (Sincroniza el Max Multiskill con Dedicado)
+# 🛠️ ALINEADOR DE PICOS FUERZA BRUTA (Cuadre Perfecto para Tableros)
 # =====================================================================
 def alinear_picos_dashboard(df_final):
     if df_final.empty: return df_final
     
-    # Calculamos la Nómina Dedicada (Suma de los picos máximos individuales del mes)
-    max_por_campana_mes = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-    nomina_dedicada_mes = max_por_campana_mes.groupby('Mes')['Agentes_Requeridos'].sum().to_dict()
+    # 1. CREAR COLUMNAS PRE-MASTICADAS (Para mapear directo si es posible)
+    max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+    suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index()
+    suma_mes.rename(columns={'Agentes_Requeridos': 'Nomina_A_Contratar_Mes'}, inplace=True)
+    df_final = df_final.merge(suma_mes, on='Mes', how='left')
 
-    for mes, nomina_dedicada in nomina_dedicada_mes.items():
-        df_mes = df_final[df_final['Mes'] == mes]
-        # Calculamos el Pico Multiskill (La suma real por intervalo que lee tu tablero)
-        suma_por_intervalo = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum().reset_index()
-        pico_multiskill = suma_por_intervalo['Agentes_Requeridos'].max()
+    max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+    suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index()
+    suma_dia.rename(columns={'Agentes_Requeridos': 'Nomina_A_Contratar_Dia'}, inplace=True)
+    df_final = df_final.merge(suma_dia, on='Fecha', how='left')
+    
+    # 2. FUERZA BRUTA INTRADÍA (Para forzar a que el tablero cuadre con sus fórmulas por defecto)
+    # A) Cuadrar cada día
+    for fecha, group in df_final.groupby('Fecha'):
+        nomina_dia = suma_dia[suma_dia['Fecha'] == fecha]['Nomina_A_Contratar_Dia'].iloc[0]
+        suma_intradia = group.groupby('Intervalo')['Agentes_Requeridos'].sum().reset_index()
+        pico_dia = suma_intradia['Agentes_Requeridos'].max()
+        diff_dia = nomina_dia - pico_dia
         
-        diferencia = nomina_dedicada - pico_multiskill
-        
-        if diferencia > 0:
-            # Encontramos la hora exacta donde el tablero marca su tope
-            intervalos_pico = suma_por_intervalo[suma_por_intervalo['Agentes_Requeridos'] == pico_multiskill]
-            fecha_pico = intervalos_pico.iloc[0]['Fecha']
-            hora_pico = intervalos_pico.iloc[0]['Intervalo']
-            
-            # Buscamos la campaña dominante a esa hora y le inyectamos los agentes fantasma
-            campana_mayor = df_mes[(df_mes['Fecha'] == fecha_pico) & (df_mes['Intervalo'] == hora_pico)].sort_values('Agentes_Requeridos', ascending=False).iloc[0]['Campaña']
-            
-            idx = df_final[(df_final['Mes'] == mes) & (df_final['Fecha'] == fecha_pico) & (df_final['Intervalo'] == hora_pico) & (df_final['Campaña'] == campana_mayor)].index
+        if diff_dia > 0:
+            hora_pico = suma_intradia[suma_intradia['Agentes_Requeridos'] == pico_dia].iloc[0]['Intervalo']
+            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_pico)].index
             if len(idx) > 0:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] += diferencia
+                df_final.loc[idx[0], 'Agentes_Requeridos'] += diff_dia
+
+    # B) Cuadrar el mes entero
+    for mes, group in df_final.groupby('Mes'):
+        nomina_mes = suma_mes[suma_mes['Mes'] == mes]['Nomina_A_Contratar_Mes'].iloc[0]
+        suma_intradia = df_final[df_final['Mes'] == mes].groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum().reset_index()
+        pico_mes = suma_intradia['Agentes_Requeridos'].max()
+        diff_mes = nomina_mes - pico_mes
+        
+        if diff_mes > 0:
+            intervalo_pico = suma_intradia[suma_intradia['Agentes_Requeridos'] == pico_mes].iloc[0]
+            fecha_pico = intervalo_pico['Fecha']
+            hora_pico = intervalo_pico['Intervalo']
+            idx = df_final[(df_final['Fecha'] == fecha_pico) & (df_final['Intervalo'] == hora_pico)].index
+            if len(idx) > 0:
+                df_final.loc[idx[0], 'Agentes_Requeridos'] += diff_mes
+
+    # Formateo Final a enteros
+    for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_A_Contratar_Dia', 'Nomina_A_Contratar_Mes']:
+        if col not in df_final.columns: df_final[col] = 0
+        df_final[col] = df_final[col].fillna(0).astype(int)
 
     return df_final
 
@@ -550,20 +564,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     if not df_final.empty:
         df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
         df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        
-        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
-        
-        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
-        
-        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
-        df_final = df_final.merge(suma_mes, on='Mes', how='left')
         df_final = alinear_picos_dashboard(df_final)
-
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
-            df_final[col] = df_final[col].fillna(0).astype(int)
-            
         data_processed = df_final.to_dict('records')
 
     try:
@@ -761,20 +762,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     if not df_final.empty:
         df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
         df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        
-        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
-        
-        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
-        
-        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
-        df_final = df_final.merge(suma_mes, on='Mes', how='left')
         df_final = alinear_picos_dashboard(df_final)
-
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
-            df_final[col] = df_final[col].fillna(0).astype(int)
-            
         data_processed = df_final.to_dict('records')
 
     try:
@@ -975,21 +963,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     if not df_final.empty:
         df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
         df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
-        
-        # SUMA PURA DE PICOS MÁXIMOS (LÓGICA DEDICADA)
-        max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
-        
-        max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-        suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
-        
-        df_final = df_final.merge(suma_dia, on='Fecha', how='left')
-        df_final = df_final.merge(suma_mes, on='Mes', how='left')
         df_final = alinear_picos_dashboard(df_final)
-
-        for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
-            df_final[col] = df_final[col].fillna(0).astype(int)
-            
         data_processed = df_final.to_dict('records')
 
     try:
