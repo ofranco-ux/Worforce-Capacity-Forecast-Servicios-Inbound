@@ -42,29 +42,6 @@ VENTANAS_SERVICIO = {
     'retenciones liverpool': {'inicio': 9 * 60, 'fin': 20 * 60}
 }
 
-# =====================================================================
-# 🛠️ ALINEADOR DEFINITIVO DE PICOS DEDICADOS
-# =====================================================================
-def alinear_picos_dashboard(df_final):
-    if df_final.empty: return df_final
-    
-    for mes in df_final['Mes'].unique():
-        df_mes = df_final[df_final['Mes'] == mes]
-        picos_mes_campana = df_mes.groupby('Campaña')['Agentes_Requeridos'].max().to_dict()
-        
-        # Encontrar la fecha y el intervalo con la mayor suma acumulada
-        suma_mes_intradia = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
-        if suma_mes_intradia.empty: continue
-        fecha_pico_mes, hora_pico_mes = suma_mes_intradia.idxmax()
-        
-        # Inyectar el pico máximo de cada campaña en esa hora fija
-        for campana, pico_max in picos_mes_campana.items():
-            idx = df_final[(df_final['Mes'] == mes) & (df_final['Fecha'] == fecha_pico_mes) & (df_final['Intervalo'] == hora_pico_mes) & (df_final['Campaña'] == campana)].index
-            if not idx.empty:
-                df_final.loc[idx, 'Agentes_Requeridos'] = pico_max
-                
-    return df_final
-
 def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     sub = df_diario_campana.sort_values(col_fecha).copy()
     sub['dia_semana'] = sub[col_fecha].dt.weekday
@@ -167,6 +144,7 @@ def serve_frontend(path):
         return jsonify({"error": "Endpoint API no encontrado"}), 404
 
     rutas_a_buscar = [BASE_DIR, os.getcwd(), os.path.dirname(BASE_DIR)]
+    
     for ruta in rutas_a_buscar:
         if path != "" and os.path.exists(os.path.join(ruta, path)):
             return send_from_directory(ruta, path)
@@ -344,6 +322,26 @@ def procesar_hoja_roster(df_roster):
                             for inv in generar_intervalos_cobertura(s_min, e_min):
                                 roster_cov[(camp, dia_real, inv)] = roster_cov.get((camp, dia_real, inv), 0) + 1
     return roster_cov, roster_total_camp, roster_total_dia_camp
+
+def agregar_metricas_dedicadas(df_final):
+    if df_final.empty: return df_final
+    
+    df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
+    df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
+    
+    max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+    suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Dia')
+    
+    max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
+    suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index(name='Nomina_Total_Dedicada_Mes')
+    
+    df_final = df_final.merge(suma_dia, on='Fecha', how='left')
+    df_final = df_final.merge(suma_mes, on='Mes', how='left')
+
+    for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_Total_Dedicada_Dia', 'Nomina_Total_Dedicada_Mes']:
+        df_final[col] = df_final[col].fillna(0).astype(int)
+        
+    return df_final
 
 def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
@@ -531,7 +529,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
-        df_final = alinear_picos_dashboard(df_final)
+        df_final = agregar_metricas_dedicadas(df_final)
         data_processed = df_final.to_dict('records')
 
     try:
@@ -721,7 +719,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
-        df_final = alinear_picos_dashboard(df_final)
+        df_final = agregar_metricas_dedicadas(df_final)
         data_processed = df_final.to_dict('records')
 
     try:
@@ -914,7 +912,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
-        df_final = alinear_picos_dashboard(df_final)
+        df_final = agregar_metricas_dedicadas(df_final)
         data_processed = df_final.to_dict('records')
 
     try:
