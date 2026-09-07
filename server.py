@@ -43,7 +43,7 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🧠 MOTOR WFM NIVEL DIOS (ML + Detector de Desfase + Ancla Reciente)
+# 🧠 MOTOR WFM PERRONSÍSIMO (ML + Olímpico + Ancla Ultra-Reciente)
 # =====================================================================
 def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     df_ml = df_diario_campana.sort_values(col_fecha).copy()
@@ -56,7 +56,7 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     festivos_pais = holidays.CountryHoliday('MX', years=anos_unicos)
     df_ml['dia_semana'] = df_ml[col_fecha].dt.weekday
     
-    # 1. BASE ESTABLE: Promedio Olímpico Histórico
+    # 1. BASE ESTABLE: Promedio Olímpico a Largo Plazo
     dow_olimpico = {}
     for i in range(7):
         vols_dow = df_ml[(df_ml['dia_semana'] == i) & (df_ml[col_calls] > 0)][col_calls]
@@ -69,7 +69,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         else:
             dow_olimpico[i] = float(df_ml[col_calls].mean())
 
-    # 2. SUAVIZADO Y PREPARACIÓN PARA ML
     def cap_outliers(group):
         if len(group) < 4: return group
         q1, q3 = group.quantile(0.25), group.quantile(0.75)
@@ -91,26 +90,36 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     df_ml['es_festivo'] = df_ml[col_fecha].apply(lambda x: 1 if x in festivos_pais else 0)
     
     df_train = df_ml.dropna().copy()
-    
-    # 3. DETECTOR DE DESFASE ESTRUCTURAL
-    vol_promedio_historico = df_ml[col_calls].mean()
-    ultimos_14 = df_ml.tail(14)['calls_smooth']
-    media_14 = ultimos_14.mean()
-    std_14 = ultimos_14.std()
-    cv = (std_14 / media_14) if media_14 > 0 else 0
-    
-    # Si la campaña cayó/subió > 25% respecto a su historia completa, ignoramos el pasado lejano
-    desfase_estructural = True if (media_14 < vol_promedio_historico * 0.75) or (media_14 > vol_promedio_historico * 1.25) else False
+    vol_promedio_historico = df_diario_campana[col_calls].mean()
     
     if len(df_train) < 14:
         return [max(0.0, float(vol_promedio_historico))] * dias_futuros
 
     features = ['lag_1', 'lag_2', 'lag_7', 'lag_14', 'rolling_mean_3', 'rolling_mean_7', 'dia_semana', 'dia_mes', 'es_quincena', 'es_festivo']
+    
     modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=7)
     modelo.fit(df_train[features], df_train['calls_smooth'])
     
+    # 2. DETECTOR DE DESFASE ESTRUCTURAL (Para campañas como Suburbia)
+    ultimos_7_media = df_diario_campana.tail(7)[col_calls].mean()
+    ultimos_14 = df_diario_campana.tail(14)[col_calls]
+    media_14 = ultimos_14.mean()
+    std_14 = ultimos_14.std()
+    cv = (std_14 / media_14) if media_14 > 0 else 0
+    
+    historico_previo = df_diario_campana.iloc[:-7][col_calls].mean() if len(df_diario_campana) > 7 else ultimos_7_media
+    # Si subió o bajó más del 15% de golpe, es un desfase estructural real
+    desfase_agresivo = True if (ultimos_7_media < historico_previo * 0.85) or (ultimos_7_media > historico_previo * 1.15) else False
+    
+    # 3. RADIOGRAFÍA DE DÍAS (Pesos de los últimos 28 días)
+    df_recent_4w = df_diario_campana.tail(28).copy()
+    df_recent_4w['wd'] = df_recent_4w[col_fecha].dt.weekday
+    dow_means = df_recent_4w.groupby('wd')[col_calls].mean()
+    overall_mean = dow_means.mean()
+    dow_weights = {k: (v / overall_mean if overall_mean > 0 else 1.0) for k, v in dow_means.items()}
+
     historial_simulado = df_ml.to_dict('records')
-    preds_finales = []
+    preds_finales_ajustadas = []
     fecha_actual = fecha_inicio_forecast
     
     for d in range(dias_futuros):
@@ -136,60 +145,46 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
             'es_festivo': 1 if fecha_actual in festivos_pais else 0
         }])
         
-        # A) PREDICCIÓN ML (Busca estacionalidades complejas)
         pred_ml = float(modelo.predict(X_pred[features])[0])
         pred_ml = max(0.0, pred_ml)
         
-        # B) PREDICCIÓN OLÍMPICA (Busca promedios históricos estables)
         wd = fecha_actual.weekday()
         base_oli = dow_olimpico.get(wd, media_14)
         
-        # C) PREDICCIÓN DE RECENCIA PURA (Clave para Suburbia: ¿Qué pasó exactamente las últimas 2 semanas en este mismo día?)
-        vols_mismo_dia = [r.get('calls_smooth', 0) for r in historial_simulado if r.get('dia_semana') == wd]
-        base_reciente = np.mean(vols_mismo_dia[-2:]) if len(vols_mismo_dia) >= 2 else lag_7_val
+        # ANCLA ULTRA-RECIENTE (Media de los últimos 7 días * peso del día de la semana)
+        base_reciente = ultimos_7_media * dow_weights.get(wd, 1.0)
         
-        # EL ÁRBITRO ENSAMBLADO (Decide en qué confiar)
-        if desfase_estructural or media_14 < 200:
-            # Suburbia: Hubo un cambio de régimen o es muy pequeña. Confiamos 70% en la inercia reciente.
-            peso_ml = 0.15
-            peso_oli = 0.15
-            peso_rec = 0.70
-        elif cv < 0.15:
-            # Coppel: Es masiva y muy estable. Confiamos 60% en el promedio olímpico a largo plazo.
+        # EL ÁRBITRO IMPLACABLE
+        if desfase_agresivo or media_14 < 200:
+            # Suburbia: Se desplomó. Ignoramos la historia, confiamos en la semana pasada.
+            peso_ml = 0.10
+            peso_oli = 0.05
+            peso_rec = 0.85
+        elif cv < 0.15 and vol_promedio_historico >= 200:
+            # Coppel: Estable y gigante. Confiamos en el largo plazo.
             peso_ml = 0.20
-            peso_oli = 0.60
-            peso_rec = 0.20
+            peso_oli = 0.70
+            peso_rec = 0.10
         else:
-            # Campañas medias
+            # Mixto
             peso_ml = 0.40
             peso_oli = 0.30
             peso_rec = 0.30
-            
-        pred_final = (pred_ml * peso_ml) + (base_oli * peso_oli) + (base_reciente * peso_rec)
+
+        pred_ensamblada = (pred_ml * peso_ml) + (base_oli * peso_oli) + (base_reciente * peso_rec)
+        pred_final = max(0.0, float(pred_ensamblada))
         
-        # Corrector de Inercia
-        if media_14 < 200:
-            tendencia = min(1.15, max(0.85, rm_3_val / rm_7_val if rm_7_val > 0 else 1.0))
-        else:
-            tendencia = 1.0 
-            
-        # Difuminamos la tendencia día con día
-        factor_dia = 1.0 + ((tendencia - 1.0) * max(0.0, 1.0 - (d * 0.15)))
-        pred_final = pred_final * factor_dia
+        preds_finales_ajustadas.append(pred_final)
         
-        pred_final = max(0.0, float(pred_final))
-        preds_finales.append(pred_final)
-        
-        # Actualizamos la memoria para el siguiente día (¡Auto-ajuste!)
+        # Retroalimentamos con lo que el modelo decidió
         historial_simulado.append({
             col_fecha: fecha_actual,
             col_calls: pred_final,
-            'calls_smooth': pred_final,
-            'dia_semana': wd
+            'calls_smooth': pred_final
         })
         fecha_actual += timedelta(days=1)
         
-    return preds_finales
+    return preds_finales_ajustadas
 
 # =====================================================================
 # ⚙️ MÓDULOS AUXILIARES Y DISTRIBUCIÓN INTRADÍA
