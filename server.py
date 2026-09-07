@@ -20,6 +20,17 @@ CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
 EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
 
+# =====================================================================
+# 🧨 EXTERMINADOR DE CACHÉ (Destruye datos viejos al iniciar en Render)
+# =====================================================================
+for cache_file in [CACHE_FILE_IN, CACHE_FILE_OUT, CACHE_FILE_CHAT]:
+    try:
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+            print(f"Borrando caché viejo: {cache_file}")
+    except Exception as e:
+        print(f"No se pudo borrar {cache_file}: {str(e)}")
+
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
@@ -43,19 +54,16 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🛠️ FORZADOR DE CUADRE ABSOLUTO (El Hack Definitivo para el Dashboard)
+# 🛠️ FORZADOR DE CUADRE ABSOLUTO (Hack matemático para el Tablero)
 # =====================================================================
 def forzar_cuadre_dashboard(df_final):
     if df_final.empty: return df_final
     
-    # 1. HACK MENSUAL (Garantiza que la tarjeta global topé con tu suma manual, ej. 103)
+    # 1. HACK MENSUAL (Garantiza que el mes cuadre con la suma pura dedicada)
     for mes in df_final['Mes'].unique():
         df_mes = df_final[df_final['Mes'] == mes]
         
-        # La suma pura de picos individuales que tú sacas a mano
         suma_picos_mes = df_mes.groupby('Campaña')['Agentes_Requeridos'].max().sum()
-        
-        # El pico máximo que está leyendo tu tablero actualmente
         suma_por_intervalo = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
         if suma_por_intervalo.empty: continue
         
@@ -65,12 +73,11 @@ def forzar_cuadre_dashboard(df_final):
         diferencia = suma_picos_mes - pico_actual_tablero
         
         if diferencia > 0:
-            # Inyectamos la diferencia faltante directamente a la primera campaña en esa hora exacta
             idx = df_final[(df_final['Fecha'] == fecha_pico) & (df_final['Intervalo'] == hora_pico)].index
             if len(idx) > 0:
                 df_final.loc[idx[0], 'Agentes_Requeridos'] += diferencia
 
-    # 2. HACK DIARIO (Garantiza el mismo cuadre si filtras un solo día en el tablero)
+    # 2. HACK DIARIO (Garantiza el mismo cuadre si se filtra por un solo día)
     for fecha in df_final['Fecha'].unique():
         df_dia = df_final[df_final['Fecha'] == fecha]
         
@@ -89,7 +96,6 @@ def forzar_cuadre_dashboard(df_final):
                 df_final.loc[idx[0], 'Agentes_Requeridos'] += diferencia_dia
 
     return df_final
-
 
 def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     sub = df_diario_campana.sort_values(col_fecha).copy()
@@ -637,15 +643,12 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        
         ultimos_14_dias = sub.tail(14)[col_calls]
         cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        
         if cv < 0.20 and ultimos_14_dias.mean() >= 250:
             preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         else:
             preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
