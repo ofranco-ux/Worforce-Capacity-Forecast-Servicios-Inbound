@@ -56,7 +56,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     festivos_pais = holidays.CountryHoliday('MX', years=anos_unicos)
     df_ml['dia_semana'] = df_ml[col_fecha].dt.weekday
     
-    # BASE ESTABLE: Promedio Olímpico (A prueba de balas)
     dow_olimpico = {}
     for i in range(7):
         vols_dow = df_ml[(df_ml['dia_semana'] == i) & (df_ml[col_calls] > 0)][col_calls]
@@ -99,7 +98,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=7)
     modelo.fit(df_train[features], df_train['calls_smooth'])
     
-    # DETECTOR DE DESFASE ESTRUCTURAL
     ultimos_7_media = df_diario_campana.tail(7)[col_calls].mean()
     ultimos_14 = df_diario_campana.tail(14)[col_calls]
     media_14 = ultimos_14.mean()
@@ -109,7 +107,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     historico_previo = df_diario_campana.iloc[:-7][col_calls].mean() if len(df_diario_campana) > 7 else ultimos_7_media
     desfase_agresivo = True if (ultimos_7_media < historico_previo * 0.85) or (ultimos_7_media > historico_previo * 1.15) else False
     
-    # LA MAGIA: Pesos por Mediana (Inmunes a outliers de fin de semana)
     df_recent_4w = df_diario_campana.tail(28).copy()
     df_recent_4w['wd'] = df_recent_4w[col_fecha].dt.weekday
     dow_medians = df_recent_4w.groupby('wd')[col_calls].median()
@@ -152,7 +149,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         
         base_reciente = ultimos_7_media * dow_weights.get(wd, 1.0)
         
-        # ÁRBITRO ENSAMBLADO
         if desfase_agresivo or media_14 < 200:
             peso_ml, peso_oli, peso_rec = 0.10, 0.05, 0.85
         elif cv < 0.15 and vol_promedio_historico >= 200:
@@ -163,7 +159,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         pred_ensamblada = (pred_ml * peso_ml) + (base_oli * peso_oli) + (base_reciente * peso_rec)
         pred_final = max(0.0, float(pred_ensamblada))
         
-        # Inercia Corta
         if media_14 < 200:
             tendencia = min(1.10, max(0.90, rm_3_val / rm_7_val if rm_7_val > 0 else 1.0))
             pred_final = pred_final * (1.0 + ((tendencia - 1.0) * max(0.0, 1.0 - (d * 0.15))))
@@ -439,13 +434,15 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
         preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         predicciones_futuras[camp] = preds_finales
 
+    # CORRECCIÓN: Guardamos los promedios ANTES de borrar el DataFrame para que el Árbitro lo pueda leer
+    vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
+
     df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
     df_filtrado = df[df['En_Ventana']].copy()
 
     df_reciente = df_filtrado[df_filtrado[col_fecha] >= (max_fecha_real - timedelta(days=28))]
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
-    # 1. PERFIL POR DÍA DE LA SEMANA (Para Campañas Macro)
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
         total_calls=(col_calls, 'sum'),
         avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
@@ -454,7 +451,6 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
     mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
 
-    # 2. PERFIL GLOBAL SUAVIZADO (Filtro Anti-Serrucho para Campañas Micro)
     perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'sum')).reset_index()
     totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
     perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
@@ -470,8 +466,8 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     data_processed = []
 
     for camp in campanas_unicas:
-        vol_historico_camp = float(df_diario[df_diario[col_camp] == camp][col_calls].mean())
-        es_micro_campana = vol_historico_camp < 250 # Umbral de activación del Anti-Serrucho
+        vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
+        es_micro_campana = vol_historico_camp < 250
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
@@ -485,7 +481,6 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
             pesos_crudos = []
             for inter in intervalos_validos:
                 if es_micro_campana:
-                    # Aplica la Curva Global para aplanar los picos aleatorios de 1 sola llamada
                     w = mapa_perfil_global.get((camp, inter), 0.0)
                 else:
                     w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
@@ -619,6 +614,8 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
         preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         predicciones_futuras[camp] = preds_finales
 
+    vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
+
     df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
     df_filtrado = df[df['En_Ventana']].copy()
 
@@ -648,7 +645,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     data_processed = []
 
     for camp in campanas_unicas:
-        vol_historico_camp = float(df_diario[df_diario[col_camp] == camp][col_calls].mean())
+        vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
         es_micro_campana = vol_historico_camp < 250
 
         for d in range(dias_futuros):
@@ -796,6 +793,8 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
         preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         predicciones_futuras[camp] = preds_finales
 
+    vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
+
     df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
     df_filtrado = df[df['En_Ventana']].copy()
 
@@ -825,7 +824,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     data_processed = []
 
     for camp in campanas_unicas:
-        vol_historico_camp = float(df_diario[df_diario[col_camp] == camp][col_calls].mean())
+        vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
         es_micro_campana = vol_historico_camp < 250
 
         for d in range(dias_futuros):
