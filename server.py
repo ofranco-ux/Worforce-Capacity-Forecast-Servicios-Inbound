@@ -43,35 +43,32 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🛠️ ALINEADOR DE PICOS DE FUERZA BRUTA (Cuadre perfecto para Dashboards)
+# 🛠️ ALINEADOR DE FUERZA BRUTA (Obliga al Dashboard a sumar el máximo real)
 # =====================================================================
 def alinear_picos_dashboard(df_final):
     if df_final.empty: return df_final
     
-    # 1. CUADRE MENSUAL: Forzamos el pico máximo absoluto en el mismo instante
+    # Procesamos mes a mes para no mezclar datos
     for mes in df_final['Mes'].unique():
         df_mes = df_final[df_final['Mes'] == mes]
-        suma_por_hora = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
-        fecha_ancla, hora_ancla = suma_por_hora.idxmax()
         
-        for campana in df_mes['Campaña'].unique():
-            pico_max_mensual = df_mes[df_mes['Campaña'] == campana]['Agentes_Requeridos'].max()
-            idx = df_final[(df_final['Mes'] == mes) & (df_final['Fecha'] == fecha_ancla) & (df_final['Intervalo'] == hora_ancla) & (df_final['Campaña'] == campana)].index
-            if not idx.empty:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_max_mensual
-                
-    # 2. CUADRE DIARIO: Hacemos lo mismo día por día para los gráficos diarios
-    for fecha in df_final['Fecha'].unique():
-        df_dia = df_final[df_final['Fecha'] == fecha]
-        suma_por_hora_dia = df_dia.groupby('Intervalo')['Agentes_Requeridos'].sum()
-        hora_ancla_dia = suma_por_hora_dia.idxmax()
+        # 1. Obtenemos el HC Máximo REAL de cada campaña en todo el mes (El número que a ti te da 103)
+        picos_mensuales_por_campana = df_mes.groupby('Campaña')['Agentes_Requeridos'].max().to_dict()
         
-        for campana in df_dia['Campaña'].unique():
-            pico_max_diario = df_dia[df_dia['Campaña'] == campana]['Agentes_Requeridos'].max()
-            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_ancla_dia) & (df_final['Campaña'] == campana)].index
-            if not idx.empty:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_max_diario
-
+        # 2. Iteramos por cada día del mes
+        for fecha in df_mes['Fecha'].unique():
+            df_dia = df_mes[df_mes['Fecha'] == fecha]
+            
+            # Encontramos la hora pico global de ESE día
+            suma_por_hora = df_dia.groupby('Intervalo')['Agentes_Requeridos'].sum()
+            hora_pico_dia = suma_por_hora.idxmax()
+            
+            # 3. Fuerza Bruta: Inyectamos el pico mensual en esa hora específica para todas las campañas
+            for campana, pico_max in picos_mensuales_por_campana.items():
+                idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_pico_dia) & (df_final['Campaña'] == campana)].index
+                if not idx.empty:
+                    df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_max
+                    
     return df_final
 
 def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
@@ -555,18 +552,15 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     sheet_out = None
     for s in xls_file.sheet_names:
         if 'out' in s.lower() or 'salida' in s.lower(): 
-            sheet_out = s
-            break
+            sheet_out = s; break
             
-    if not sheet_out:
-        raise ValueError("No se encontró una pestaña llamada 'Out' o 'Salida' en el archivo Excel para procesar Outbound.")
+    if not sheet_out: raise ValueError("No se encontró pestaña Outbound.")
 
     sheet_roster = None
     for s in xls_file.sheet_names:
         s_lower = s.lower()
         if ('plantilla' in s_lower or 'platilla' in s_lower or 'roster' in s_lower) and ('out' in s_lower or 'salida' in s_lower):
-            sheet_roster = s
-            break
+            sheet_roster = s; break
 
     roster_coverage, roster_total_camp, roster_total_dia_camp = {}, {}, {}
     if sheet_roster:
@@ -623,15 +617,12 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        
         ultimos_14_dias = sub.tail(14)[col_calls]
         cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        
         if cv < 0.20 and ultimos_14_dias.mean() >= 250:
             preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         else:
             preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
@@ -751,18 +742,15 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     sheet_chat = None
     for s in xls_file.sheet_names:
         if ('chat' in s.lower() or 'mensaje' in s.lower()) and ('plantilla' not in s.lower() and 'roster' not in s.lower() and 'platilla' not in s.lower()): 
-            sheet_chat = s
-            break
+            sheet_chat = s; break
             
-    if not sheet_chat:
-        raise ValueError("No se encontró una pestaña llamada 'Chat' o 'Mensajes' en el archivo Excel.")
+    if not sheet_chat: raise ValueError("No se encontró pestaña Chat.")
 
     sheet_roster = None
     for s in xls_file.sheet_names:
         s_lower = s.lower()
         if ('plantilla' in s_lower or 'platilla' in s_lower or 'roster' in s_lower) and ('chat' in s_lower or 'mensaje' in s_lower):
-            sheet_roster = s
-            break
+            sheet_roster = s; break
 
     roster_coverage, roster_total_camp, roster_total_dia_camp = {}, {}, {}
     if sheet_roster:
@@ -819,15 +807,12 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        
         ultimos_14_dias = sub.tail(14)[col_calls]
         cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        
         if cv < 0.20 and ultimos_14_dias.mean() >= 250:
             preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         else:
             preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
