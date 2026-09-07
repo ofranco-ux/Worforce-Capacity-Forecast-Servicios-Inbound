@@ -43,7 +43,7 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🧠 MOTOR WFM PERRONSÍSIMO (ML + Olímpico + Ancla Ultra-Reciente)
+# 🧠 MOTOR WFM ULTRA-PERRÓN (Medianas Inmunes y Anti-Serrucho)
 # =====================================================================
 def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     df_ml = df_diario_campana.sort_values(col_fecha).copy()
@@ -56,7 +56,7 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     festivos_pais = holidays.CountryHoliday('MX', years=anos_unicos)
     df_ml['dia_semana'] = df_ml[col_fecha].dt.weekday
     
-    # 1. BASE ESTABLE: Promedio Olímpico a Largo Plazo
+    # BASE ESTABLE: Promedio Olímpico (A prueba de balas)
     dow_olimpico = {}
     for i in range(7):
         vols_dow = df_ml[(df_ml['dia_semana'] == i) & (df_ml[col_calls] > 0)][col_calls]
@@ -90,17 +90,16 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     df_ml['es_festivo'] = df_ml[col_fecha].apply(lambda x: 1 if x in festivos_pais else 0)
     
     df_train = df_ml.dropna().copy()
-    vol_promedio_historico = df_diario_campana[col_calls].mean()
+    vol_promedio_historico = df_ml[col_calls].mean()
     
     if len(df_train) < 14:
         return [max(0.0, float(vol_promedio_historico))] * dias_futuros
 
     features = ['lag_1', 'lag_2', 'lag_7', 'lag_14', 'rolling_mean_3', 'rolling_mean_7', 'dia_semana', 'dia_mes', 'es_quincena', 'es_festivo']
-    
     modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=7)
     modelo.fit(df_train[features], df_train['calls_smooth'])
     
-    # 2. DETECTOR DE DESFASE ESTRUCTURAL (Para campañas como Suburbia)
+    # DETECTOR DE DESFASE ESTRUCTURAL
     ultimos_7_media = df_diario_campana.tail(7)[col_calls].mean()
     ultimos_14 = df_diario_campana.tail(14)[col_calls]
     media_14 = ultimos_14.mean()
@@ -108,15 +107,16 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     cv = (std_14 / media_14) if media_14 > 0 else 0
     
     historico_previo = df_diario_campana.iloc[:-7][col_calls].mean() if len(df_diario_campana) > 7 else ultimos_7_media
-    # Si subió o bajó más del 15% de golpe, es un desfase estructural real
     desfase_agresivo = True if (ultimos_7_media < historico_previo * 0.85) or (ultimos_7_media > historico_previo * 1.15) else False
     
-    # 3. RADIOGRAFÍA DE DÍAS (Pesos de los últimos 28 días)
+    # LA MAGIA: Pesos por Mediana (Inmunes a outliers de fin de semana)
     df_recent_4w = df_diario_campana.tail(28).copy()
     df_recent_4w['wd'] = df_recent_4w[col_fecha].dt.weekday
-    dow_means = df_recent_4w.groupby('wd')[col_calls].mean()
-    overall_mean = dow_means.mean()
-    dow_weights = {k: (v / overall_mean if overall_mean > 0 else 1.0) for k, v in dow_means.items()}
+    dow_medians = df_recent_4w.groupby('wd')[col_calls].median()
+    if dow_medians.sum() == 0: 
+        dow_medians = df_recent_4w.groupby('wd')[col_calls].mean()
+    overall_median = dow_medians.mean()
+    dow_weights = {k: (v / overall_median if overall_median > 0 else 1.0) for k, v in dow_medians.items()}
 
     historial_simulado = df_ml.to_dict('records')
     preds_finales_ajustadas = []
@@ -147,36 +147,29 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         
         pred_ml = float(modelo.predict(X_pred[features])[0])
         pred_ml = max(0.0, pred_ml)
-        
         wd = fecha_actual.weekday()
         base_oli = dow_olimpico.get(wd, media_14)
         
-        # ANCLA ULTRA-RECIENTE (Media de los últimos 7 días * peso del día de la semana)
         base_reciente = ultimos_7_media * dow_weights.get(wd, 1.0)
         
-        # EL ÁRBITRO IMPLACABLE
+        # ÁRBITRO ENSAMBLADO
         if desfase_agresivo or media_14 < 200:
-            # Suburbia: Se desplomó. Ignoramos la historia, confiamos en la semana pasada.
-            peso_ml = 0.10
-            peso_oli = 0.05
-            peso_rec = 0.85
+            peso_ml, peso_oli, peso_rec = 0.10, 0.05, 0.85
         elif cv < 0.15 and vol_promedio_historico >= 200:
-            # Coppel: Estable y gigante. Confiamos en el largo plazo.
-            peso_ml = 0.20
-            peso_oli = 0.70
-            peso_rec = 0.10
+            peso_ml, peso_oli, peso_rec = 0.20, 0.70, 0.10
         else:
-            # Mixto
-            peso_ml = 0.40
-            peso_oli = 0.30
-            peso_rec = 0.30
+            peso_ml, peso_oli, peso_rec = 0.40, 0.30, 0.30
 
         pred_ensamblada = (pred_ml * peso_ml) + (base_oli * peso_oli) + (base_reciente * peso_rec)
         pred_final = max(0.0, float(pred_ensamblada))
         
+        # Inercia Corta
+        if media_14 < 200:
+            tendencia = min(1.10, max(0.90, rm_3_val / rm_7_val if rm_7_val > 0 else 1.0))
+            pred_final = pred_final * (1.0 + ((tendencia - 1.0) * max(0.0, 1.0 - (d * 0.15))))
+        
         preds_finales_ajustadas.append(pred_final)
         
-        # Retroalimentamos con lo que el modelo decidió
         historial_simulado.append({
             col_fecha: fecha_actual,
             col_calls: pred_final,
@@ -452,6 +445,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     df_reciente = df_filtrado[df_filtrado[col_fecha] >= (max_fecha_real - timedelta(days=28))]
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
+    # 1. PERFIL POR DÍA DE LA SEMANA (Para Campañas Macro)
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
         total_calls=(col_calls, 'sum'),
         avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
@@ -460,6 +454,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
     mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
 
+    # 2. PERFIL GLOBAL SUAVIZADO (Filtro Anti-Serrucho para Campañas Micro)
     perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'sum')).reset_index()
     totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
     perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
@@ -474,20 +469,27 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     factor_asistencia = max(0.01, 1.0 - merma)
     data_processed = []
 
-    for d in range(dias_futuros):
-        fecha_actual = fecha_inicio_forecast + timedelta(days=d)
-        str_fecha = fecha_actual.strftime('%Y-%m-%d')
-        str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
-        nombre_dia = dias_espanol[fecha_actual.weekday()]
+    for camp in campanas_unicas:
+        vol_historico_camp = float(df_diario[df_diario[col_camp] == camp][col_calls].mean())
+        es_micro_campana = vol_historico_camp < 250 # Umbral de activación del Anti-Serrucho
 
-        for camp in campanas_unicas:
+        for d in range(dias_futuros):
+            fecha_actual = fecha_inicio_forecast + timedelta(days=d)
+            str_fecha = fecha_actual.strftime('%Y-%m-%d')
+            str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
+            nombre_dia = dias_espanol[fecha_actual.weekday()]
+
             vol_diario = predicciones_futuras.get(camp, [0]*dias_futuros)[d]
             intervalos_validos = intervalos_operativos_por_camp.get(camp, [])
 
             pesos_crudos = []
             for inter in intervalos_validos:
-                w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
-                if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
+                if es_micro_campana:
+                    # Aplica la Curva Global para aplanar los picos aleatorios de 1 sola llamada
+                    w = mapa_perfil_global.get((camp, inter), 0.0)
+                else:
+                    w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
+                    if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
                 pesos_crudos.append(w)
 
             suma_pesos = sum(pesos_crudos)
@@ -645,20 +647,26 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     factor_asistencia = max(0.01, 1.0 - merma)
     data_processed = []
 
-    for d in range(dias_futuros):
-        fecha_actual = fecha_inicio_forecast + timedelta(days=d)
-        str_fecha = fecha_actual.strftime('%Y-%m-%d')
-        str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
-        nombre_dia = dias_espanol[fecha_actual.weekday()]
+    for camp in campanas_unicas:
+        vol_historico_camp = float(df_diario[df_diario[col_camp] == camp][col_calls].mean())
+        es_micro_campana = vol_historico_camp < 250
 
-        for camp in campanas_unicas:
+        for d in range(dias_futuros):
+            fecha_actual = fecha_inicio_forecast + timedelta(days=d)
+            str_fecha = fecha_actual.strftime('%Y-%m-%d')
+            str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
+            nombre_dia = dias_espanol[fecha_actual.weekday()]
+
             vol_diario = predicciones_futuras.get(camp, [0]*dias_futuros)[d]
             intervalos_validos = intervalos_operativos_por_camp.get(camp, [])
 
             pesos_crudos = []
             for inter in intervalos_validos:
-                w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
-                if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
+                if es_micro_campana:
+                    w = mapa_perfil_global.get((camp, inter), 0.0)
+                else:
+                    w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
+                    if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
                 pesos_crudos.append(w)
 
             suma_pesos = sum(pesos_crudos)
@@ -816,20 +824,26 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     factor_asistencia = max(0.01, 1.0 - merma)
     data_processed = []
 
-    for d in range(dias_futuros):
-        fecha_actual = fecha_inicio_forecast + timedelta(days=d)
-        str_fecha = fecha_actual.strftime('%Y-%m-%d')
-        str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
-        nombre_dia = dias_espanol[fecha_actual.weekday()]
+    for camp in campanas_unicas:
+        vol_historico_camp = float(df_diario[df_diario[col_camp] == camp][col_calls].mean())
+        es_micro_campana = vol_historico_camp < 250
 
-        for camp in campanas_unicas:
+        for d in range(dias_futuros):
+            fecha_actual = fecha_inicio_forecast + timedelta(days=d)
+            str_fecha = fecha_actual.strftime('%Y-%m-%d')
+            str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
+            nombre_dia = dias_espanol[fecha_actual.weekday()]
+
             vol_diario = predicciones_futuras.get(camp, [0]*dias_futuros)[d]
             intervalos_validos = intervalos_operativos_por_camp.get(camp, [])
 
             pesos_crudos = []
             for inter in intervalos_validos:
-                w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
-                if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
+                if es_micro_campana:
+                    w = mapa_perfil_global.get((camp, inter), 0.0)
+                else:
+                    w = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
+                    if w == 0.0: w = mapa_perfil_global.get((camp, inter), 0.0)
                 pesos_crudos.append(w)
 
             suma_pesos = sum(pesos_crudos)
