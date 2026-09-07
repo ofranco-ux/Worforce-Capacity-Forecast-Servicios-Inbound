@@ -42,6 +42,66 @@ VENTANAS_SERVICIO = {
     'retenciones liverpool': {'inicio': 9 * 60, 'fin': 20 * 60}
 }
 
+# =====================================================================
+# 🛠️ ALINEADOR DEFINITIVO DE PICOS DEDICADOS (FORZADO AL PICO MAX)
+# =====================================================================
+def alinear_picos_dashboard(df_final):
+    if df_final.empty:
+        return df_final
+    
+    nuevos_registros = []
+    
+    # 1. CUADRE MENSUAL: Garantiza que la suma del intervalo coincida con la suma de picos
+    for mes in df_final['Mes'].unique():
+        df_mes = df_final[df_final['Mes'] == mes]
+        picos_mes_campana = df_mes.groupby('Campaña')['Agentes_Requeridos'].max().to_dict()
+        
+        suma_mes_intradia = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
+        if suma_mes_intradia.empty:
+            continue
+        fecha_pico_mes, hora_pico_mes = suma_mes_intradia.idxmax()
+        
+        for campana, pico_max in picos_mes_campana.items():
+            idx = df_final[(df_final['Fecha'] == fecha_pico_mes) & (df_final['Intervalo'] == hora_pico_mes) & (df_final['Campaña'] == campana)].index
+            if not idx.empty:
+                df_final.loc[idx, 'Agentes_Requeridos'] = pico_max
+            else:
+                base_row = df_mes.iloc[0].copy()
+                base_row['Fecha'] = fecha_pico_mes
+                base_row['Intervalo'] = hora_pico_mes
+                base_row['Campaña'] = campana
+                base_row['Agentes_Requeridos'] = pico_max
+                base_row['Llamadas'] = 0
+                nuevos_registros.append(base_row)
+                
+    # 2. CUADRE DIARIO: Garantiza coherencia diaria al filtrar por fecha
+    for fecha in df_final['Fecha'].unique():
+        df_dia = df_final[df_final['Fecha'] == fecha]
+        picos_dia_campana = df_dia.groupby('Campaña')['Agentes_Requeridos'].max().to_dict()
+        
+        suma_dia_intradia = df_dia.groupby('Intervalo')['Agentes_Requeridos'].sum()
+        if suma_dia_intradia.empty:
+            continue
+        hora_pico_dia = suma_dia_intradia.idxmax()
+        
+        for campana, pico_max in picos_dia_campana.items():
+            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_pico_dia) & (df_final['Campaña'] == campana)].index
+            if not idx.empty:
+                if df_final.loc[idx[0], 'Agentes_Requeridos'] < pico_max:
+                    df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_max
+            else:
+                base_row = df_dia.iloc[0].copy()
+                base_row['Intervalo'] = hora_pico_dia
+                base_row['Campaña'] = campana
+                base_row['Agentes_Requeridos'] = pico_max
+                base_row['Llamadas'] = 0
+                nuevos_registros.append(base_row)
+
+    if nuevos_registros:
+        df_final = pd.concat([df_final, pd.DataFrame(nuevos_registros)], ignore_index=True)
+        
+    return df_final
+
 def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     sub = df_diario_campana.sort_values(col_fecha).copy()
     sub['dia_semana'] = sub[col_fecha].dt.weekday
@@ -144,7 +204,6 @@ def serve_frontend(path):
         return jsonify({"error": "Endpoint API no encontrado"}), 404
 
     rutas_a_buscar = [BASE_DIR, os.getcwd(), os.path.dirname(BASE_DIR)]
-    
     for ruta in rutas_a_buscar:
         if path != "" and os.path.exists(os.path.join(ruta, path)):
             return send_from_directory(ruta, path)
@@ -357,7 +416,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
             
     if not sheet_roster:
         for s in xls_file.sheet_names:
-            if 'roster' in s.lower() or 'plantilla' in s.lower() or 'platilla' in s_lower: 
+            if 'roster' in s.lower() or 'plantilla' in s.lower() or 'platilla' in s.lower(): 
                 sheet_roster = s; break
 
     roster_coverage, roster_total_camp, roster_total_dia_camp = {}, {}, {}
@@ -529,6 +588,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
+        df_final = alinear_picos_dashboard(df_final)
         df_final = agregar_metricas_dedicadas(df_final)
         data_processed = df_final.to_dict('records')
 
@@ -719,6 +779,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
+        df_final = alinear_picos_dashboard(df_final)
         df_final = agregar_metricas_dedicadas(df_final)
         data_processed = df_final.to_dict('records')
 
@@ -912,6 +973,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
+        df_final = alinear_picos_dashboard(df_final)
         df_final = agregar_metricas_dedicadas(df_final)
         data_processed = df_final.to_dict('records')
 
