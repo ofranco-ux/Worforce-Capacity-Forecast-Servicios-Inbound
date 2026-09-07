@@ -43,7 +43,7 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🧠 MOTOR WFM GALLETA PURA (ML + EMA Suavizado Exponencial)
+# 🧠 MOTOR WFM NIVEL DIOS (ML + Sensor Inicio Mes + Blend Intradía Exacto)
 # =====================================================================
 def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     df_ml = df_diario_campana.sort_values(col_fecha).copy()
@@ -56,7 +56,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     festivos_pais = holidays.CountryHoliday('MX', years=anos_unicos)
     df_ml['dia_semana'] = df_ml[col_fecha].dt.weekday
     
-    # 1. BASE ESTABLE: Mediana Olímpica (Inmune a Picos Falsos)
     dow_olimpico = {}
     for i in range(7):
         vols_dow = df_ml[(df_ml['dia_semana'] == i) & (df_ml[col_calls] > 0)][col_calls]
@@ -73,18 +72,20 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         if len(group) < 4: return group
         q1, q3 = group.quantile(0.25), group.quantile(0.75)
         iqr = q3 - q1
-        # Filtro estricto para limpiar el pasado
         return np.clip(group, q1 - 1.2 * iqr, q3 + 1.2 * iqr)
         
     df_ml['calls_smooth'] = df_ml.groupby('dia_semana')[col_calls].transform(cap_outliers) if len(df_ml) >= 14 else df_ml[col_calls]
 
     df_ml['lag_1'] = df_ml['calls_smooth'].shift(1)
+    df_ml['lag_2'] = df_ml['calls_smooth'].shift(2)
     df_ml['lag_7'] = df_ml['calls_smooth'].shift(7)
     df_ml['lag_14'] = df_ml['calls_smooth'].shift(14)
     df_ml['rolling_mean_3'] = df_ml['calls_smooth'].shift(1).rolling(window=3, min_periods=1).mean()
     df_ml['rolling_mean_7'] = df_ml['calls_smooth'].shift(1).rolling(window=7, min_periods=1).mean()
     
+    # 🌟 Sensor de Inicio de Mes y Quincena
     df_ml['dia_mes'] = df_ml[col_fecha].dt.day
+    df_ml['es_inicio_mes'] = df_ml['dia_mes'].apply(lambda x: 1 if x <= 5 else 0)
     df_ml['es_quincena'] = df_ml['dia_mes'].apply(lambda x: 1 if x in [14, 15, 16, 29, 30, 31] else 0)
     df_ml['es_festivo'] = df_ml[col_fecha].apply(lambda x: 1 if x in festivos_pais else 0)
     
@@ -94,9 +95,10 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     if len(df_train) < 14:
         return [max(0.0, float(vol_promedio_historico))] * dias_futuros
 
-    features = ['lag_1', 'lag_7', 'lag_14', 'rolling_mean_3', 'rolling_mean_7', 'dia_semana', 'dia_mes', 'es_quincena', 'es_festivo']
-    
-    # Random Forest Conservador: max_depth=5 y min_samples_leaf=3 evita que se invente picos locos
+    features = ['lag_1', 'lag_2', 'lag_7', 'lag_14', 'rolling_mean_3', 'rolling_mean_7', 
+                'dia_semana', 'dia_mes', 'es_inicio_mes', 'es_quincena', 'es_festivo']
+                
+    # ML Conservador
     modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=3)
     modelo.fit(df_train[features], df_train['calls_smooth'])
     
@@ -112,6 +114,7 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         vols_smooth = [r.get('calls_smooth', r.get(col_calls, 0)) for r in historial_simulado]
         
         lag_1_val = vols_smooth[-1]
+        lag_2_val = vols_smooth[-2] if len(vols_smooth) >= 2 else lag_1_val
         lag_7_val = vols_smooth[-7] if len(vols_smooth) >= 7 else lag_1_val
         lag_14_val = vols_smooth[-14] if len(vols_smooth) >= 14 else lag_7_val
         rm_3_val = np.mean(vols_smooth[-3:]) if len(vols_smooth) >= 3 else np.mean(vols_smooth)
@@ -119,12 +122,14 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         
         X_pred = pd.DataFrame([{
             'lag_1': lag_1_val,
+            'lag_2': lag_2_val,
             'lag_7': lag_7_val,
             'lag_14': lag_14_val,
             'rolling_mean_3': rm_3_val,
             'rolling_mean_7': rm_7_val,
             'dia_semana': fecha_actual.weekday(),
             'dia_mes': fecha_actual.day,
+            'es_inicio_mes': 1 if fecha_actual.day <= 5 else 0,
             'es_quincena': 1 if fecha_actual.day in [14, 15, 16, 29, 30, 31] else 0,
             'es_festivo': 1 if fecha_actual in festivos_pais else 0
         }])
@@ -134,22 +139,20 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         wd = fecha_actual.weekday()
         base_oli = dow_olimpico.get(wd, media_14)
         
-        # EMA RECIENTE: 70% El mismo día la semana pasada + 30% la inercia de los últimos 3 días
-        base_reciente = (lag_7_val * 0.70) + (rm_3_val * 0.30)
+        # 🌟 Inercia Viva 50/50 (Mitad semana pasada, Mitad últimos 3 días)
+        base_reciente = (lag_7_val * 0.50) + (rm_3_val * 0.50)
         
-        # EL ÁRBITRO ENSAMBLADO
         if vol_promedio_historico < 150:
-            # Suburbia
-            peso_ml, peso_oli, peso_rec = 0.10, 0.10, 0.80
+            # Microcampañas (Suburbia)
+            peso_ml, peso_oli, peso_rec = 0.15, 0.05, 0.80
         elif cv < 0.20 and vol_promedio_historico >= 300:
-            # Coppel
-            peso_ml, peso_oli, peso_rec = 0.25, 0.50, 0.25
+            # Macro estables (Coppel)
+            peso_ml, peso_oli, peso_rec = 0.30, 0.60, 0.10
         else:
-            # Campañas Medias (Seguimiento Vial)
-            peso_ml, peso_oli, peso_rec = 0.25, 0.25, 0.50
+            # Campañas Medias / Dinámicas (Seguimiento Vial)
+            peso_ml, peso_oli, peso_rec = 0.30, 0.20, 0.50
 
         pred_final = (pred_ml * peso_ml) + (base_oli * peso_oli) + (base_reciente * peso_rec)
-        
         pred_final = max(0.0, float(pred_final))
         preds_finales_ajustadas.append(pred_final)
         
@@ -431,15 +434,16 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     df_reciente = df_filtrado[df_filtrado[col_fecha] >= (max_fecha_real - timedelta(days=28))]
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
+    # 🌟 INTRADÍA EXACTO POR PROMEDIO MATEMÁTICO (Adios redondeo a 0 por mediana)
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'sum'),
+        total_calls=(col_calls, 'mean'), # ¡Promedio puro para respetar todos los micro-picos!
         avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
     ).reset_index()
     totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
     perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
     mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
 
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'sum')).reset_index()
+    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
     totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
     perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
     mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
@@ -455,6 +459,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
+        # Fusión suave: Si es muy chica se pega a la global, si es grande se pega al día
         blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
 
         for d in range(dias_futuros):
@@ -610,14 +615,14 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'sum'),
+        total_calls=(col_calls, 'mean'),
         avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
     ).reset_index()
     totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
     perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
     mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
 
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'sum')).reset_index()
+    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
     totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
     perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
     mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
@@ -788,14 +793,14 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'sum'),
+        total_calls=(col_calls, 'mean'),
         avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
     ).reset_index()
     totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
     perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
     mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
 
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'sum')).reset_index()
+    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
     totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
     perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
     mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
