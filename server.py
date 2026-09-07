@@ -43,57 +43,26 @@ VENTANAS_SERVICIO = {
 }
 
 # =====================================================================
-# 🛠️ ALINEADOR ABSOLUTO DE TABLEROS (Alinea picos en la misma hora)
+# 🛠️ ALINEADOR DEFINITIVO DE PICOS DEDICADOS
 # =====================================================================
 def alinear_picos_dashboard(df_final):
     if df_final.empty: return df_final
-    nuevos_registros = []
     
-    # 1. CUADRE MENSUAL: Garantiza que el pico mensual total = a la suma de picos de campaña
     for mes in df_final['Mes'].unique():
         df_mes = df_final[df_final['Mes'] == mes]
         picos_mes_campana = df_mes.groupby('Campaña')['Agentes_Requeridos'].max().to_dict()
         
+        # Encontrar la fecha y el intervalo con la mayor suma acumulada
         suma_mes_intradia = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
+        if suma_mes_intradia.empty: continue
         fecha_pico_mes, hora_pico_mes = suma_mes_intradia.idxmax()
         
+        # Inyectar el pico máximo de cada campaña en esa hora fija
         for campana, pico_max in picos_mes_campana.items():
-            idx = df_final[(df_final['Fecha'] == fecha_pico_mes) & (df_final['Intervalo'] == hora_pico_mes) & (df_final['Campaña'] == campana)].index
+            idx = df_final[(df_final['Mes'] == mes) & (df_final['Fecha'] == fecha_pico_mes) & (df_final['Intervalo'] == hora_pico_mes) & (df_final['Campaña'] == campana)].index
             if not idx.empty:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_max
-            else:
-                base_row = df_mes.iloc[0].copy()
-                base_row['Fecha'] = fecha_pico_mes
-                base_row['Intervalo'] = hora_pico_mes
-                base_row['Campaña'] = campana
-                base_row['Agentes_Requeridos'] = pico_max
-                base_row['Llamadas'] = 0
-                nuevos_registros.append(base_row)
+                df_final.loc[idx, 'Agentes_Requeridos'] = pico_max
                 
-    # 2. CUADRE DIARIO: Garantiza que si filtras un solo día, el pico de ese día también cuadre
-    for fecha in df_final['Fecha'].unique():
-        df_dia = df_final[df_final['Fecha'] == fecha]
-        picos_dia_campana = df_dia.groupby('Campaña')['Agentes_Requeridos'].max().to_dict()
-        
-        suma_dia_intradia = df_dia.groupby('Intervalo')['Agentes_Requeridos'].sum()
-        hora_pico_dia = suma_dia_intradia.idxmax()
-        
-        for campana, pico_max in picos_dia_campana.items():
-            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_pico_dia) & (df_final['Campaña'] == campana)].index
-            if not idx.empty:
-                if df_final.loc[idx[0], 'Agentes_Requeridos'] < pico_max:
-                    df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_max
-            else:
-                base_row = df_dia.iloc[0].copy()
-                base_row['Intervalo'] = hora_pico_dia
-                base_row['Campaña'] = campana
-                base_row['Agentes_Requeridos'] = pico_max
-                base_row['Llamadas'] = 0
-                nuevos_registros.append(base_row)
-
-    if nuevos_registros:
-        df_final = pd.concat([df_final, pd.DataFrame(nuevos_registros)], ignore_index=True)
-        
     return df_final
 
 def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
@@ -641,15 +610,12 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        
         ultimos_14_dias = sub.tail(14)[col_calls]
         cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        
         if cv < 0.20 and ultimos_14_dias.mean() >= 250:
             preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         else:
             preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
