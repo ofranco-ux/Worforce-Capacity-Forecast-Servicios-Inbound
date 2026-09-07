@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+    <meta http-equiv="Pragma" content="no-cache"/>
+    <meta http-equiv="Expires" content="0"/>
+    <title>Workforce Capacity Forecast — C-Suite Analytics</title>
+    <!-- Tailwind CSS Oficial -->
+    <script src="https://tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Google Fonts -->
+    <link href="https://googleapis.com" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            bg: '#070B14',
+                            surface: '#111827',
+                            border: '#1F2937', 
+                            primary: '#3B82F6', 
+                            primaryHover: '#60A5FA',
+                            accentCyan: '#22D3EE',
+                            accentViolet: '#A78BFA',
+                            accentEmerald: '#34D399',
+                            accentRose: '#FB7185',
+                            accentAmber: '#FBBF24'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #070B14; 
+            color: #E2E8F0; 
+        }
+        .glass-panel { 
+            background-color: #111827; 
+            border: 1px solid #1F2937; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+        }
+        .glass-panel-hover {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glass-panel-hover:hover {
+            border-color: #3B82F6;
+            transform: translateY(-3px);
+            box-shadow: 0 12px 20px -8px rgba(59, 130, 246, 0.3);
+        }
+        .font-mono-num {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #070B14; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        
+        .input-clean {
+            background-color: #0F172A;
+            border: 1px solid #334155;
+            color: #F8FAFC;
+            transition: all 0.2s;
+        }
+        .input-clean:focus {
+            outline: none;
+            border-color: #3B82F6;
+            box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+        }
+    </style>
+</head>
+<body class="p-6 md:p-8 min-h-screen">
+
+    <header class="flex justify-between items-center bg-[#111827] border border-[#1F2937] shadow-lg rounded-2xl p-6 mb-8 relative flex-wrap gap-4">
+        <div class="flex items-center gap-5 z-10">
+            <svg class="h-12 w-12 flex-shrink-0 text-brand-accentCyan transition-transform hover:scale-110 duration-300 drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]" viewBox="0 0 200 200" fill="none" xmlns="http://w3.org">
+                <circle cx="100" cy="100" r="85" stroke="#3B82F6" stroke-width="12" stroke-linecap="round" stroke-dasharray="350 150" transform="rotate(-45 100 100)"/>
+                <circle cx="100" cy="100" r="65" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-dasharray="150 250" transform="rotate(135 100 100)"/>
+                <circle cx="100" cy="75" r="16" fill="#3B82F6"/>
+                <path d="M75 130 C75 110 125 110 125 130 L125 140 L75 140 Z" fill="#3B82F6"/>
+                <circle cx="60" cy="95" r="12" fill="currentColor"/>
+                <path d="M40 140 C40 125 80 125 80 140 Z" fill="currentColor"/>
+                <circle cx="140" cy="95" r="12" fill="currentColor"/>
+                <path d="M120 140 C120 125 160 125 160 140 Z" fill="currentColor"/>
+            </svg>
+
+            <div>
+                <div class="flex items-center gap-3">
+                    <h1 class="text-2xl font-bold text-white tracking-tight">Workforce Capacity Forecast</h1>
+                    
+                    <div class="bg-[#1E293B] rounded-xl p-1 flex items-center shadow-inner border border-[#334155] ml-4">
+                        <button id="btnTabInbound" onclick="setModeWFM('inbound')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-primary text-white shadow-md">🎯 Inbound</button>
+                        <button id="btnTabOutbound" onclick="setModeWFM('outbound')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">🚀 Outbound</button>
+                        <button id="btnTabChat" onclick="setModeWFM('chat')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">💬 Chat</button>
+                        <div class="w-px h-6 bg-[#334155] mx-1"></div>
+                        <button id="btnTabGeneral" onclick="setModeWFM('general')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">🌐 Consolidado</button>
+                    </div>
+
+                    <span id="tagModoOps" class="text-[10px] bg-brand-primary/20 text-brand-primary border border-brand-primary/40 px-2.5 py-0.5 rounded-full font-mono font-bold uppercase tracking-wider drop-shadow-md ml-4">Vista Operaciones</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-1 font-medium tracking-wide">Capacity Planning & Scheduling Optimizer</p>
+            </div>
+        </div>
+
+        <div id="containerShowSidebar" class="z-10 ml-auto hidden">
+            <button onclick="toggleSidebar()" class="bg-[#1E293B] hover:bg-[#334155] text-slate-200 border border-[#475569] px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 font-mono shadow-lg">
+                <span class="text-brand-accentCyan">▶</span> Mostrar Parámetros
+            </button>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-12 gap-8">
+
+        <!-- SIDEBAR DE PARÁMETROS -->
+        <aside id="panelControl" class="col-span-12 lg:col-span-3 glass-panel p-6 rounded-[1.5rem] space-y-6 h-fit transition-all duration-300 relative overflow-hidden">
+            <div class="absolute -top-10 -right-10 w-32 h-32 bg-brand-accentViolet/10 rounded-full blur-3xl pointer-events-none"></div>
+
+            <button onclick="toggleSidebar()" class="w-full bg-[#111827] hover:bg-[#1E293B] text-slate-200 border border-[#1F2937] px-4 py-3.5 rounded-[14px] text-[11px] font-bold transition-all flex items-center justify-center gap-2 font-mono relative z-10 shadow-sm">
+                <span class="text-brand-accentCyan">◀</span> Ocultar Parámetros
+            </button>
+
+            <form id="wfmForm" class="space-y-5 pt-2 relative z-10">
+                <div class="flex items-center justify-between pb-2 border-b border-[#1F2937]">
+                    <h2 class="text-xs font-extrabold text-white uppercase tracking-widest flex items-center gap-2">
+                        <span>⚙️</span> KEY ASSUMPTIONS
+                    </h2>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex flex-col group">
+                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Target SL (%)</label>
+                        <input type="number" name="target_sl" id="targetSl" value="80" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentEmerald focus:outline-none">
+                    </div>
+                    <div class="flex flex-col group">
+                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Target ASA (s)</label>
+                        <input type="number" name="target_time" id="targetTime" value="20" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentCyan focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex flex-col group">
+                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Shrinkage (%)</label>
+                        <input type="number" name="merma" id="merma" value="30" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentRose focus:outline-none">
+                    </div>
+                    <div class="flex flex-col group">
+                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Jornada (Hrs)</label>
+                        <input type="number" name="jornada" id="jornada" value="8" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentAmber focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="flex flex-col group">
+                    <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte (Días)</label>
+                    <input type="number" name="dias" id="horizonte" value="130" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentViolet focus:outline-none">
+                </div>
+
+                <div class="flex items-center justify-between p-3 bg-[#0B1121] border border-[#1F2937] rounded-xl">
+                    <span class="text-xs text-slate-300 font-medium font-mono">Turno Nocturno</span>
+                    <input type="checkbox" name="nocturno" class="w-4 h-4 rounded border-gray-700 bg-gray-900 text-blue-600 focus:ring-blue-500">
+                </div>
+
+
