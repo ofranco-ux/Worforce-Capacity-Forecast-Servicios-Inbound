@@ -42,6 +42,36 @@ VENTANAS_SERVICIO = {
     'retenciones liverpool': {'inicio': 9 * 60, 'fin': 20 * 60}
 }
 
+# =====================================================================
+# 🛠️ ALINEADOR DE PICOS (Fuerza la Suma Dedicada en el Tablero)
+# =====================================================================
+def alinear_picos_dashboard(df_final):
+    if df_final.empty: return df_final
+    
+    # 1. Cuadre Diario: Alinear los picos máximos del día a la misma hora global
+    for fecha, group in df_final.groupby('Fecha'):
+        suma_intradia = group.groupby('Intervalo')['Agentes_Requeridos'].sum()
+        hora_pico_global = suma_intradia.idxmax()
+        
+        for campana in group['Campaña'].unique():
+            pico_real_campana = group[group['Campaña'] == campana]['Agentes_Requeridos'].max()
+            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_pico_global) & (df_final['Campaña'] == campana)].index
+            if len(idx) > 0:
+                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_real_campana
+
+    # 2. Cuadre Mensual: Alinear el pico máximo absoluto del mes a la misma hora y día
+    for mes, group_mes in df_final.groupby('Mes'):
+        suma_mes_intradia = group_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
+        fecha_pico_mes, hora_pico_mes = suma_mes_intradia.idxmax()
+        
+        for campana in group_mes['Campaña'].unique():
+            pico_real_mensual = group_mes[group_mes['Campaña'] == campana]['Agentes_Requeridos'].max()
+            idx = df_final[(df_final['Mes'] == mes) & (df_final['Fecha'] == fecha_pico_mes) & (df_final['Intervalo'] == hora_pico_mes) & (df_final['Campaña'] == campana)].index
+            if len(idx) > 0:
+                df_final.loc[idx[0], 'Agentes_Requeridos'] = pico_real_mensual
+
+    return df_final
+
 def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     sub = df_diario_campana.sort_values(col_fecha).copy()
     sub['dia_semana'] = sub[col_fecha].dt.weekday
@@ -323,59 +353,6 @@ def procesar_hoja_roster(df_roster):
                                 roster_cov[(camp, dia_real, inv)] = roster_cov.get((camp, dia_real, inv), 0) + 1
     return roster_cov, roster_total_camp, roster_total_dia_camp
 
-# =====================================================================
-# 🛠️ ALINEADOR DE PICOS FUERZA BRUTA (Cuadre Perfecto para Tableros)
-# =====================================================================
-def alinear_picos_dashboard(df_final):
-    if df_final.empty: return df_final
-    
-    # 1. CREAR COLUMNAS PRE-MASTICADAS (Para mapear directo si es posible)
-    max_mes_camp = df_final.groupby(['Mes', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-    suma_mes = max_mes_camp.groupby('Mes')['Agentes_Requeridos'].sum().reset_index()
-    suma_mes.rename(columns={'Agentes_Requeridos': 'Nomina_A_Contratar_Mes'}, inplace=True)
-    df_final = df_final.merge(suma_mes, on='Mes', how='left')
-
-    max_dia_camp = df_final.groupby(['Fecha', 'Campaña'])['Agentes_Requeridos'].max().reset_index()
-    suma_dia = max_dia_camp.groupby('Fecha')['Agentes_Requeridos'].sum().reset_index()
-    suma_dia.rename(columns={'Agentes_Requeridos': 'Nomina_A_Contratar_Dia'}, inplace=True)
-    df_final = df_final.merge(suma_dia, on='Fecha', how='left')
-    
-    # 2. FUERZA BRUTA INTRADÍA (Para forzar a que el tablero cuadre con sus fórmulas por defecto)
-    # A) Cuadrar cada día
-    for fecha, group in df_final.groupby('Fecha'):
-        nomina_dia = suma_dia[suma_dia['Fecha'] == fecha]['Nomina_A_Contratar_Dia'].iloc[0]
-        suma_intradia = group.groupby('Intervalo')['Agentes_Requeridos'].sum().reset_index()
-        pico_dia = suma_intradia['Agentes_Requeridos'].max()
-        diff_dia = nomina_dia - pico_dia
-        
-        if diff_dia > 0:
-            hora_pico = suma_intradia[suma_intradia['Agentes_Requeridos'] == pico_dia].iloc[0]['Intervalo']
-            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_pico)].index
-            if len(idx) > 0:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] += diff_dia
-
-    # B) Cuadrar el mes entero
-    for mes, group in df_final.groupby('Mes'):
-        nomina_mes = suma_mes[suma_mes['Mes'] == mes]['Nomina_A_Contratar_Mes'].iloc[0]
-        suma_intradia = df_final[df_final['Mes'] == mes].groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum().reset_index()
-        pico_mes = suma_intradia['Agentes_Requeridos'].max()
-        diff_mes = nomina_mes - pico_mes
-        
-        if diff_mes > 0:
-            intervalo_pico = suma_intradia[suma_intradia['Agentes_Requeridos'] == pico_mes].iloc[0]
-            fecha_pico = intervalo_pico['Fecha']
-            hora_pico = intervalo_pico['Intervalo']
-            idx = df_final[(df_final['Fecha'] == fecha_pico) & (df_final['Intervalo'] == hora_pico)].index
-            if len(idx) > 0:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] += diff_mes
-
-    # Formateo Final a enteros
-    for col in ['Agentes_Max_Dia', 'Agentes_Max_Mes', 'Nomina_A_Contratar_Dia', 'Nomina_A_Contratar_Mes']:
-        if col not in df_final.columns: df_final[col] = 0
-        df_final[col] = df_final[col].fillna(0).astype(int)
-
-    return df_final
-
 def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_calls = xls_file.sheet_names[0]
@@ -538,8 +515,8 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
                 if calls_int <= 0: aht = 0.0
 
                 req_ftes = (calls_float * aht) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
-                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
-                
+                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0.0
+
                 hc_roster = roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0)
                 tot_camp = roster_total_camp.get(str(camp), 0)
                 tot_camp_dia = roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0)
@@ -562,8 +539,6 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
-        df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
-        df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
         df_final = alinear_picos_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
@@ -736,8 +711,8 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
                 if calls_int <= 0: aht = 0.0
 
                 req_ftes = (calls_float * aht) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
-                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
-                
+                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0.0
+
                 hc_roster = roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0)
                 tot_camp = roster_total_camp.get(str(camp), 0)
                 tot_camp_dia = roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0)
@@ -760,8 +735,6 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
-        df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
-        df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
         df_final = alinear_picos_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
@@ -961,8 +934,6 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     df_final = pd.DataFrame(data_processed)
     if not df_final.empty:
-        df_final['Agentes_Max_Dia'] = df_final.groupby(['Campaña', 'Fecha'])['Agentes_Requeridos'].transform('max')
-        df_final['Agentes_Max_Mes'] = df_final.groupby(['Campaña', 'Mes'])['Agentes_Requeridos'].transform('max')
         df_final = alinear_picos_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
