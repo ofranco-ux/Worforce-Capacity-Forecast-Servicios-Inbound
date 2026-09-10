@@ -800,6 +800,15 @@
                 }
             }
             fetchLatestData(forecastMode);
+
+            // --- NUEVO: LECTURA EN VIVO PARA VISTA OPERATIVA ---
+            if (mode === 'ops' || mode === 'operaciones') {
+                setInterval(() => {
+                    // Descarga los datos silenciosamente en segundo plano
+                    // sin recalcular fórmulas y respetando los filtros actuales.
+                    fetchLatestData(forecastMode);
+                }, 10000); // 10000 milisegundos = 10 segundos
+            }
         });
 
         function debouncedActualizarGrafica() {
