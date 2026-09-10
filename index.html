@@ -807,12 +807,46 @@
             debounceTimer = setTimeout(() => { actualizarGrafica(); }, 50); 
         }
 
+        function actualizarVisibilidadFiltros() {
+            let validSemanas = new Set();
+            let validFechas = new Set();
+            
+            globalData.forEach(item => {
+                let m = String(getProp(item, ['Mes'], ''));
+                let s = getWeekNumber(getProp(item, ['Fecha'], ''));
+                let f = String(getProp(item, ['Fecha'], '')).split(' ')[0].split('T')[0];
+                
+                // La cascada: El mes habilita las semanas, la semana habilita las fechas
+                if (selectedMeses.has(m)) {
+                    validSemanas.add(s);
+                    if (selectedSemanas.has(s)) {
+                        validFechas.add(f);
+                    }
+                }
+            });
+
+            document.querySelectorAll('#dropdownSemanaMenu label').forEach(label => {
+                const val = label.querySelector('span').innerText;
+                label.style.display = validSemanas.has(val) ? 'flex' : 'none';
+            });
+
+            document.querySelectorAll('#dropdownFechaMenu label').forEach(label => {
+                const val = label.querySelector('span').innerText;
+                label.style.display = validFechas.has(val) ? 'flex' : 'none';
+            });
+        }
+
         async function actualizarGrafica() {
+            actualizarVisibilidadFiltros(); // Aseguramos ocultar fechas no válidas
+
             const durJornada = parseFloat(document.getElementById('jornada') ? document.getElementById('jornada').value : 8) || 8;
             const usarNocturnoActual = document.getElementById('chkNocturno') ? document.getElementById('chkNocturno').checked : false;
             const targetSlObj = parseFloat(document.getElementById('targetSl') ? document.getElementById('targetSl').value : 80) || 80;
             const targetTimeObj = parseFloat(document.getElementById('targetTime') ? document.getElementById('targetTime').value : 20) || 20;
             const concurrenciaVal = parseFloat(document.getElementById('concurrencia') ? document.getElementById('concurrencia').value : 4) || 4;
+            const factorDescanso = usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0);
+            const mermaValLocal = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
+            const factorAsistencia = Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
 
             const dfFiltered = [];
             for (let i = 0; i < globalData.length; i++) {
@@ -896,10 +930,6 @@
                     aggGen[ch][inv].silos[c][d].ht += (calls * aht);
                 }
 
-                const factorDescanso = usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0);
-                const mermaValLocal = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
-                const factorAsistencia = Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
-
                 let hcReqDict = { 'Inbound': 0, 'Outbound': 0, 'Chat': 0 };
                 let hcDispDict = { 'Inbound': 0, 'Outbound': 0, 'Chat': 0 };
 
@@ -907,28 +937,33 @@
                     let canalFechas = new Set(dfFiltered.filter(r => r.Canal === ch).map(r => String(getProp(r, ['Fecha'], '')).split(' ')[0]));
                     let nDiasCanal = canalFechas.size || 1;
                     
-                    let totalFteIntervals = 0;
+                    let ftePorCampanaGeneral = {};
                     todosIntervalos.forEach(inv => {
                         let invData = aggGen[ch][inv];
-                        let interReqSum = 0;
                         if(invData) {
                             for(let c in invData.silos) {
                                 let campData = invData.silos[c];
+                                let interReqSumCamp = 0;
                                 for(let d in campData) {
                                     let callsD = campData[d].calls;
                                     let avgAhtD = callsD > 0 ? campData[d].ht / callsD : 180;
                                     let aht_efectivo = ch === 'Chat' ? avgAhtD / Math.max(1.0, concurrenciaVal) : avgAhtD;
                                     if(callsD >= 0.05) {
                                         let a_erlang = (callsD * aht_efectivo) / 1800.0;
-                                        interReqSum += calcular_agentes_requeridos_erlang_c_js(a_erlang, aht_efectivo, targetTimeObj, targetSlObj);
+                                        interReqSumCamp += calcular_agentes_requeridos_erlang_c_js(a_erlang, aht_efectivo, targetTimeObj, targetSlObj);
                                     }
                                 }
+                                if(!ftePorCampanaGeneral[c]) ftePorCampanaGeneral[c] = 0;
+                                ftePorCampanaGeneral[c] += (interReqSumCamp / nDiasCanal);
                             }
                         }
-                        totalFteIntervals += (interReqSum / nDiasCanal);
                     });
                     
-                    hcReqDict[ch] = Math.ceil((((totalFteIntervals * 0.5) / durJornada) * factorDescanso) / factorAsistencia);
+                    let hcCanal = 0;
+                    for (let c in ftePorCampanaGeneral) {
+                        hcCanal += Math.ceil((((ftePorCampanaGeneral[c] * 0.5) / durJornada) * factorDescanso) / factorAsistencia);
+                    }
+                    hcReqDict[ch] = hcCanal;
                     
                     let disp = 0;
                     let rosterPorCampanaGeneral = {};
@@ -1000,15 +1035,17 @@
             let ahtAgrupadoGlobal = [];
             let fteAgrupadoGlobal = [];
             let rosterAgrupadoGlobal = [];
+            let ftePorCampanaParaKPI = {};
 
             for (let i = 0; i < todosIntervalos.length; i++) {
                 let inter = todosIntervalos[i];
                 let invData = aggInter[inter];
                 let interCallSum = 0;
                 let interHtSum = 0;
-                let interReqSum = 0;
-
+                let reqIntervaloRedondeadoPorCampana = 0; // Suma ya redondeada por campaña
+                
                 for (let c in invData.silos) {
+                    let reqCampanaIntervalo = 0;
                     for(let d of fechasSet) {
                         if(invData.silos[c][d]) {
                             let callsDay = invData.silos[c][d].calls;
@@ -1018,17 +1055,26 @@
                             
                             let avgAhtD = callsDay > 0 ? htDay / callsDay : 180;
                             let aht_efectivo = forecastMode === 'chat' ? avgAhtD / Math.max(1.0, concurrenciaVal) : avgAhtD;
-                            if (callsDay >= 0.05) interReqSum += calcular_agentes_requeridos_erlang_c_js((callsDay * aht_efectivo) / 1800.0, aht_efectivo, targetTimeObj, targetSlObj);
+                            if (callsDay >= 0.05) reqCampanaIntervalo += calcular_agentes_requeridos_erlang_c_js((callsDay * aht_efectivo) / 1800.0, aht_efectivo, targetTimeObj, targetSlObj);
                         }
                     }
+                    
+                    // Sumar fracciones para el KPI Global
+                    if(!ftePorCampanaParaKPI[c]) ftePorCampanaParaKPI[c] = 0;
+                    ftePorCampanaParaKPI[c] += (reqCampanaIntervalo / numDias);
+                    
+                    // Sumar enteros redondados para la gráfica / tabla
+                    reqIntervaloRedondeadoPorCampana += Math.ceil(reqCampanaIntervalo / numDias);
                 }
+                
                 llamadasAgrupadasGlobal.push(interCallSum / numDias);
                 ahtAgrupadoGlobal.push(interCallSum > 0 ? interHtSum / interCallSum : 180);
-                fteAgrupadoGlobal.push(interReqSum / numDias); 
+                fteAgrupadoGlobal.push(reqIntervaloRedondeadoPorCampana); // Push ya redondeado
                 rosterAgrupadoGlobal.push(Math.round(invData.rosSum / numDias));
             }
 
-            const reqAgrupadoGlobalParaPlot = fteAgrupadoGlobal.map(val => Math.ceil(val));
+            const reqAgrupadoGlobalParaPlot = fteAgrupadoGlobal; // Ya no requiere el map(Math.ceil)
+
             let rosterPorCampana = {};
             globalData.forEach(r => {
                 let camp = String(getProp(r, ['Campaña', 'Campana'], 'General'));
@@ -1039,11 +1085,11 @@
             let totalRosterKPI = 0;
             new Set(dfFiltered.map(r => String(getProp(r, ['Campaña', 'Campana'], 'General')))).forEach(camp => { if(rosterPorCampana[camp]) totalRosterKPI += rosterPorCampana[camp]; });
 
-            const factorDescanso = usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0);
-            const mermaValLocal = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
-            const factorAsistencia = Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
-            const totalHorasRequeridas = fteAgrupadoGlobal.reduce((a, b) => a + b, 0) * 0.5;
-            const hcNominaCalculado = Math.ceil(((totalHorasRequeridas / durJornada) * factorDescanso) / factorAsistencia);
+            // NUEVA LÓGICA DE KPI HC: Redondeando campaña por campaña
+            let hcNominaCalculado = 0;
+            for (let c in ftePorCampanaParaKPI) {
+                hcNominaCalculado += Math.ceil((((ftePorCampanaParaKPI[c] * 0.5) / durJornada) * factorDescanso) / factorAsistencia);
+            }
             
             document.getElementById('kpiHcRequerido').innerText = hcNominaCalculado.toLocaleString() + ' HC';
             document.getElementById('kpiHcRoster').innerText = totalRosterKPI.toLocaleString() + ' HC';
