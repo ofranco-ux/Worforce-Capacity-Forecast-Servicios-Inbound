@@ -443,7 +443,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
 
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
-    campanas_unicas = df[col_camp].unique()
+    campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
 
     predicciones_futuras = {}
 
@@ -636,7 +636,7 @@ def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
 
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
-    campanas_unicas = df[col_camp].unique()
+    campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
 
     predicciones_futuras = {}
 
@@ -826,7 +826,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 600.0).to_dict()
 
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
-    campanas_unicas = df[col_camp].unique()
+    campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
 
     predicciones_futuras = {}
 
