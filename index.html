@@ -466,7 +466,7 @@
                     document.getElementById('contConcurrencia').classList.remove('hidden');
                 }
             }
-            fetchLatestData(mode); // Se llama normal sin isBackground
+            fetchLatestData(mode); 
         }
 
         function switchMode(mode) {
@@ -525,7 +525,6 @@
             setTimeout(() => { if (gapChartInstance) gapChartInstance.resize(); }, 150);
         }
 
-        // --- SE AÑADIÓ isBackground para no resetear menús en el auto-refresh ---
         async function fetchLatestData(mode, isBackground = false) {
             try {
                 if (mode === 'general') {
@@ -744,11 +743,14 @@
         }
 
         function guardarEstadoParametros() {
-            if (forecastMode !== 'general' && currentMode !== 'ops' && currentMode !== 'operaciones') {
+            if (currentMode !== 'ops' && currentMode !== 'operaciones') {
                 const config = {
                     targetSl: document.getElementById('targetSl').value,
                     targetTime: document.getElementById('targetTime').value,
                     merma: document.getElementById('merma').value,
+                    jornada: document.getElementById('jornada').value,
+                    concurrencia: document.getElementById('concurrencia').value,
+                    nocturno: document.getElementById('chkNocturno').checked,
                     opsView: {
                         tab: forecastMode,
                         meses: Array.from(selectedMeses),
@@ -766,7 +768,6 @@
             if (window.savedFilters && (currentMode === 'ops' || currentMode === 'operaciones')) {
                 const f = window.savedFilters;
                 
-                // NUEVO CANDADO: Evita forzar filtros guardados en una pestaña que no corresponde
                 if (f.tab && f.tab !== forecastMode) return; 
 
                 if (f.meses && f.meses.length > 0) selectedMeses = new Set(f.meses.filter(x => allMesesOptions.includes(x)));
@@ -793,9 +794,14 @@
                 const response = await fetch('/api/config?t=' + new Date().getTime());
                 if (response.ok) {
                     const config = await response.json();
+                    
                     if(config.targetSl) document.getElementById('targetSl').value = config.targetSl;
                     if(config.targetTime) document.getElementById('targetTime').value = config.targetTime;
                     if(config.merma) document.getElementById('merma').value = config.merma;
+                    if(config.jornada) document.getElementById('jornada').value = config.jornada;
+                    if(config.concurrencia) document.getElementById('concurrencia').value = config.concurrencia;
+                    if(config.nocturno !== undefined) document.getElementById('chkNocturno').checked = config.nocturno;
+                    
                     if (config.opsView) window.savedFilters = config.opsView;
                 }
             } catch (e) {}
@@ -808,7 +814,6 @@
             }
             fetchLatestData(forecastMode);
 
-            // --- LECTURA EN VIVO CON SEGUNDO CANDADO (isBackground = true) ---
             if (mode === 'ops' || mode === 'operaciones') {
                 setInterval(() => {
                     fetchLatestData(forecastMode, true);
