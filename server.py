@@ -14,16 +14,15 @@ import holidays
 from sklearn.ensemble import RandomForestRegressor
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CACHE_FILE_IN = os.path.join(BASE_DIR, 'forecast_cache_in.json')
-CACHE_FILE_OUT = os.path.join(BASE_DIR, 'forecast_cache_out.json')
+CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
 CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
 EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
 
 # =====================================================================
-# 🧨 EXTERMINADOR DE CACHÉ (Destruye datos viejos al iniciar en Render)
+# 🧨 EXTERMINADOR DE CACHÉ
 # =====================================================================
-for cache_file in [CACHE_FILE_IN, CACHE_FILE_OUT, CACHE_FILE_CHAT]:
+for cache_file in [CACHE_FILE_LLAMADAS, CACHE_FILE_CHAT]:
     try:
         if os.path.exists(cache_file):
             os.remove(cache_file)
@@ -53,23 +52,17 @@ VENTANAS_SERVICIO = {
     'retenciones liverpool': {'inicio': 9 * 60, 'fin': 20 * 60}
 }
 
-# =====================================================================
-# 🛠️ FORZADOR DE CUADRE ABSOLUTO (Hack matemático para el Tablero)
-# =====================================================================
 def forzar_cuadre_dashboard(df_final):
     if df_final.empty: return df_final
     
-    # 1. HACK MENSUAL (Garantiza que el mes cuadre con la suma pura dedicada)
     for mes in df_final['Mes'].unique():
         df_mes = df_final[df_final['Mes'] == mes]
-        
         suma_picos_mes = df_mes.groupby('Campaña')['Agentes_Requeridos'].max().sum()
         suma_por_intervalo = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
         if suma_por_intervalo.empty: continue
         
         pico_actual_tablero = suma_por_intervalo.max()
         fecha_pico, hora_pico = suma_por_intervalo.idxmax()
-        
         diferencia = suma_picos_mes - pico_actual_tablero
         
         if diferencia > 0:
@@ -77,17 +70,14 @@ def forzar_cuadre_dashboard(df_final):
             if len(idx) > 0:
                 df_final.loc[idx[0], 'Agentes_Requeridos'] += diferencia
 
-    # 2. HACK DIARIO (Garantiza el mismo cuadre si se filtra por un solo día)
     for fecha in df_final['Fecha'].unique():
         df_dia = df_final[df_final['Fecha'] == fecha]
-        
         suma_picos_dia = df_dia.groupby('Campaña')['Agentes_Requeridos'].max().sum()
         suma_por_intervalo_dia = df_dia.groupby('Intervalo')['Agentes_Requeridos'].sum()
         if suma_por_intervalo_dia.empty: continue
         
         pico_actual_dia = suma_por_intervalo_dia.max()
         hora_pico_dia = suma_por_intervalo_dia.idxmax()
-        
         diferencia_dia = suma_picos_dia - pico_actual_dia
         
         if diferencia_dia > 0:
@@ -100,17 +90,12 @@ def forzar_cuadre_dashboard(df_final):
 def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     sub = df_diario_campana.sort_values(col_fecha).copy()
     sub['dia_semana'] = sub[col_fecha].dt.weekday
-    
     dow_median = {}
     for i in range(7):
         vols = sub[(sub['dia_semana'] == i) & (sub[col_calls] > 0)][col_calls].tail(5)
-        if len(vols) > 0:
-            dow_median[i] = vols.median()
-        else:
-            dow_median[i] = sub[col_calls].mean()
+        dow_median[i] = vols.median() if len(vols) > 0 else sub[col_calls].mean()
             
     recent_mean = sub[col_calls].tail(14).mean()
-    
     preds_finales = []
     fecha_actual = fecha_inicio_forecast
     for d in range(dias_futuros):
@@ -118,12 +103,10 @@ def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_fore
         pred = dow_median.get(wd, recent_mean) * 0.70 + recent_mean * 0.30
         preds_finales.append(max(0.0, float(pred)))
         fecha_actual += timedelta(days=1)
-        
     return preds_finales
 
 def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     df_ml = df_diario_campana.sort_values(col_fecha).copy()
-    
     anos_presentes = list(df_ml[col_fecha].dt.year.unique())
     anos_presentes.append(fecha_inicio_forecast.year)
     anos_presentes.append((fecha_inicio_forecast + timedelta(days=dias_futuros)).year)
@@ -132,7 +115,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     q1, q3 = df_ml[col_calls].quantile(0.25), df_ml[col_calls].quantile(0.75)
     iqr = q3 - q1
     df_ml['calls_clean'] = np.clip(df_ml[col_calls], max(0, q1 - 1.5 * iqr), q3 + 1.5 * iqr)
-    
     df_ml['baseline'] = df_ml['calls_clean'].shift(1).rolling(window=10, min_periods=1).mean()
     df_ml['ratio'] = np.where(df_ml['baseline'] > 0, df_ml['calls_clean'] / df_ml['baseline'], 1.0)
     
@@ -173,22 +155,18 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         pred_vol = max(0.0, float(current_baseline * pred_ratio))
         preds_finales.append(pred_vol)
         
-        historial_simulado.append({
-            col_fecha: fecha_actual,
-            col_calls: pred_vol,
-            'calls_clean': pred_vol
-        })
+        historial_simulado.append({col_fecha: fecha_actual, col_calls: pred_vol, 'calls_clean': pred_vol})
         fecha_actual += timedelta(days=1)
         
     return preds_finales
 
 def buscar_archivo_excel():
-    if os.path.exists(EXCEL_DEFAULT): return EXCEL_DEFAULT
     try:
         archivos = [f for f in os.listdir(BASE_DIR) if f.lower().endswith('.xlsx') and not f.startswith('~')]
         if not archivos: return None
         for f in archivos:
-            if 'historico' in f.lower(): return os.path.join(BASE_DIR, f)
+            if 'data' in f.lower() or 'servicios' in f.lower() or 'historico' in f.lower(): 
+                return os.path.join(BASE_DIR, f)
         return os.path.join(BASE_DIR, archivos[0])
     except: return None
 
@@ -197,22 +175,16 @@ def buscar_archivo_excel():
 def serve_frontend(path):
     if path.startswith('api/'):
         return jsonify({"error": "Endpoint API no encontrado"}), 404
-
     rutas_a_buscar = [BASE_DIR, os.getcwd(), os.path.dirname(BASE_DIR)]
-    
     for ruta in rutas_a_buscar:
         if path != "" and os.path.exists(os.path.join(ruta, path)):
             return send_from_directory(ruta, path)
-
     for ruta in rutas_a_buscar:
         target_path = os.path.join(ruta, 'index.html')
         if os.path.exists(target_path):
             response = make_response(send_from_directory(ruta, 'index.html'))
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
             return response
-
     return jsonify({"error": "ALERTA CRITICA: No se encontro el archivo index.html."}), 404
 
 @app.route('/favicon.ico')
@@ -350,7 +322,6 @@ def procesar_hoja_roster(df_roster):
     roster_cov, roster_total_camp, roster_total_dia_camp = {}, {}, {}
     col_camp = encontrar_columna(df_roster, ['campaña', 'campana', 'skill', 'servicio'])
     col_agente = encontrar_columna(df_roster, ['agente', 'nombre', 'asesor', 'ejecutivo', 'id'])
-    
     if not col_camp: return roster_cov, roster_total_camp, roster_total_dia_camp
         
     for idx, row in df_roster.iterrows():
@@ -378,7 +349,7 @@ def procesar_hoja_roster(df_roster):
                                 roster_cov[(camp, dia_real, inv)] = roster_cov.get((camp, dia_real, inv), 0) + 1
     return roster_cov, roster_total_camp, roster_total_dia_camp
 
-def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45):
+def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_calls = xls_file.sheet_names[0]
     for s in xls_file.sheet_names:
@@ -387,14 +358,9 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     sheet_roster = None
     for s in xls_file.sheet_names:
         s_lower = s.lower()
-        if ('roster' in s_lower or 'plantilla' in s_lower or 'platilla' in s_lower or 'horario' in s_lower) and 'out' not in s_lower and 'salida' not in s_lower and 'chat' not in s_lower and 'mensaje' not in s_lower: 
+        if 'roster' in s_lower or 'plantilla' in s_lower or 'platilla' in s_lower or 'horario' in s_lower: 
             sheet_roster = s; break
             
-    if not sheet_roster:
-        for s in xls_file.sheet_names:
-            if 'roster' in s.lower() or 'plantilla' in s.lower() or 'platilla' in s_lower: 
-                sheet_roster = s; break
-
     roster_coverage, roster_total_camp, roster_total_dia_camp = {}, {}, {}
     if sheet_roster:
         try:
@@ -420,7 +386,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     df_raw[col_calls] = [clean_num(x, 0.0) for x in df_raw[col_calls]]
 
     df_valido = df_raw[df_raw[col_calls] > 0]
-    if df_valido.empty: raise ValueError("El archivo no tiene volumen mayor a cero.")
+    if df_valido.empty: raise ValueError("El archivo de Llamadas no tiene volumen mayor a cero.")
     
     max_fecha_real = df_valido[col_fecha].max()
     df_raw = df_raw[df_raw[col_fecha] <= max_fecha_real]
@@ -441,28 +407,22 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
     fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
-
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
     campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
-
     predicciones_futuras = {}
 
     for camp in campanas_unicas:
         sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
         if sub.empty: continue
-        
         ultimos_14_dias = sub.tail(14)[col_calls]
         cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        
         if cv < 0.20 and ultimos_14_dias.mean() >= 250:
             preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         else:
             preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-            
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
-
     df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
     df_filtrado = df[df['En_Ventana']].copy()
 
@@ -470,8 +430,7 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'mean'),
-        avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
+        total_calls=(col_calls, 'mean'), avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
     ).reset_index()
     totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
     perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
@@ -533,10 +492,8 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
 
                 info_p = mapa_dia.get((camp, nombre_dia, inter), {})
                 aht_real = info_p.get('aht', 0.0)
-                
                 if aht_real > 0 and not pd.isna(aht_real): aht = aht_real
                 else: aht = aht_global
-
                 if calls_int <= 0: aht = 0.0
 
                 req_ftes = (calls_float * aht) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
@@ -547,19 +504,11 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
                 tot_camp_dia = roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0)
 
                 data_processed.append({
-                    'Campaña': str(camp),
-                    'Fecha': str_fecha,
-                    'Mes': str_mes,
-                    'Día_Semana': nombre_dia.capitalize(),
-                    'Intervalo': inter,
-                    'Llamadas': calls_int,
-                    'AHT': format_aht_str(aht),
-                    'AHT_Segundos': int(round(aht)),
-                    'Agentes_Requeridos': req_hc,
-                    'HC_Actual_Roster': hc_roster,
-                    'Total_Roster_Campana': tot_camp,
-                    'Total_Roster_Dia': tot_camp_dia,
-                    'Factor_Correccion': 1.0
+                    'Campaña': str(camp), 'Fecha': str_fecha, 'Mes': str_mes,
+                    'Día_Semana': nombre_dia.capitalize(), 'Intervalo': inter,
+                    'Llamadas': calls_int, 'AHT': format_aht_str(aht), 'AHT_Segundos': int(round(aht)),
+                    'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
+                    'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia, 'Factor_Correccion': 1.0
                 })
 
     df_final = pd.DataFrame(data_processed)
@@ -568,208 +517,16 @@ def procesar_archivo_excel(file_source, target_sl=80.0, target_time=20.0, merma=
         data_processed = df_final.to_dict('records')
 
     try:
-        with open(CACHE_FILE_IN, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
-    except: pass
-    return data_processed
-
-def procesar_archivo_outbound(file_source, merma=0.20, dias_futuros=45):
-    xls_file = pd.ExcelFile(file_source, engine='openpyxl')
-    
-    sheet_out = None
-    for s in xls_file.sheet_names:
-        if 'out' in s.lower() or 'salida' in s.lower(): 
-            sheet_out = s; break
-            
-    if not sheet_out: raise ValueError("No se encontró pestaña Outbound.")
-
-    sheet_roster = None
-    for s in xls_file.sheet_names:
-        s_lower = s.lower()
-        if ('plantilla' in s_lower or 'platilla' in s_lower or 'roster' in s_lower) and ('out' in s_lower or 'salida' in s_lower):
-            sheet_roster = s; break
-
-    roster_coverage, roster_total_camp, roster_total_dia_camp = {}, {}, {}
-    if sheet_roster:
-        try:
-            df_roster = pd.read_excel(xls_file, sheet_name=sheet_roster, engine='openpyxl')
-            roster_coverage, roster_total_camp, roster_total_dia_camp = procesar_hoja_roster(df_roster)
-        except: pass
-
-    df_raw = pd.read_excel(xls_file, sheet_name=sheet_out, engine='openpyxl')
-    col_calls = encontrar_columna(df_raw, ['realizadas', 'llamadas', 'out'])
-    col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
-    col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill'])
-    col_inter = encontrar_columna(df_raw, ['intervalo', 'hora', 'time'])
-    col_fecha = encontrar_columna(df_raw, ['fecha', 'date'])
-
-    if not col_camp: col_camp = df_raw.columns[0]
-    if not col_fecha: col_fecha = df_raw.columns[1]
-    if not col_inter: col_inter = df_raw.columns[2]
-    if not col_calls: col_calls = df_raw.columns[3]
-
-    df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
-    df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
-    df_raw = df_raw.dropna(subset=[col_fecha])
-    df_raw[col_calls] = [clean_num(x, 0.0) for x in df_raw[col_calls]]
-
-    df_valido = df_raw[df_raw[col_calls] > 0]
-    if df_valido.empty: raise ValueError("El archivo Outbound no tiene volumen mayor a cero.")
-    
-    max_fecha_real = df_valido[col_fecha].max()
-    df_raw = df_raw[df_raw[col_fecha] <= max_fecha_real]
-
-    if col_aht: df_raw[col_aht] = [parse_aht_to_seconds(x) for x in df_raw[col_aht]]
-    else: df_raw['AHT_Calc'] = 180.0; col_aht = 'AHT_Calc'
-
-    df_raw['Inter_Clean'] = df_raw[col_inter].apply(clean_interval_str)
-    df_raw['Total_Segundos_Handle'] = df_raw[col_calls] * df_raw[col_aht]
-
-    df = df_raw.groupby([col_fecha, col_camp, 'Inter_Clean']).agg({col_calls: 'sum', 'Total_Segundos_Handle': 'sum'}).reset_index()
-    df[col_aht] = np.where(df[col_calls] > 0, df['Total_Segundos_Handle'] / df[col_calls], 180.0)
-    df = df.drop(columns=['Total_Segundos_Handle'])
-
-    dias_espanol = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
-    meses_espanol = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-    df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
-
-    fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
-    aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
-
-    df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
-    campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
-
-    predicciones_futuras = {}
-
-    for camp in campanas_unicas:
-        sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
-        if sub.empty: continue
-        ultimos_14_dias = sub.tail(14)[col_calls]
-        cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        if cv < 0.20 and ultimos_14_dias.mean() >= 250:
-            preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-        else:
-            preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-        predicciones_futuras[camp] = preds_finales
-
-    vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
-
-    df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
-    df_filtrado = df[df['En_Ventana']].copy()
-
-    df_reciente = df_filtrado[df_filtrado[col_fecha] >= (max_fecha_real - timedelta(days=28))]
-    if df_reciente.empty: df_reciente = df_filtrado.copy()
-    
-    perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'mean'),
-        avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
-    ).reset_index()
-    totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
-    perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
-    mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
-
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
-    totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
-    perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
-    mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
-    
-    todos_los_intervalos_crudos = [f"{int(h):02d}:{int(m):02d}" for h in range(24) for m in (0, 30)]
-    intervalos_operativos_por_camp = {camp: [i for i in todos_los_intervalos_crudos if esta_en_ventana_servicio(camp, i)] for camp in campanas_unicas}
-
-    del df_raw, df, df_diario, df_filtrado, df_reciente
-    gc.collect()
-
-    factor_asistencia = max(0.01, 1.0 - merma)
-    data_processed = []
-
-    for camp in campanas_unicas:
-        vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
-        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
-
-        for d in range(dias_futuros):
-            fecha_actual = fecha_inicio_forecast + timedelta(days=d)
-            str_fecha = fecha_actual.strftime('%Y-%m-%d')
-            str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
-            nombre_dia = dias_espanol[fecha_actual.weekday()]
-
-            vol_diario = predicciones_futuras.get(camp, [0]*dias_futuros)[d]
-            intervalos_validos = intervalos_operativos_por_camp.get(camp, [])
-
-            pesos_crudos = []
-            for inter in intervalos_validos:
-                w_dia = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
-                w_glob = mapa_perfil_global.get((camp, inter), 0.0)
-                if w_dia == 0.0: w_dia = w_glob
-                w_final = (w_dia * blend_factor) + (w_glob * (1.0 - blend_factor))
-                pesos_crudos.append(w_final)
-
-            suma_pesos = sum(pesos_crudos)
-            if suma_pesos > 0: pesos_norm = [p / suma_pesos for p in pesos_crudos]
-            elif len(intervalos_validos) > 0: pesos_norm = [1.0 / len(intervalos_validos)] * len(intervalos_validos)
-            else: pesos_norm = []
-
-            exact_calls = [vol_diario * p for p in pesos_norm]
-            floor_calls = [int(math.floor(c)) for c in exact_calls]
-            remainders = [(exact_calls[i] - floor_calls[i], i) for i in range(len(exact_calls))]
-            remainders.sort(reverse=True, key=lambda x: x[0])
-            
-            diff = int(round(vol_diario)) - sum(floor_calls)
-            for i in range(diff):
-                if i < len(remainders): floor_calls[remainders[i][1]] += 1
-
-            aht_global = aht_global_campana.get(camp, 180.0)
-            for idx_inter, inter in enumerate(intervalos_validos):
-                calls_int = floor_calls[idx_inter]
-                calls_float = exact_calls[idx_inter] 
-
-                info_p = mapa_dia.get((camp, nombre_dia, inter), {})
-                aht_real = info_p.get('aht', 0.0)
-                
-                if aht_real > 0 and not pd.isna(aht_real): aht = aht_real
-                else: aht = aht_global
-
-                if calls_int <= 0: aht = 0.0
-
-                req_ftes = (calls_float * aht) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
-                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
-                
-                hc_roster = roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0)
-                tot_camp = roster_total_camp.get(str(camp), 0)
-                tot_camp_dia = roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0)
-
-                data_processed.append({
-                    'Campaña': str(camp),
-                    'Fecha': str_fecha,
-                    'Mes': str_mes,
-                    'Día_Semana': nombre_dia.capitalize(),
-                    'Intervalo': inter,
-                    'Llamadas': calls_int,
-                    'AHT': format_aht_str(aht),
-                    'AHT_Segundos': int(round(aht)),
-                    'Agentes_Requeridos': req_hc,
-                    'HC_Actual_Roster': hc_roster,
-                    'Total_Roster_Campana': tot_camp,
-                    'Total_Roster_Dia': tot_camp_dia,
-                    'Factor_Correccion': 1.0
-                })
-
-    df_final = pd.DataFrame(data_processed)
-    if not df_final.empty:
-        df_final = forzar_cuadre_dashboard(df_final)
-        data_processed = df_final.to_dict('records')
-
-    try:
-        with open(CACHE_FILE_OUT, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
+        with open(CACHE_FILE_LLAMADAS, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
     except: pass
     return data_processed
 
 def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
-    
     sheet_chat = None
     for s in xls_file.sheet_names:
         if ('chat' in s.lower() or 'mensaje' in s.lower()) and ('plantilla' not in s.lower() and 'roster' not in s.lower() and 'platilla' not in s.lower()): 
             sheet_chat = s; break
-            
     if not sheet_chat: raise ValueError("No se encontró pestaña Chat.")
 
     sheet_roster = None
@@ -824,10 +581,8 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 600.0).to_dict()
-
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
     campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
-
     predicciones_futuras = {}
 
     for camp in campanas_unicas:
@@ -842,16 +597,13 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
         predicciones_futuras[camp] = preds_finales
 
     vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
-
     df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
     df_filtrado = df[df['En_Ventana']].copy()
-
     df_reciente = df_filtrado[df_filtrado[col_fecha] >= (max_fecha_real - timedelta(days=28))]
     if df_reciente.empty: df_reciente = df_filtrado.copy()
     
     perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'mean'),
-        avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
+        total_calls=(col_calls, 'mean'), avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
     ).reset_index()
     totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
     perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
@@ -880,7 +632,6 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
             str_fecha = fecha_actual.strftime('%Y-%m-%d')
             str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
             nombre_dia = dias_espanol[fecha_actual.weekday()]
-
             vol_diario = predicciones_futuras.get(camp, [0]*dias_futuros)[d]
             intervalos_validos = intervalos_operativos_por_camp.get(camp, [])
 
@@ -910,18 +661,14 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
             for idx_inter, inter in enumerate(intervalos_validos):
                 calls_int = floor_calls[idx_inter]
                 calls_float = exact_calls[idx_inter] 
-
                 info_p = mapa_dia.get((camp, nombre_dia, inter), {})
                 aht_real = info_p.get('aht', 0.0)
-                
                 if aht_real > 0 and not pd.isna(aht_real): aht = aht_real
                 else: aht = aht_global
-
                 if calls_int <= 0: aht = 0.0
 
                 aht_efectivo = aht / max(1.0, concurrencia)
                 a_erlang_raw = (calls_float * aht_efectivo) / 1800.0 if (aht_efectivo > 0 and calls_float > 0) else 0.0
-                
                 req_ftes = calcular_agentes_requeridos_erlang_c(a_erlang_raw, aht_efectivo, target_time, target_sl) if calls_float > 0 else 0
                 req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0.0
 
@@ -930,19 +677,10 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
                 tot_camp_dia = roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0)
 
                 data_processed.append({
-                    'Campaña': str(camp),
-                    'Fecha': str_fecha,
-                    'Mes': str_mes,
-                    'Día_Semana': nombre_dia.capitalize(),
-                    'Intervalo': inter,
-                    'Llamadas': calls_int,
-                    'AHT': format_aht_str(aht),
-                    'AHT_Segundos': int(round(aht)),
-                    'Agentes_Requeridos': req_hc,
-                    'HC_Actual_Roster': hc_roster,
-                    'Total_Roster_Campana': tot_camp,
-                    'Total_Roster_Dia': tot_camp_dia,
-                    'Factor_Correccion': 1.0
+                    'Campaña': str(camp), 'Fecha': str_fecha, 'Mes': str_mes, 'Día_Semana': nombre_dia.capitalize(),
+                    'Intervalo': inter, 'Llamadas': calls_int, 'AHT': format_aht_str(aht),
+                    'AHT_Segundos': int(round(aht)), 'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
+                    'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia, 'Factor_Correccion': 1.0
                 })
 
     df_final = pd.DataFrame(data_processed)
@@ -957,10 +695,9 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
-    mode = request.args.get('mode', 'inbound')
-    if mode == 'outbound': target_cache = CACHE_FILE_OUT
-    elif mode == 'chat': target_cache = CACHE_FILE_CHAT
-    else: target_cache = CACHE_FILE_IN
+    mode = request.args.get('mode', 'llamadas')
+    if mode == 'chat': target_cache = CACHE_FILE_CHAT
+    else: target_cache = CACHE_FILE_LLAMADAS
     
     if os.path.exists(target_cache):
         try:
@@ -968,8 +705,7 @@ def get_latest_forecast():
                 cache_data = json.load(f)
                 if isinstance(cache_data, list) and len(cache_data) > 0: 
                     return jsonify(cache_data), 200
-        except Exception as e:
-            pass
+        except: pass
             
     excel_path = buscar_archivo_excel()
     if excel_path:
@@ -979,25 +715,14 @@ def get_latest_forecast():
                 try:
                     with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                         cfg = json.load(f)
-                        sl = float(cfg.get('targetSl', 80.0))
-                        tt = float(cfg.get('targetTime', 20.0))
-                        
+                        sl, tt = float(cfg.get('targetSl', 80.0)), float(cfg.get('targetTime', 20.0))
                         merma_data = cfg.get('merma', 30.0)
-                        if isinstance(merma_data, dict):
-                            merma = float(merma_data.get(mode, 30.0))
-                        else:
-                            merma = float(merma_data)
+                        merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
                 except: pass
             
             merma_pct = merma / 100.0
-            
-            if mode == 'outbound':
-                data = procesar_archivo_outbound(excel_path, merma=merma_pct, dias_futuros=dias)
-            elif mode == 'chat':
-                data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias)
-            else:
-                data = procesar_archivo_excel(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias)
-                
+            if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias)
+            else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias)
             gc.collect()
             return jsonify(data), 200
         except Exception as e:
@@ -1011,26 +736,10 @@ def process_data():
     excel_path = buscar_archivo_excel()
     if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
     try:
-        data = procesar_archivo_excel(
+        data = procesar_archivo_llamadas(
             excel_path, 
             float(clean_num(request.form.get('target_sl'), 80.0)), 
             float(clean_num(request.form.get('target_time'), 20.0)), 
-            float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
-            int(clean_num(request.form.get('dias'), 45))
-        )
-        gc.collect()
-        return jsonify(data)
-    except Exception as e:
-        gc.collect()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/process_outbound', methods=['POST'])
-def process_outbound_data():
-    excel_path = buscar_archivo_excel()
-    if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
-    try:
-        data = procesar_archivo_outbound(
-            excel_path, 
             float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
             int(clean_num(request.form.get('dias'), 45))
         )
