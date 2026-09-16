@@ -260,7 +260,7 @@
 
                 <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-accentViolet relative overflow-hidden flex flex-col justify-between">
                     <div class="flex justify-between items-start relative z-10">
-                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Nómina a Contratar</p>
+                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">HC Requerido</p>
                         <div class="p-1.5 bg-brand-accentViolet/10 rounded-lg text-brand-accentViolet border border-brand-accentViolet/20 w-8 h-8 flex items-center justify-center">👥</div>
                     </div>
                     <p id="kpiHcRequerido" class="text-3xl font-black font-mono-num text-brand-accentViolet mt-2 relative z-10">0 HC</p>
@@ -268,7 +268,7 @@
 
                 <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-accentEmerald relative overflow-hidden flex flex-col justify-between">
                     <div class="flex justify-between items-start relative z-10">
-                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">HC Actual (Roster)</p>
+                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">HC Actual</p>
                         <div class="p-1.5 bg-brand-accentEmerald/10 rounded-lg text-brand-accentEmerald border border-brand-accentEmerald/20 w-8 h-8 flex items-center justify-center">🏢</div>
                     </div>
                     <div class="flex items-center gap-3 mt-2 relative z-10">
@@ -1000,8 +1000,8 @@
 
                 document.getElementById('tableHeaderRow').innerHTML = `
                     <th class="py-3.5 px-4 text-left">Canal Operativo</th>
-                    <th class="py-3.5 px-4 text-brand-primary">Nómina a Contratar</th>
-                    <th class="py-3.5 px-4 text-brand-accentEmerald">Nómina Roster</th>
+                    <th class="py-3.5 px-4 text-brand-primary">HC Requerido</th>
+                    <th class="py-3.5 px-4 text-brand-accentEmerald">HC Actual</th>
                     <th class="py-3.5 px-4 text-center">Delta (Gap)</th>
                 `;
 
@@ -1137,7 +1137,7 @@
 
             if (gapChartInstance) gapChartInstance.destroy();
             gapChartInstance = new Chart(document.getElementById('gapChart').getContext('2d'), {
-                type: 'bar', // Declaramos el gráfico base como barras
+                type: 'bar',
                 data: {
                     labels: todosIntervalos,
                     datasets: [
@@ -1152,8 +1152,8 @@
                             borderWidth: 3, 
                             pointRadius: 0, 
                             pointHoverRadius: 6,
-                            yAxisID: 'y', // Eje Y principal (Izquierda)
-                            order: 1 // Trae la línea al frente
+                            yAxisID: 'y',
+                            order: 1 
                         },
                         { 
                             type: 'line',
@@ -1167,19 +1167,19 @@
                             borderDash: [5, 5], 
                             pointRadius: 0, 
                             pointHoverRadius: 6,
-                            yAxisID: 'y', // Eje Y principal (Izquierda)
+                            yAxisID: 'y', 
                             order: 2 
                         },
                         { 
                             type: 'bar',
                             label: forecastMode === 'chat' ? 'Mensajes (FCST)' : 'Llamadas (FCST)', 
                             data: llamadasAgrupadasGlobal.map(v => Math.round(v)), 
-                            backgroundColor: 'rgba(59, 130, 246, 0.15)', // Azul translúcido
+                            backgroundColor: 'rgba(59, 130, 246, 0.15)', 
                             borderColor: 'rgba(59, 130, 246, 0.5)',
                             borderWidth: 1,
                             borderRadius: 4,
-                            yAxisID: 'y1', // Eje Y Secundario (Derecha)
-                            order: 3 // Manda las barras al fondo
+                            yAxisID: 'y1', 
+                            order: 3 
                         }
                     ]
                 },
@@ -1203,7 +1203,7 @@
                         y1: { 
                             type: 'linear', display: true, position: 'right',
                             title: { display: true, text: 'Volumen', color: '#94A3B8', font: { size: 10 } },
-                            grid: { drawOnChartArea: false }, // Evita que se dupliquen/crucen las líneas del fondo
+                            grid: { drawOnChartArea: false }, 
                             ticks: { color: '#64748B' }, 
                             beginAtZero: true 
                         }
@@ -1214,8 +1214,26 @@
 
         function exportarCSV() {
             if (!globalData || globalData.length === 0) return alert("No hay datos cargados.");
+            
+            const dfFiltered = [];
+            for (let i = 0; i < globalData.length; i++) {
+                let item = globalData[i];
+                let m = String(getProp(item, ['Mes'], ''));
+                let s = getWeekNumber(getProp(item, ['Fecha'], ''));
+                let c = String(getProp(item, ['Campaña', 'Campana'], 'General'));
+                let f = String(getProp(item, ['Fecha'], '')).split(' ')[0].split('T')[0];
+                let inv = String(getProp(item, ['Intervalo'], '00:00'));
+
+                if (selectedMeses.has(m) && selectedSemanas.has(s) && selectedCampanas.has(c) && selectedFechas.has(f) && selectedIntervalos.has(inv)) {
+                    dfFiltered.push(item);
+                }
+            }
+
+            if (dfFiltered.length === 0) return alert("No hay datos para exportar con los filtros actuales.");
+
             const csvRows = [["Campana", "Canal", "Mes", "Fecha", "Dia_Semana", "Intervalo", "Volumen", "AHT_HH_MM_SS", "HC_Requerido", "HC_Actual", "Gap"].join(",")];
-            globalData.forEach(r => {
+            
+            dfFiltered.forEach(r => {
                 csvRows.push([
                     getProp(r, ['Campaña', 'Campana'], 'General'), getProp(r, ['Canal'], 'N/A'), getProp(r, ['Mes'], ''),
                     String(getProp(r, ['Fecha'], '')).split(' ')[0].split('T')[0], getProp(r, ['Día_Semana', 'Dia_Semana'], ''),
@@ -1224,9 +1242,10 @@
                     Number(getProp(r, ['HC_Actual_Roster', 'Total_Roster_Campana'], 0)) - Number(getProp(r, ['Agentes_Requeridos'], 0))
                 ].join(","));
             });
+
             const a = document.createElement('a');
             a.href = window.URL.createObjectURL(new Blob([csvRows.join("\n")], { type: 'text/csv' }));
-            a.download = `WFM_Reporte_Ejecutivo_HC_${new Date().toISOString().slice(0,10)}.csv`;
+            a.download = `WFM_Reporte_Filtros_${new Date().toISOString().slice(0,10)}.csv`;
             a.click();
         }
     </script>
