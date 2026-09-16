@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache"/>
     <meta http-equiv="Expires" content="0"/>
     <title>Workforce Capacity Forecast — C-Suite Analytics</title>
-    <!-- Enlaces corregidos (CDN) -->
+    <!-- Enlaces CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -95,8 +95,7 @@
                     <h1 class="text-2xl font-bold text-white tracking-tight">Workforce Capacity Forecast</h1>
                     
                     <div class="bg-[#1E293B] rounded-xl p-1 flex items-center shadow-inner border border-[#334155] ml-4">
-                        <button id="btnTabInbound" onclick="setModeWFM('inbound')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-primary text-white shadow-md">🎯 Inbound</button>
-                        <button id="btnTabOutbound" onclick="setModeWFM('outbound')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">🚀 Outbound</button>
+                        <button id="btnTabLlamadas" onclick="setModeWFM('llamadas')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-primary text-white shadow-md">📞 Llamadas</button>
                         <button id="btnTabChat" onclick="setModeWFM('chat')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">💬 Chat</button>
                         <div class="w-px h-6 bg-[#334155] mx-1"></div>
                         <button id="btnTabGeneral" onclick="setModeWFM('general')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">🌐 Consolidado</button>
@@ -145,7 +144,7 @@
                         
                         <div class="flex flex-col group hidden col-span-2" id="contConcurrencia">
                             <label class="text-[11px] text-slate-400 font-medium mb-1.5">Concurrencia (Chats por Agente)</label>
-                            <input type="number" id="concurrencia" value="4" step="0.5" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentCyan focus:outline-none" onchange="debouncedActualizarGrafica()">
+                            <input type="number" id="concurrencia" value="3" step="0.5" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentCyan focus:outline-none" onchange="debouncedActualizarGrafica()">
                         </div>
                     </div>
 
@@ -162,7 +161,7 @@
 
                     <div class="flex flex-col group">
                         <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte (Días)</label>
-                        <input type="number" name="dias" id="dias" value="130" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentViolet focus:outline-none">
+                        <input type="number" name="dias" id="dias" value="45" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentViolet focus:outline-none">
                     </div>
 
                     <div class="flex items-center justify-between p-3 bg-[#0B1121] border border-[#1F2937] rounded-xl cursor-pointer">
@@ -179,7 +178,7 @@
             <div id="contInfoGeneral" class="hidden pt-6">
                 <div class="p-4 bg-brand-primary/10 border border-brand-primary/30 rounded-xl">
                     <p class="text-[11px] text-brand-primary font-bold uppercase tracking-widest mb-2">Vista Consolidada Activa</p>
-                    <p class="text-[11px] text-slate-300 leading-relaxed">Visualizando Inbound, Outbound y Chat integrados.</p>
+                    <p class="text-[11px] text-slate-300 leading-relaxed">Visualizando Llamadas y Chat integrados.</p>
                 </div>
             </div>
         </aside>
@@ -367,7 +366,7 @@
 
         let debounceTimer;
         let currentMode = 'wfm';
-        let forecastMode = 'inbound';
+        let forecastMode = 'llamadas';
         let isSidebarVisible = true; 
 
         function getProp(row, keys, def = '') {
@@ -427,14 +426,12 @@
             if (forecastMode === mode) return; 
             forecastMode = mode;
             
-            const btnIn = document.getElementById('btnTabInbound');
-            const btnOut = document.getElementById('btnTabOutbound');
+            const btnIn = document.getElementById('btnTabLlamadas');
             const btnChat = document.getElementById('btnTabChat');
             const btnGen = document.getElementById('btnTabGeneral');
 
             const inactiveClass = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200";
             btnIn.className = inactiveClass;
-            btnOut.className = inactiveClass;
             btnChat.className = inactiveClass;
             btnGen.className = inactiveClass;
 
@@ -449,15 +446,10 @@
                 contParametros.style.display = 'block';
                 contInfoGen.style.display = 'none';
 
-                if(mode === 'inbound') {
+                if(mode === 'llamadas') {
                     btnIn.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-primary text-white shadow-md";
                     document.getElementById('contTargetSl').style.display = 'block';
                     document.getElementById('contTargetTime').style.display = 'block';
-                    document.getElementById('contConcurrencia').classList.add('hidden');
-                } else if (mode === 'outbound') {
-                    btnOut.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-accentViolet text-white shadow-md";
-                    document.getElementById('contTargetSl').style.display = 'none';
-                    document.getElementById('contTargetTime').style.display = 'none';
                     document.getElementById('contConcurrencia').classList.add('hidden');
                 } else if (mode === 'chat') {
                     btnChat.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-accentCyan text-[#0B1121] shadow-md";
@@ -528,25 +520,22 @@
         async function fetchLatestData(mode, isBackground = false) {
             try {
                 if (mode === 'general') {
-                    const [inRes, outRes, chatRes] = await Promise.all([
-                        fetch('/api/latest?mode=inbound&t=' + new Date().getTime()),
-                        fetch('/api/latest?mode=outbound&t=' + new Date().getTime()),
+                    const [inRes, chatRes] = await Promise.all([
+                        fetch('/api/latest?mode=llamadas&t=' + new Date().getTime()),
                         fetch('/api/latest?mode=chat&t=' + new Date().getTime())
                     ]);
                     const inData = inRes.ok ? await inRes.json() : [];
-                    const outData = outRes.ok ? await outRes.json() : [];
                     const chatData = chatRes.ok ? await chatRes.json() : [];
                     
                     globalData = [
-                        ...inData.map(d => ({...d, Canal: 'Inbound'})), 
-                        ...outData.map(d => ({...d, Canal: 'Outbound'})), 
+                        ...inData.map(d => ({...d, Canal: 'Llamadas'})), 
                         ...chatData.map(d => ({...d, Canal: 'Chat'}))
                     ];
                 } else {
                     const response = await fetch('/api/latest?mode=' + mode + '&t=' + new Date().getTime());
                     if (response.ok) {
                         const data = await response.json();
-                        const canalName = mode === 'inbound' ? 'Inbound' : (mode === 'outbound' ? 'Outbound' : 'Chat');
+                        const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
                         globalData = data.map(d => ({...d, Canal: canalName}));
                     }
                 }
@@ -572,7 +561,7 @@
             
             const formData = new FormData();
             
-            if (forecastMode === 'inbound' || forecastMode === 'chat') {
+            if (forecastMode === 'llamadas' || forecastMode === 'chat') {
                 formData.append('target_sl', document.getElementById('targetSl').value);
                 formData.append('target_time', document.getElementById('targetTime').value);
             }
@@ -583,7 +572,6 @@
             formData.append('merma', document.getElementById('merma') ? document.getElementById('merma').value : 30);
             
             let url = '/api/process';
-            if (forecastMode === 'outbound') url = '/api/process_outbound';
             if (forecastMode === 'chat') url = '/api/process_chat';
 
             try {
@@ -861,7 +849,7 @@
             const usarNocturnoActual = document.getElementById('chkNocturno') ? document.getElementById('chkNocturno').checked : false;
             const targetSlObj = parseFloat(document.getElementById('targetSl') ? document.getElementById('targetSl').value : 80) || 80;
             const targetTimeObj = parseFloat(document.getElementById('targetTime') ? document.getElementById('targetTime').value : 20) || 20;
-            const concurrenciaVal = parseFloat(document.getElementById('concurrencia') ? document.getElementById('concurrencia').value : 4) || 4;
+            const concurrenciaVal = parseFloat(document.getElementById('concurrencia') ? document.getElementById('concurrencia').value : 3) || 3;
             const factorDescanso = usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0);
             const mermaValLocal = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
             const factorAsistencia = Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
@@ -928,14 +916,14 @@
             const todosIntervalos = Object.keys(aggInter).sort();
 
             if (forecastMode === 'general') {
-                let aggGen = { 'Inbound': {}, 'Outbound': {}, 'Chat': {} };
-                ['Inbound', 'Outbound', 'Chat'].forEach(ch => {
+                let aggGen = { 'Llamadas': {}, 'Chat': {} };
+                ['Llamadas', 'Chat'].forEach(ch => {
                     todosIntervalos.forEach(inv => { aggGen[ch][inv] = { silos: {} }; });
                 });
 
                 for (let i = 0; i < dfFiltered.length; i++) {
                     let r = dfFiltered[i];
-                    let ch = r.Canal || 'Inbound';
+                    let ch = r.Canal || 'Llamadas';
                     let c = String(getProp(r, ['Campaña', 'Campana'], 'General'));
                     let inv = String(getProp(r, ['Intervalo'], '00:00'));
                     let d = String(getProp(r, ['Fecha'], '')).split(' ')[0].split('T')[0];
@@ -948,10 +936,10 @@
                     aggGen[ch][inv].silos[c][d].ht += (calls * aht);
                 }
 
-                let hcReqDict = { 'Inbound': 0, 'Outbound': 0, 'Chat': 0 };
-                let hcDispDict = { 'Inbound': 0, 'Outbound': 0, 'Chat': 0 };
+                let hcReqDict = { 'Llamadas': 0, 'Chat': 0 };
+                let hcDispDict = { 'Llamadas': 0, 'Chat': 0 };
 
-                ['Inbound', 'Outbound', 'Chat'].forEach(ch => {
+                ['Llamadas', 'Chat'].forEach(ch => {
                     let canalFechas = new Set(dfFiltered.filter(r => r.Canal === ch).map(r => String(getProp(r, ['Fecha'], '')).split(' ')[0]));
                     let nDiasCanal = canalFechas.size || 1;
                     
@@ -998,8 +986,8 @@
                     hcDispDict[ch] = disp;
                 });
 
-                const totalReqGlobal = hcReqDict['Inbound'] + hcReqDict['Outbound'] + hcReqDict['Chat'];
-                const totalDispGlobal = hcDispDict['Inbound'] + hcDispDict['Outbound'] + hcDispDict['Chat'];
+                const totalReqGlobal = hcReqDict['Llamadas'] + hcReqDict['Chat'];
+                const totalDispGlobal = hcDispDict['Llamadas'] + hcDispDict['Chat'];
 
                 document.getElementById('kpiHcRequerido').innerText = totalReqGlobal.toLocaleString() + ' HC';
                 document.getElementById('kpiHcRoster').innerText = totalDispGlobal.toLocaleString() + ' HC';
@@ -1020,8 +1008,7 @@
                 const tbody = document.getElementById('intervalTableBody');
                 tbody.innerHTML = '';
                 [
-                    { name: '🎯 Inbound', req: hcReqDict['Inbound'], disp: hcDispDict['Inbound'] },
-                    { name: '🚀 Outbound', req: hcReqDict['Outbound'], disp: hcDispDict['Outbound'] },
+                    { name: '📞 Llamadas', req: hcReqDict['Llamadas'], disp: hcDispDict['Llamadas'] },
                     { name: '💬 Chat', req: hcReqDict['Chat'], disp: hcDispDict['Chat'] },
                     { name: '🌐 TOTAL', req: totalReqGlobal, disp: totalDispGlobal }
                 ].forEach(ch => {
@@ -1038,10 +1025,10 @@
                 generalChartInstance = new Chart(document.getElementById('generalChart').getContext('2d'), {
                     type: 'bar',
                     data: {
-                        labels: ['Inbound', 'Outbound', 'Chat'],
+                        labels: ['Llamadas', 'Chat'],
                         datasets: [
-                            { label: 'HC Requerido', data: [hcReqDict['Inbound'], hcReqDict['Outbound'], hcReqDict['Chat']], backgroundColor: '#A78BFA', borderRadius: 4 },
-                            { label: 'HC Disponible', data: [hcDispDict['Inbound'], hcDispDict['Outbound'], hcDispDict['Chat']], backgroundColor: '#34D399', borderRadius: 4 }
+                            { label: 'HC Requerido', data: [hcReqDict['Llamadas'], hcReqDict['Chat']], backgroundColor: '#A78BFA', borderRadius: 4 },
+                            { label: 'HC Disponible', data: [hcDispDict['Llamadas'], hcDispDict['Chat']], backgroundColor: '#34D399', borderRadius: 4 }
                         ]
                     },
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94A3B8' } } }, scales: { x: { grid: { display: false }, ticks: { color: '#64748B' } }, y: { grid: { color: '#1F2937', borderDash: [4, 4] }, ticks: { color: '#64748B' }, beginAtZero: true } } }
@@ -1060,7 +1047,7 @@
                 let invData = aggInter[inter];
                 let interCallSum = 0;
                 let interHtSum = 0;
-                let reqIntervaloRedondeadoPorCampana = 0; // Suma ya redondeada por campaña
+                let reqIntervaloRedondeadoPorCampana = 0; 
                 
                 for (let c in invData.silos) {
                     let reqCampanaIntervalo = 0;
@@ -1077,21 +1064,18 @@
                         }
                     }
                     
-                    // Sumar fracciones para el KPI Global
                     if(!ftePorCampanaParaKPI[c]) ftePorCampanaParaKPI[c] = 0;
                     ftePorCampanaParaKPI[c] += (reqCampanaIntervalo / numDias);
-                    
-                    // Sumar enteros redondados para la gráfica / tabla
                     reqIntervaloRedondeadoPorCampana += Math.ceil(reqCampanaIntervalo / numDias);
                 }
                 
                 llamadasAgrupadasGlobal.push(interCallSum / numDias);
                 ahtAgrupadoGlobal.push(interCallSum > 0 ? interHtSum / interCallSum : 180);
-                fteAgrupadoGlobal.push(reqIntervaloRedondeadoPorCampana); // Push ya redondeado
+                fteAgrupadoGlobal.push(reqIntervaloRedondeadoPorCampana); 
                 rosterAgrupadoGlobal.push(Math.round(invData.rosSum / numDias));
             }
 
-            const reqAgrupadoGlobalParaPlot = fteAgrupadoGlobal; // Ya no requiere el map(Math.ceil)
+            const reqAgrupadoGlobalParaPlot = fteAgrupadoGlobal; 
 
             let rosterPorCampana = {};
             globalData.forEach(r => {
@@ -1103,7 +1087,6 @@
             let totalRosterKPI = 0;
             new Set(dfFiltered.map(r => String(getProp(r, ['Campaña', 'Campana'], 'General')))).forEach(camp => { if(rosterPorCampana[camp]) totalRosterKPI += rosterPorCampana[camp]; });
 
-            // NUEVA LÓGICA DE KPI HC: Redondeando campaña por campaña
             let hcNominaCalculado = 0;
             for (let c in ftePorCampanaParaKPI) {
                 hcNominaCalculado += Math.ceil((((ftePorCampanaParaKPI[c] * 0.5) / durJornada) * factorDescanso) / factorAsistencia);
@@ -1118,7 +1101,7 @@
             else if (gapTotal < 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#FB7185]/20 text-[#FB7185]', gapEl.innerText = `${Math.abs(gapTotal)} Faltan`;
             else gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#1E293B] text-slate-300', gapEl.innerText = `✓ OK`;
 
-            let legendInteractions = forecastMode === 'outbound' ? 'Contactos' : forecastMode === 'chat' ? 'Mensajes' : 'Llamadas';
+            let legendInteractions = forecastMode === 'chat' ? 'Mensajes' : 'Llamadas';
             document.getElementById('tableHeaderRow').innerHTML = `
                 <th class="py-3.5 px-4 text-left">Intervalo</th>
                 <th class="py-3.5 px-4">${legendInteractions}</th>
