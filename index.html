@@ -1137,18 +1137,77 @@
 
             if (gapChartInstance) gapChartInstance.destroy();
             gapChartInstance = new Chart(document.getElementById('gapChart').getContext('2d'), {
-                type: 'line',
+                type: 'bar', // Declaramos el gráfico base como barras
                 data: {
                     labels: todosIntervalos,
                     datasets: [
-                        { label: 'HC Requerido', data: reqAgrupadoGlobalParaPlot, borderColor: '#22D3EE', backgroundColor: 'rgba(34, 211, 238, 0.1)', fill: true, tension: 0.4, borderWidth: 3, pointRadius: 0, pointHoverRadius: 6 },
-                        { label: 'HC Actual', data: rosterAgrupadoGlobal, borderColor: '#34D399', backgroundColor: '#34D399', fill: false, tension: 0.4, borderWidth: 2, borderDash: [5, 5], pointRadius: 0, pointHoverRadius: 6 }
+                        { 
+                            type: 'line',
+                            label: 'HC Requerido', 
+                            data: reqAgrupadoGlobalParaPlot, 
+                            borderColor: '#22D3EE', 
+                            backgroundColor: 'rgba(34, 211, 238, 0.1)', 
+                            fill: true, 
+                            tension: 0.4, 
+                            borderWidth: 3, 
+                            pointRadius: 0, 
+                            pointHoverRadius: 6,
+                            yAxisID: 'y', // Eje Y principal (Izquierda)
+                            order: 1 // Trae la línea al frente
+                        },
+                        { 
+                            type: 'line',
+                            label: 'HC Actual', 
+                            data: rosterAgrupadoGlobal, 
+                            borderColor: '#34D399', 
+                            backgroundColor: '#34D399', 
+                            fill: false, 
+                            tension: 0.4, 
+                            borderWidth: 2, 
+                            borderDash: [5, 5], 
+                            pointRadius: 0, 
+                            pointHoverRadius: 6,
+                            yAxisID: 'y', // Eje Y principal (Izquierda)
+                            order: 2 
+                        },
+                        { 
+                            type: 'bar',
+                            label: forecastMode === 'chat' ? 'Mensajes (FCST)' : 'Llamadas (FCST)', 
+                            data: llamadasAgrupadasGlobal.map(v => Math.round(v)), 
+                            backgroundColor: 'rgba(59, 130, 246, 0.15)', // Azul translúcido
+                            borderColor: 'rgba(59, 130, 246, 0.5)',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                            yAxisID: 'y1', // Eje Y Secundario (Derecha)
+                            order: 3 // Manda las barras al fondo
+                        }
                     ]
                 },
                 options: { 
-                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-                    plugins: { legend: { labels: { color: '#94A3B8' } }, tooltip: { backgroundColor: '#111827', titleColor: '#F8FAFC', bodyColor: '#cbd5e1', borderColor: '#1F2937', borderWidth: 1 } }, 
-                    scales: { x: { grid: { display: false }, ticks: { color: '#64748B' } }, y: { grid: { color: '#1F2937', borderDash: [4, 4] }, ticks: { color: '#64748B' }, beginAtZero: true } } 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { 
+                        legend: { labels: { color: '#94A3B8', usePointStyle: true } }, 
+                        tooltip: { backgroundColor: '#111827', titleColor: '#F8FAFC', bodyColor: '#cbd5e1', borderColor: '#1F2937', borderWidth: 1 } 
+                    }, 
+                    scales: { 
+                        x: { grid: { display: false }, ticks: { color: '#64748B' } }, 
+                        y: { 
+                            type: 'linear', display: true, position: 'left',
+                            title: { display: true, text: 'Headcount', color: '#94A3B8', font: { size: 10 } },
+                            grid: { color: '#1F2937', borderDash: [4, 4] }, 
+                            ticks: { color: '#64748B' }, 
+                            beginAtZero: true 
+                        },
+                        y1: { 
+                            type: 'linear', display: true, position: 'right',
+                            title: { display: true, text: 'Volumen', color: '#94A3B8', font: { size: 10 } },
+                            grid: { drawOnChartArea: false }, // Evita que se dupliquen/crucen las líneas del fondo
+                            ticks: { color: '#64748B' }, 
+                            beginAtZero: true 
+                        }
+                    } 
                 }
             });
         }
