@@ -52,6 +52,25 @@ VENTANAS_SERVICIO = {
     'retenciones liverpool': {'inicio': 9 * 60, 'fin': 20 * 60}
 }
 
+# En Ambulancia Servicios, el 30 % de las atenciones requiere a dos personas
+# simultáneamente: una con el cliente y otra gestionando el servicio de ambulancia.
+REGLA_DOBLE_COBERTURA_AMBULANCIA = {
+    'campana': 'ambulancia servicios',
+    'porcentaje_volumen': 0.30,
+    'personas_por_atencion': 2,
+}
+
+def es_ambulancia_servicios(campana):
+    camp_key = re.sub(r'\s+', ' ', str(campana).strip().lower())
+    campana_objetivo = REGLA_DOBLE_COBERTURA_AMBULANCIA['campana']
+    return bool(camp_key) and (campana_objetivo in camp_key or camp_key in campana_objetivo)
+
+def factor_cobertura_ambulancia(campana):
+    if not es_ambulancia_servicios(campana):
+        return 1.0
+    regla = REGLA_DOBLE_COBERTURA_AMBULANCIA
+    return 1.0 + regla['porcentaje_volumen'] * (regla['personas_por_atencion'] - 1)
+
 def forzar_cuadre_dashboard(df_final):
     if df_final.empty: return df_final
     
@@ -496,7 +515,8 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
                 else: aht = aht_global
                 if calls_int <= 0: aht = 0.0
 
-                req_ftes = (calls_float * aht) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
+                factor_cobertura = factor_cobertura_ambulancia(camp)
+                req_ftes = (calls_float * aht * factor_cobertura) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
                 req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
                 
                 hc_roster = roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0)
@@ -508,7 +528,10 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
                     'Día_Semana': nombre_dia.capitalize(), 'Intervalo': inter,
                     'Llamadas': calls_int, 'AHT': format_aht_str(aht), 'AHT_Segundos': int(round(aht)),
                     'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
-                    'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia, 'Factor_Correccion': 1.0
+                    'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia,
+                    'Factor_Cobertura_Ambulancia': factor_cobertura,
+                    'Volumen_Doble_Cobertura': round(calls_float * REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'], 2) if es_ambulancia_servicios(camp) else 0.0,
+                    'Factor_Correccion': 1.0
                 })
 
     df_final = pd.DataFrame(data_processed)
