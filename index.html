@@ -170,67 +170,332 @@
         @media (min-width: 1280px) {
             #panelControl { max-width: 390px; }
         }
+
+
+        /* ============================================================
+           PREMIUM UI — Executive Capacity Command Center
+           Solo presentación: no modifica la lógica de cálculo.
+           ============================================================ */
+        :root {
+            --premium-bg: #060A12;
+            --premium-panel: rgba(15, 23, 42, .78);
+            --premium-panel-solid: #0F172A;
+            --premium-panel-2: #111C2F;
+            --premium-border: rgba(148, 163, 184, .13);
+            --premium-border-strong: rgba(148, 163, 184, .22);
+            --premium-text: #F8FAFC;
+            --premium-muted: #8290A6;
+            --premium-blue: #4F8CFF;
+            --premium-cyan: #2DD4E8;
+            --premium-green: #35D399;
+            --premium-amber: #F4B740;
+            --premium-red: #FB7185;
+        }
+        html { background: var(--premium-bg); }
+        body {
+            min-width: 320px;
+            background:
+                radial-gradient(circle at 82% -10%, rgba(79,140,255,.10), transparent 32rem),
+                radial-gradient(circle at -5% 32%, rgba(45,212,232,.055), transparent 28rem),
+                linear-gradient(180deg, #070B13 0%, #060A12 100%);
+            background-attachment: fixed;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: .18;
+            background-image:
+                linear-gradient(rgba(148,163,184,.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(148,163,184,.025) 1px, transparent 1px);
+            background-size: 32px 32px;
+            mask-image: linear-gradient(to bottom, black, transparent 72%);
+        }
+        .app-header {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            min-height: 76px;
+            padding: 14px 16px;
+            margin-bottom: 20px;
+            border: 1px solid var(--premium-border);
+            border-radius: 20px;
+            background: linear-gradient(135deg, rgba(17,28,47,.94), rgba(10,16,29,.88));
+            box-shadow: 0 18px 50px -38px rgba(0,0,0,.95), inset 0 1px 0 rgba(255,255,255,.025);
+            backdrop-filter: blur(18px);
+        }
+        .brand-wrap { display:flex; align-items:center; gap:12px; min-width:0; }
+        .brand-mark {
+            display:flex; align-items:center; justify-content:center;
+            width:44px; height:44px; flex:0 0 auto;
+            border-radius:14px;
+            border:1px solid rgba(79,140,255,.26);
+            background: linear-gradient(145deg, rgba(79,140,255,.15), rgba(45,212,232,.055));
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 12px 28px -20px rgba(79,140,255,.9);
+        }
+        .brand-eyebrow { font-size:9px; line-height:1; font-weight:800; letter-spacing:.18em; text-transform:uppercase; color:#6F82A0; margin-bottom:5px; }
+        .brand-title { font-size:18px; line-height:1.25; font-weight:800; color:#F8FAFC; letter-spacing:-.025em; }
+        .brand-subtitle { margin-top:4px; font-size:10px; color:#73839B; font-weight:500; }
+        .header-actions { display:flex; align-items:center; gap:10px; margin-left:auto; }
+        .mode-switch {
+            display:flex; align-items:center; gap:3px; padding:4px;
+            border:1px solid var(--premium-border);
+            border-radius:13px; background:rgba(4,9,18,.56);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+        }
+        .mode-tab {
+            display:inline-flex; align-items:center; justify-content:center; gap:6px;
+            height:34px; padding:0 12px; border-radius:9px;
+            font-size:10px; font-weight:750; color:#77869D;
+            transition: background .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease;
+        }
+        .mode-tab:hover { color:#DCE6F3; background:rgba(148,163,184,.06); }
+        .mode-tab-active {
+            color:#F8FAFC;
+            background:linear-gradient(135deg, rgba(79,140,255,.94), rgba(52,111,238,.92));
+            box-shadow:0 6px 18px -9px rgba(79,140,255,.9), inset 0 1px 0 rgba(255,255,255,.14);
+        }
+        .mode-tab-active.mode-chat { background:linear-gradient(135deg, #22C5D8, #20AFC5); color:#041016; box-shadow:0 6px 18px -9px rgba(45,212,232,.75); }
+        .mode-tab-active.mode-general { background:#EDF4FC; color:#09111E; box-shadow:0 6px 18px -10px rgba(255,255,255,.45); }
+        .ops-badge {
+            display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px;
+            border:1px solid rgba(79,140,255,.28); border-radius:999px;
+            background:rgba(79,140,255,.08); color:#76A5FF;
+            font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.09em;
+        }
+        .ops-badge::before { content:''; width:6px; height:6px; border-radius:50%; background:#4F8CFF; box-shadow:0 0 0 4px rgba(79,140,255,.10); }
+
+        .glass-panel {
+            background: linear-gradient(180deg, rgba(17,28,47,.82), rgba(12,20,34,.88));
+            border-color: var(--premium-border);
+            box-shadow: 0 18px 46px -38px rgba(0,0,0,.98), inset 0 1px 0 rgba(255,255,255,.018);
+            backdrop-filter: blur(14px);
+        }
+        #panelControl {
+            border-radius:20px !important;
+            background:linear-gradient(180deg, rgba(16,26,44,.94), rgba(10,17,30,.94));
+            border-color:var(--premium-border);
+        }
+        @media (min-width:1024px) {
+            #panelControl { position:sticky; top:14px; max-height:calc(100vh - 28px); overflow-y:auto !important; }
+        }
+        .sidebar-topline { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding-bottom:14px; border-bottom:1px solid var(--premium-border); }
+        .sidebar-title { color:#F8FAFC; font-size:12px; font-weight:800; letter-spacing:-.01em; }
+        .sidebar-copy { color:#6F7F97; font-size:9px; margin-top:3px; line-height:1.5; }
+        .ghost-action {
+            display:inline-flex; align-items:center; justify-content:center; height:30px; padding:0 10px;
+            border:1px solid var(--premium-border); border-radius:9px; color:#8391A7; background:rgba(255,255,255,.015);
+            font-size:9px; font-weight:700; transition:.18s ease;
+        }
+        .ghost-action:hover { color:#E5EDF7; border-color:rgba(79,140,255,.28); background:rgba(79,140,255,.06); }
+        .assumption-note {
+            padding:10px 12px; border-radius:12px; border:1px solid rgba(79,140,255,.14);
+            background:linear-gradient(135deg, rgba(79,140,255,.055), rgba(45,212,232,.025));
+        }
+        .input-clean {
+            min-height:44px;
+            background:#09111F;
+            border-color:#24334A;
+            border-radius:12px !important;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,.24);
+        }
+        .input-clean:hover { border-color:#344761; }
+        .input-clean:focus {
+            border-color:rgba(79,140,255,.78);
+            box-shadow:0 0 0 3px rgba(79,140,255,.10), inset 0 1px 2px rgba(0,0,0,.15);
+        }
+        input[type=checkbox] { accent-color:#4F8CFF; }
+        .campaign-details { overflow:hidden; background:#09111F !important; border-color:#24334A !important; }
+        .campaign-details > summary:hover { background:rgba(79,140,255,.035); }
+        #btnProcesar {
+            min-height:48px; border-radius:13px !important;
+            background:linear-gradient(135deg, #4F8CFF 0%, #3474EE 52%, #22BCCE 120%) !important;
+            box-shadow:0 14px 30px -16px rgba(79,140,255,.85), inset 0 1px 0 rgba(255,255,255,.16) !important;
+            letter-spacing:.07em;
+        }
+        #btnProcesar:hover { transform:translateY(-1px); filter:brightness(1.05); }
+        #runStatus { background:rgba(4,9,18,.42) !important; border-color:var(--premium-border) !important; }
+
+        .filter-shell {
+            position:sticky; top:12px; z-index:50;
+            display:grid; grid-template-columns:minmax(150px,.9fr) minmax(0,3.6fr); gap:14px; align-items:center;
+            padding:12px 14px !important; border-radius:18px !important;
+            background:rgba(11,18,31,.88); backdrop-filter:blur(18px);
+            border-color:var(--premium-border-strong) !important;
+            box-shadow:0 16px 44px -34px rgba(0,0,0,.95), 0 1px 0 rgba(255,255,255,.02) inset;
+        }
+        .filter-intro { display:flex; align-items:center; gap:10px; min-width:0; }
+        .filter-icon {
+            display:flex; align-items:center; justify-content:center; width:32px; height:32px; flex:0 0 auto;
+            border-radius:10px; color:#7AA8FF; background:rgba(79,140,255,.09); border:1px solid rgba(79,140,255,.16);
+        }
+        .filter-grid { display:grid; grid-template-columns:88px repeat(5,minmax(112px,1fr)); gap:8px; align-items:stretch; }
+        .filter-control {
+            width:100%; min-height:48px; padding:7px 10px !important;
+            border-radius:11px !important; background:#09111F; border-color:#24334A;
+            color:#C7D1DF; box-shadow:none;
+        }
+        .filter-control:hover { transform:translateY(-1px); border-color:#3B5679; background:#0B1526; }
+        .filter-control .filter-caption { display:block; margin-bottom:2px; font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; line-height:1; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:#60718B; text-align:left; }
+        .filter-control .filter-value { display:block; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; color:#DCE5F1; text-align:left; }
+        .filter-reset {
+            display:flex; align-items:center; justify-content:center; gap:6px; min-height:48px;
+            border:1px solid rgba(251,113,133,.17); border-radius:11px; color:#C68A98; background:rgba(251,113,133,.035);
+            font-size:9px; font-weight:800; transition:.18s ease;
+        }
+        .filter-reset:hover { color:#FB7185; border-color:rgba(251,113,133,.35); background:rgba(251,113,133,.075); }
+        @media (max-width:1350px) { .filter-shell{grid-template-columns:1fr;} .filter-grid{grid-template-columns:88px repeat(5,minmax(100px,1fr));} }
+        @media (max-width:900px) { .filter-shell{position:relative;top:auto;} .filter-grid{grid-template-columns:repeat(2,minmax(0,1fr));} .filter-reset{grid-column:span 2;} }
+
+        .section-heading { margin:1px 3px 10px; }
+        .section-heading-title { color:#9EACC0; font-size:9px; letter-spacing:.17em; }
+        .section-heading-copy { color:#5E6C81; font-size:9px; }
+        .kpi-card {
+            min-height:126px;
+            border:1px solid var(--premium-border) !important;
+            border-radius:18px !important;
+            background:linear-gradient(155deg, rgba(17,28,47,.88), rgba(10,17,30,.93));
+            box-shadow:0 18px 46px -38px rgba(0,0,0,.98), inset 0 1px 0 rgba(255,255,255,.02);
+            transition:transform .18s ease, border-color .18s ease, background .18s ease;
+        }
+        .kpi-card:hover { transform:translateY(-2px); border-color:rgba(148,163,184,.23) !important; }
+        .kpi-card::before { top:16px; bottom:16px; height:auto; width:2px; border-radius:99px; opacity:.9; }
+        .kpi-label { font-size:9px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:#74849B; }
+        .kpi-value { font-size:30px; line-height:1; font-weight:800; letter-spacing:-.045em; }
+        .kpi-help { font-size:9px; line-height:1.45; color:#607087; }
+        .kpi-icon {
+            display:flex; align-items:center; justify-content:center; width:30px; height:30px;
+            border-radius:10px; background:rgba(148,163,184,.055); border:1px solid rgba(148,163,184,.09); color:#8798AF;
+        }
+        .kpi-hero {
+            min-height:164px;
+            background:
+                radial-gradient(circle at 90% 14%, rgba(251,113,133,.12), transparent 10rem),
+                linear-gradient(145deg, rgba(24,28,44,.97), rgba(12,18,31,.98));
+        }
+        .kpi-hero .kpi-value { font-size:39px; }
+        .kpi-hero-status { display:inline-flex; align-items:center; gap:6px; margin-top:10px; padding:5px 8px; border-radius:999px; background:rgba(251,113,133,.08); color:#D78B9A; font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+        .kpi-critical-active {
+            background:radial-gradient(circle at 88% 8%, rgba(251,113,133,.18), transparent 13rem), linear-gradient(145deg, rgba(29,27,42,.98), rgba(13,18,31,.98));
+            border-color:rgba(251,113,133,.26) !important;
+        }
+        .kpi-critical-ok {
+            background:radial-gradient(circle at 88% 8%, rgba(53,211,153,.10), transparent 13rem), linear-gradient(145deg, rgba(18,31,37,.96), rgba(12,18,31,.98));
+            border-color:rgba(53,211,153,.18) !important;
+        }
+        .kpi-critical-ok .kpi-hero-status { background:rgba(53,211,153,.08); color:#68DDB0; }
+        .kpi-secondary { min-height:112px; }
+
+        .analysis-card {
+            padding:18px !important; border-radius:20px !important;
+            background:linear-gradient(180deg, rgba(16,26,44,.88), rgba(10,17,29,.94));
+            border-color:var(--premium-border) !important;
+        }
+        .analysis-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+        .analysis-title-wrap { display:flex; align-items:center; gap:10px; }
+        .analysis-icon { display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:10px; color:#78A6FF; background:rgba(79,140,255,.08); border:1px solid rgba(79,140,255,.15); }
+        .analysis-title { font-size:13px; font-weight:800; color:#F4F7FB; letter-spacing:-.01em; }
+        .analysis-subtitle { font-size:9px; color:#607087; margin-top:2px; }
+        .toolbar-actions { display:flex; align-items:center; gap:8px; }
+        .toggle-chip {
+            display:flex; align-items:center; gap:7px; min-height:34px; padding:0 10px;
+            border:1px solid var(--premium-border); border-radius:10px; color:#8696AD; background:#0A1220;
+            font-size:9px; font-weight:700;
+        }
+        .export-btn {
+            display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:34px; padding:0 12px;
+            border:1px solid #2B3A52; border-radius:10px; background:#111C2F; color:#CBD6E5;
+            font-size:9px; font-weight:800; transition:.18s ease;
+        }
+        .export-btn:hover { border-color:rgba(79,140,255,.35); color:#F2F6FB; background:#142239; }
+        .chart-well { height:310px !important; margin-bottom:14px !important; padding:10px !important; border-radius:14px !important; background:#08101D !important; border-color:#1D2A3D !important; box-shadow:inset 0 1px 12px rgba(0,0,0,.22) !important; }
+        .table-well { max-height:390px !important; border-radius:14px !important; background:#08101D !important; border-color:#1D2A3D !important; box-shadow:none !important; }
+        .table-well thead { background:#0D1727 !important; color:#7E8DA3 !important; border-color:#233149 !important; }
+        .table-well tbody tr { transition:background .15s ease; }
+        .table-well tbody tr:hover { background:rgba(79,140,255,.04); }
+        .table-well th { font-size:8px; letter-spacing:.11em; }
+        .table-well td { border-color:rgba(148,163,184,.07); }
+
+        #ambulanceRule { border-radius:16px !important; background:linear-gradient(135deg, rgba(244,183,64,.055), rgba(15,23,42,.75)) !important; border-color:rgba(244,183,64,.18) !important; }
+        #contInfoGeneral > div { border-radius:14px; background:linear-gradient(135deg, rgba(79,140,255,.08), rgba(45,212,232,.035)); }
+
+        @media (max-width:1023px) {
+            .app-header { align-items:flex-start; }
+            .header-actions { width:100%; margin-left:0; justify-content:space-between; }
+            .mode-switch { overflow-x:auto; max-width:100%; }
+        }
+        @media (max-width:640px) {
+            body { padding:10px !important; }
+            .app-header { padding:12px; border-radius:16px; }
+            .brand-subtitle { display:none; }
+            .brand-title { font-size:15px; }
+            .brand-mark { width:38px; height:38px; border-radius:12px; }
+            .mode-tab { padding:0 9px; font-size:9px; }
+            .kpi-hero .kpi-value { font-size:34px; }
+            .analysis-toolbar { align-items:flex-start; flex-direction:column; }
+            .toolbar-actions { width:100%; justify-content:flex-end; }
+            .chart-well { height:270px !important; }
+        }
     </style>
 </head>
-<body class="p-4 md:p-6 min-h-screen">
+<body class="p-3 md:p-5 xl:p-6 min-h-screen">
 
-    <header class="flex justify-between items-center bg-[#111827] border border-[#1F2937] rounded-2xl px-5 py-4 mb-6 relative flex-wrap gap-4">
-        <div class="flex items-center gap-5 z-10">
-            <svg class="h-10 w-10 flex-shrink-0 text-brand-accentCyan" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="100" cy="100" r="85" stroke="#3B82F6" stroke-width="12" stroke-linecap="round" stroke-dasharray="350 150" transform="rotate(-45 100 100)"/>
-                <circle cx="100" cy="100" r="65" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-dasharray="150 250" transform="rotate(135 100 100)"/>
-                <circle cx="100" cy="75" r="16" fill="#3B82F6"/>
-                <path d="M75 130 C75 110 125 110 125 130 L125 140 L75 140 Z" fill="#3B82F6"/>
-                <circle cx="60" cy="95" r="12" fill="currentColor"/>
-                <path d="M40 140 C40 125 80 125 80 140 Z" fill="currentColor"/>
-                <circle cx="140" cy="95" r="12" fill="currentColor"/>
-                <path d="M120 140 C120 125 160 125 160 140 Z" fill="currentColor"/>
-            </svg>
-
-            <div>
-                <div class="flex items-center gap-3">
-                    <h1 class="text-xl font-bold text-white tracking-tight">Planeación de Capacidad WFM</h1>
-                    
-                    <div class="bg-[#0B1121] rounded-xl p-1 flex items-center border border-[#273449] ml-3">
-                        <button id="btnTabLlamadas" onclick="setModeWFM('llamadas')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-primary text-white shadow-md">📞 Llamadas</button>
-                        <button id="btnTabChat" onclick="setModeWFM('chat')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">💬 Chat</button>
-                        <div class="w-px h-6 bg-[#334155] mx-1"></div>
-                        <button id="btnTabGeneral" onclick="setModeWFM('general')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">🌐 Consolidado</button>
-                    </div>
-
-                    <span id="tagModoOps" class="hidden text-[10px] bg-brand-primary/20 text-brand-primary border border-brand-primary/40 px-2.5 py-0.5 rounded-full font-mono font-bold uppercase tracking-wider drop-shadow-md ml-4">Vista Operaciones</span>
-                </div>
-                <p class="text-xs text-slate-400 mt-1 font-medium tracking-wide">Pronóstico, cobertura y dimensionamiento operativo</p>
+    <header class="app-header">
+        <div class="brand-wrap">
+            <div class="brand-mark">
+                <svg class="h-7 w-7 text-brand-accentCyan" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <circle cx="100" cy="100" r="82" stroke="#4F8CFF" stroke-width="14" stroke-linecap="round" stroke-dasharray="350 150" transform="rotate(-45 100 100)"/>
+                    <circle cx="100" cy="100" r="60" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-dasharray="150 250" transform="rotate(135 100 100)"/>
+                    <circle cx="100" cy="76" r="15" fill="#4F8CFF"/>
+                    <path d="M75 132 C75 111 125 111 125 132 L125 141 L75 141 Z" fill="#4F8CFF"/>
+                </svg>
+            </div>
+            <div class="min-w-0">
+                <p class="brand-eyebrow">Workforce Management</p>
+                <h1 class="brand-title">Planeación de Capacidad</h1>
+                <p class="brand-subtitle">Pronóstico, dimensionamiento y cobertura operativa</p>
             </div>
         </div>
 
-        <div id="containerShowSidebar" class="z-10 ml-auto hidden">
-            <button onclick="toggleSidebar()" class="bg-[#1E293B] hover:bg-[#334155] text-slate-200 border border-[#475569] px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 font-mono shadow-lg">
-                <span class="text-brand-accentCyan">▶</span> Mostrar Parámetros
-            </button>
+        <div class="header-actions">
+            <div class="mode-switch" aria-label="Canal de forecast">
+                <button id="btnTabLlamadas" onclick="setModeWFM('llamadas')" class="mode-tab mode-tab-active"><span>📞</span><span>Llamadas</span></button>
+                <button id="btnTabChat" onclick="setModeWFM('chat')" class="mode-tab"><span>💬</span><span>Chat</span></button>
+                <button id="btnTabGeneral" onclick="setModeWFM('general')" class="mode-tab"><span>◫</span><span>Consolidado</span></button>
+            </div>
+            <span id="tagModoOps" class="hidden ops-badge">Operaciones</span>
+            <div id="containerShowSidebar" class="hidden">
+                <button onclick="toggleSidebar()" class="ghost-action"><span>◀</span> Parámetros</button>
+            </div>
         </div>
     </header>
 
-    <div class="grid grid-cols-12 gap-6">
+    <div class="grid grid-cols-12 gap-5">
 
         <!-- SIDEBAR DE PARÁMETROS -->
-        <aside id="panelControl" class="col-span-12 lg:col-span-3 glass-panel p-5 rounded-2xl space-y-5 h-fit transition-all duration-300 relative overflow-hidden">
-            <div class="absolute -top-10 -right-10 w-32 h-32 bg-brand-accentViolet/10 rounded-full blur-3xl pointer-events-none"></div>
-
-            <button onclick="toggleSidebar()" class="w-full bg-[#111827] hover:bg-[#1E293B] text-slate-200 border border-[#1F2937] px-4 py-3.5 rounded-[14px] text-[11px] font-bold transition-all flex items-center justify-center gap-2 font-mono relative z-10 shadow-sm">
-                <span class="text-brand-accentCyan">◀</span> Ocultar Parámetros
-            </button>
+        <aside id="panelControl" class="col-span-12 lg:col-span-3 glass-panel p-4 xl:p-5 space-y-4 h-fit transition-all duration-300 relative overflow-hidden">
+            <div class="sidebar-topline relative z-10">
+                <div>
+                    <p class="sidebar-title">Configurar forecast</p>
+                    <p class="sidebar-copy">Ajusta los supuestos antes de generar la proyección.</p>
+                </div>
+                <button type="button" onclick="toggleSidebar()" class="ghost-action" title="Ocultar parámetros">Ocultar</button>
+            </div>
 
             <div id="contParametrosSimulacion">
-                <form id="wfmForm" class="space-y-5 pt-2 relative z-10" onsubmit="event.preventDefault(); procesarWFM();">
-                    <div class="flex items-center justify-between pb-2 border-b border-[#1F2937]">
-                        <h2 class="text-xs font-extrabold text-white uppercase tracking-widest flex items-center gap-2">
-                            <span>⚙️</span> PARÁMETROS DE PLANEACIÓN
-                        </h2>
+                <form id="wfmForm" class="space-y-4 relative z-10" onsubmit="event.preventDefault(); procesarWFM();">
+                    <div class="flex items-center justify-between pt-1">
+                        <div>
+                            <p class="text-[9px] font-extrabold text-slate-400 uppercase tracking-[.16em]">Supuestos base</p>
+                            <p class="text-[9px] text-slate-600 mt-1">Aplican a campañas sin configuración específica.</p>
+                        </div>
                     </div>
 
-                    <div class="p-3 bg-brand-primary/5 border border-brand-primary/20 rounded-xl">
-                        <p class="text-[10px] text-slate-400 leading-relaxed">Parámetros base usados para calcular la dotación con Erlang C.</p>
+                    <div class="assumption-note">
+                        <p class="text-[9px] text-slate-400 leading-relaxed"><span class="text-[#78A6FF] font-bold">Erlang C</span> usa Nivel de Servicio y ASA para convertir demanda en dotación requerida.</p>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
@@ -306,10 +571,10 @@
                         <input type="number" name="dias" id="dias" value="45" min="1" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentViolet focus:outline-none" onchange="guardarEstadoParametros()">
                     </div>
 
-                    <div class="flex items-center justify-between p-3 bg-[#0B1121] border border-[#1F2937] rounded-xl cursor-pointer">
-                        <span class="text-xs text-slate-300 font-medium font-mono flex items-center gap-2"><span class="text-brand-accentAmber text-lg">🌙</span> Turno Nocturno</span>
-                        <input type="checkbox" id="chkNocturno" name="nocturno" class="w-4 h-4 rounded border-gray-700 bg-gray-900 text-blue-600 focus:ring-blue-500 cursor-pointer" onchange="guardarEstadoParametros(); debouncedActualizarGrafica()">
-                    </div>
+                    <label class="flex items-center justify-between p-3 bg-[#09111F] border border-[#24334A] rounded-xl cursor-pointer hover:border-[#344761] transition-colors">
+                        <span class="flex items-center gap-2.5"><span class="flex items-center justify-center w-7 h-7 rounded-lg bg-[#F4B740]/[.07] text-brand-accentAmber">☾</span><span><span class="block text-[10px] text-slate-300 font-bold">Turno nocturno</span><span class="block text-[8px] text-slate-600 mt-0.5">Considerar cobertura nocturna</span></span></span>
+                        <input type="checkbox" id="chkNocturno" name="nocturno" class="w-4 h-4 rounded border-gray-700 bg-gray-900 cursor-pointer" onchange="guardarEstadoParametros(); debouncedActualizarGrafica()">
+                    </label>
 
                     <button type="submit" id="btnProcesar" class="w-full bg-gradient-to-r from-[#3B82F6] to-[#22D3EE] hover:from-[#2563EB] hover:to-[#06B6D4] text-white font-extrabold py-4 px-4 rounded-[14px] text-[13px] transition-all shadow-[0_4px_15px_-3px_rgba(34,211,238,0.4)] hover:shadow-[0_8px_25px_-5px_rgba(34,211,238,0.6)] uppercase tracking-wider mt-4">
                         ▶ GENERAR FORECAST
@@ -331,102 +596,110 @@
         </aside>
 
         <!-- DASHBOARD PRINCIPAL -->
-        <main id="dashboardMain" class="col-span-12 lg:col-span-9 space-y-6 transition-all duration-300">
+        <main id="dashboardMain" class="col-span-12 lg:col-span-9 space-y-5 transition-all duration-300 min-w-0">
 
             <!-- FILTROS -->
-            <div class="glass-panel p-4 rounded-2xl flex justify-between items-center flex-wrap gap-4 relative z-50 overflow-visible border-[#1F2937]">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 bg-brand-primary/20 text-brand-primary rounded-lg text-sm border border-brand-primary/30 flex items-center justify-center w-8 h-8">
-                        <span class="text-base">🎯</span>
+            <div class="glass-panel filter-shell">
+                <div class="filter-intro">
+                    <div class="filter-icon">
+                        <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M7 12h10M10 18h4" stroke-linecap="round"/></svg>
                     </div>
-                    <div>
-                        <p class="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Filtros operativos</p>
-                        <p class="text-xs text-slate-200 font-medium">Acota el periodo y la operación</p>
+                    <div class="min-w-0">
+                        <p class="text-[9px] uppercase tracking-[.15em] text-slate-400 font-extrabold">Filtros</p>
+                        <p class="text-[9px] text-slate-600 mt-0.5 truncate">Periodo y operación</p>
                     </div>
                 </div>
-                
-                <div class="flex items-center gap-3 flex-wrap">
-                    <button onclick="resetAllFilters()" class="text-xs text-brand-accentRose hover:text-white bg-brand-accentRose/10 px-3 py-2 rounded-lg border border-brand-accentRose/30 mr-2 font-bold font-mono transition-colors">
-                        🔄 Resetear
-                    </button>
 
-                    <div class="flex flex-col relative group">
-                        <button id="btnDropdownMes" onclick="toggleDropdown('Mes')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[120px] flex items-center justify-between gap-3">
-                            <span id="mesSelectedText">MES</span> <span class="text-[10px]">▼</span>
+                <div class="filter-grid">
+                    <button onclick="resetAllFilters()" class="filter-reset" title="Limpiar todos los filtros"><span>↻</span><span>Limpiar</span></button>
+
+                    <div class="relative group">
+                        <button id="btnDropdownMes" onclick="toggleDropdown('Mes')" class="filter-control flex items-center justify-between gap-2">
+                            <span class="min-w-0"><span class="filter-caption">Mes</span><span id="mesSelectedText" class="filter-value">Todos</span></span><span class="text-[9px] text-slate-600">⌄</span>
                         </button>
-                        <div id="dropdownMesMenu" class="hidden absolute top-full left-0 mt-2 w-56 max-h-60 bg-[#111827] border border-brand-accentAmber/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
+                        <div id="dropdownMesMenu" class="hidden absolute top-full left-0 mt-2 w-56 max-h-60 bg-[#0D1727] border border-[#2A3A52] rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
 
-                    <div class="flex flex-col relative group">
-                        <button id="btnDropdownSemana" onclick="toggleDropdown('Semana')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[160px] flex items-center justify-between gap-3">
-                            <span id="semanaSelectedText">SEM.</span> <span class="text-[10px]">▼</span>
+                    <div class="relative group">
+                        <button id="btnDropdownSemana" onclick="toggleDropdown('Semana')" class="filter-control flex items-center justify-between gap-2">
+                            <span class="min-w-0"><span class="filter-caption">Semana</span><span id="semanaSelectedText" class="filter-value">Todas</span></span><span class="text-[9px] text-slate-600">⌄</span>
                         </button>
-                        <div id="dropdownSemanaMenu" class="hidden absolute top-full left-0 mt-2 w-72 max-h-60 bg-[#111827] border border-brand-accentRose/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
+                        <div id="dropdownSemanaMenu" class="hidden absolute top-full left-0 mt-2 w-72 max-h-60 bg-[#0D1727] border border-[#2A3A52] rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
 
-                    <div class="flex flex-col relative group">
-                        <button id="btnDropdownCampana" onclick="toggleDropdown('Campana')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[140px] flex items-center justify-between gap-3">
-                            <span id="campanaSelectedText">CAMPAÑA</span> <span class="text-[10px]">▼</span>
+                    <div class="relative group">
+                        <button id="btnDropdownCampana" onclick="toggleDropdown('Campana')" class="filter-control flex items-center justify-between gap-2">
+                            <span class="min-w-0"><span class="filter-caption">Campaña</span><span id="campanaSelectedText" class="filter-value">Todas</span></span><span class="text-[9px] text-slate-600">⌄</span>
                         </button>
-                        <div id="dropdownCampanaMenu" class="hidden absolute top-full left-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentViolet/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
+                        <div id="dropdownCampanaMenu" class="hidden absolute top-full left-0 mt-2 w-64 max-h-60 bg-[#0D1727] border border-[#2A3A52] rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
 
-                    <div class="flex flex-col relative group">
-                        <button id="btnDropdownFecha" onclick="toggleDropdown('Fecha')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[140px] flex items-center justify-between gap-3">
-                            <span id="fechaSelectedText">FECHA</span> <span class="text-[10px]">▼</span>
+                    <div class="relative group">
+                        <button id="btnDropdownFecha" onclick="toggleDropdown('Fecha')" class="filter-control flex items-center justify-between gap-2">
+                            <span class="min-w-0"><span class="filter-caption">Fecha</span><span id="fechaSelectedText" class="filter-value">Todas</span></span><span class="text-[9px] text-slate-600">⌄</span>
                         </button>
-                        <div id="dropdownFechaMenu" class="hidden absolute top-full left-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentCyan/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
+                        <div id="dropdownFechaMenu" class="hidden absolute top-full left-0 mt-2 w-64 max-h-60 bg-[#0D1727] border border-[#2A3A52] rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
 
-                    <div class="flex flex-col relative group">
-                        <button id="btnDropdownIntervalo" onclick="toggleDropdown('Intervalo')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[120px] flex items-center justify-between gap-3">
-                            <span id="intervaloSelectedText">HORA</span> <span class="text-[10px]">▼</span>
+                    <div class="relative group">
+                        <button id="btnDropdownIntervalo" onclick="toggleDropdown('Intervalo')" class="filter-control flex items-center justify-between gap-2">
+                            <span class="min-w-0"><span class="filter-caption">Intervalo</span><span id="intervaloSelectedText" class="filter-value">Todos</span></span><span class="text-[9px] text-slate-600">⌄</span>
                         </button>
-                        <div id="dropdownIntervaloMenu" class="hidden absolute top-full right-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentEmerald/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
+                        <div id="dropdownIntervaloMenu" class="hidden absolute top-full right-0 mt-2 w-64 max-h-60 bg-[#0D1727] border border-[#2A3A52] rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
                 </div>
             </div>
 
             <!-- CARDS KPI -->
-            <div class="section-heading px-1">
+            <div class="section-heading">
                 <div>
-                    <p class="section-heading-title">Resumen de capacidad</p>
-                    <p class="section-heading-copy">Primero el faltante, después el dimensionamiento y la demanda.</p>
+                    <p class="section-heading-title">Resumen ejecutivo</p>
+                    <p class="section-heading-copy">Capacidad, faltante y demanda del periodo seleccionado.</p>
                 </div>
             </div>
-            <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
-                <div id="criticalGapCard" class="glass-panel kpi-card kpi-card-danger p-5 rounded-xl md:col-span-2 xl:col-span-3">
-                    <div class="flex items-center justify-between gap-3"><p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Mayor déficit por intervalo</p><span class="text-[#FB7185] text-xs">●</span></div>
-                    <p id="kpiWorstGap" class="text-3xl font-black font-mono-num text-brand-accentRose mt-3">—</p>
-                    <p id="kpiWorstGapDetail" class="text-[10px] text-slate-500 mt-1">Sin déficit</p>
-                </div>
-                <div class="glass-panel kpi-card kpi-card-primary p-5 rounded-xl xl:col-span-3">
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Agentes necesarios por intervalo</p>
-                    <p id="kpiIntervalReq" class="text-3xl font-black font-mono-num text-brand-accentCyan mt-3">0 HC</p>
-                    <p class="text-[10px] text-slate-500 mt-1">Pico simultáneo del filtro</p>
-                </div>
-                <div class="glass-panel kpi-card kpi-card-primary p-5 rounded-xl xl:col-span-3">
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Plantilla total requerida</p>
-                    <p id="kpiHcRequerido" class="text-3xl font-black font-mono-num text-white mt-3">0 HC</p>
-                    <p class="text-[10px] text-slate-500 mt-1">Incluye jornada, descanso y merma</p>
-                </div>
-                <div class="glass-panel kpi-card kpi-card-success p-5 rounded-xl xl:col-span-3">
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Plantilla actual</p>
-                    <div class="flex items-center gap-3 mt-3"><p id="kpiHcRoster" class="text-3xl font-black font-mono-num text-brand-accentEmerald">0 HC</p><p id="kpiHcGap" class="text-[11px] font-bold px-2.5 py-1 rounded bg-[#1E293B]">0</p></div>
-                    <p class="text-[10px] text-slate-500 mt-1">Dotación disponible del roster</p>
-                </div>
-                <div class="glass-panel kpi-card p-5 rounded-xl md:col-span-1 xl:col-span-6">
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Demanda del periodo</p>
-                    <div class="flex items-end justify-between gap-4 mt-3 flex-wrap">
-                        <p id="kpiCalls" class="text-3xl font-black font-mono-num text-white">0</p>
-                        <p id="kpiCallsDaily" class="text-[11px] text-slate-400 pb-1">Promedio diario: 0</p>
+            <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3">
+                <div id="criticalGapCard" class="glass-panel kpi-card kpi-hero kpi-card-danger p-5 md:col-span-2 xl:col-span-6">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <p class="kpi-label">Mayor déficit por intervalo</p>
+                            <p id="kpiWorstGap" class="kpi-value font-mono-num text-brand-accentRose mt-4">—</p>
+                            <p id="kpiWorstGapDetail" class="kpi-help mt-2">Sin déficit</p>
+                            <span class="kpi-hero-status"><span>●</span><span>Prioridad operativa</span></span>
+                        </div>
+                        <div class="kpi-icon text-brand-accentRose">
+                            <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v10M12 17.5v.5" stroke-linecap="round"/><path d="M10.2 4.2 3.7 16a2 2 0 0 0 1.8 3h13a2 2 0 0 0 1.8-3L13.8 4.2a2 2 0 0 0-3.6 0Z"/></svg>
+                        </div>
                     </div>
-                    <p class="text-[10px] text-slate-500 mt-1">Volumen total y promedio diario del filtro</p>
                 </div>
-                <div class="glass-panel kpi-card kpi-card-warning p-5 rounded-xl md:col-span-1 xl:col-span-6">
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">AHT promedio</p>
-                    <p id="kpiAht" class="text-3xl font-black font-mono-num text-brand-accentAmber mt-3">00:00:00</p>
-                    <p class="text-[10px] text-slate-500 mt-1">Tiempo medio de atención ponderado</p>
+
+                <div class="glass-panel kpi-card kpi-card-primary p-5 xl:col-span-3">
+                    <div class="flex items-start justify-between gap-3"><p class="kpi-label">Agentes por intervalo</p><div class="kpi-icon text-brand-accentCyan"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.8 18c.6-3 2.4-4.5 5.2-4.5s4.6 1.5 5.2 4.5M17 8.5a2.5 2.5 0 0 1 0 5M16.5 14.5c2 .4 3.2 1.6 3.7 3.5" stroke-linecap="round"/></svg></div></div>
+                    <p id="kpiIntervalReq" class="kpi-value font-mono-num text-brand-accentCyan mt-5">0 HC</p>
+                    <p class="kpi-help mt-2">Pico simultáneo del filtro</p>
+                </div>
+
+                <div class="glass-panel kpi-card kpi-card-primary p-5 xl:col-span-3">
+                    <div class="flex items-start justify-between gap-3"><p class="kpi-label">Plantilla requerida</p><div class="kpi-icon text-[#9BB9FF]"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 20v-9m7 9V4m7 16v-6" stroke-linecap="round"/><path d="M3 20h18"/></svg></div></div>
+                    <p id="kpiHcRequerido" class="kpi-value font-mono-num text-white mt-5">0 HC</p>
+                    <p class="kpi-help mt-2">Jornada, descanso y merma</p>
+                </div>
+
+                <div class="glass-panel kpi-card kpi-secondary kpi-card-success p-5 xl:col-span-4">
+                    <div class="flex items-start justify-between gap-3"><p class="kpi-label">Plantilla actual</p><div class="kpi-icon text-brand-accentEmerald"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8h16v12M8 8V4h8v4M8 13h2m4 0h2m-8 4h2m4 0h2" stroke-linecap="round"/></svg></div></div>
+                    <div class="flex items-center gap-3 mt-4"><p id="kpiHcRoster" class="kpi-value font-mono-num text-brand-accentEmerald">0 HC</p><p id="kpiHcGap" class="text-[9px] font-extrabold px-2.5 py-1 rounded-full bg-[#1E293B] text-slate-300">0</p></div>
+                    <p class="kpi-help mt-2">Dotación disponible en roster</p>
+                </div>
+
+                <div class="glass-panel kpi-card kpi-secondary p-5 xl:col-span-4">
+                    <div class="flex items-start justify-between gap-3"><p class="kpi-label">Demanda del periodo</p><div class="kpi-icon text-[#9BB9FF]"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 17V9m5 8V5m5 12v-4m4 4V7" stroke-linecap="round"/></svg></div></div>
+                    <div class="flex items-end justify-between gap-4 mt-4 flex-wrap"><p id="kpiCalls" class="kpi-value font-mono-num text-white">0</p><p id="kpiCallsDaily" class="text-[9px] text-slate-400 pb-0.5">Promedio diario: 0</p></div>
+                    <p class="kpi-help mt-2">Volumen total proyectado</p>
+                </div>
+
+                <div class="glass-panel kpi-card kpi-secondary kpi-card-warning p-5 xl:col-span-4">
+                    <div class="flex items-start justify-between gap-3"><p class="kpi-label">AHT promedio</p><div class="kpi-icon text-brand-accentAmber"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="13" r="7"/><path d="M12 9v4l2.5 1.5M9 3h6" stroke-linecap="round"/></svg></div></div>
+                    <p id="kpiAht" class="kpi-value font-mono-num text-brand-accentAmber mt-4">00:00:00</p>
+                    <p class="kpi-help mt-2">Tiempo medio ponderado</p>
                 </div>
             </div>
 
@@ -436,34 +709,35 @@
             </div>
 
             <!-- GRÁFICAS Y TABLAS -->
-            <div class="section-heading px-1 pt-1">
+            <div class="section-heading pt-1">
                 <div>
-                    <p class="section-heading-title">Detalle por intervalo</p>
-                    <p class="section-heading-copy">Compara requerimiento, capacidad y faltantes en cada franja.</p>
+                    <p class="section-heading-title">Detalle operativo</p>
+                    <p class="section-heading-copy">Lectura por intervalo para explicar el requerimiento y actuar sobre faltantes.</p>
                 </div>
             </div>
-            <div class="glass-panel p-5 md:p-6 rounded-2xl border border-[#1F2937] shadow-[0_4px_15px_-5px_rgba(251,191,36,0.15)] relative overflow-hidden">
-                <div class="flex justify-between items-center mb-6 relative z-10">
-                    <h3 class="text-[15px] font-extrabold text-white flex items-center gap-2 tracking-wide">
-                        <span class="text-brand-accentAmber drop-shadow-[0_0_5px_rgba(251,191,36,0.6)]">📊</span> Demanda vs. capacidad
-                    </h3>
-                    <div class="flex items-center gap-2"><label class="text-[10px] text-slate-400 flex items-center gap-2 cursor-pointer"><input id="onlyDeficits" type="checkbox" onchange="debouncedActualizarGrafica()"> Solo faltantes</label>
-                    <button onclick="exportarCSV()" class="bg-[#1E293B] hover:bg-brand-accentAmber/20 text-slate-200 hover:text-brand-accentAmber border border-[#334155] hover:border-brand-accentAmber/50 text-xs py-2 px-4 rounded-lg transition-all duration-200 font-bold shadow-md">
-                        📥 Exportar CSV
-                    </button></div>
+            <div class="glass-panel analysis-card relative overflow-hidden">
+                <div class="analysis-toolbar relative z-10">
+                    <div class="analysis-title-wrap">
+                        <div class="analysis-icon"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V9m5 10V5m5 14v-7m5 7V7" stroke-linecap="round"/></svg></div>
+                        <div><h3 class="analysis-title">Demanda vs. capacidad</h3><p class="analysis-subtitle">Requeridos, disponibles y gap por franja</p></div>
+                    </div>
+                    <div class="toolbar-actions">
+                        <label class="toggle-chip cursor-pointer"><input id="onlyDeficits" type="checkbox" onchange="debouncedActualizarGrafica()"><span>Solo faltantes</span></label>
+                        <button onclick="exportarCSV()" class="export-btn"><span>⇩</span><span>Exportar CSV</span></button>
+                    </div>
                 </div>
                 
-                <div class="h-64 mb-6 relative bg-[#0F172A] p-2 rounded-xl border border-[#1F2937] shadow-inner" id="contGapChart">
+                <div class="chart-well relative" id="contGapChart">
                     <canvas id="gapChart"></canvas>
                 </div>
 
-                <div class="h-64 mb-6 relative bg-[#0F172A] p-4 rounded-xl border border-[#1F2937] shadow-inner hidden" id="contGeneralChart">
+                <div class="chart-well relative hidden" id="contGeneralChart">
                     <canvas id="generalChart"></canvas>
                 </div>
 
-                <div class="overflow-x-auto max-h-80 border border-[#1F2937] rounded-xl bg-[#0F172A] shadow-inner">
+                <div class="table-well overflow-x-auto border">
                     <table class="w-full text-left text-xs text-slate-300">
-                        <thead class="bg-[#111827] text-slate-400 font-bold text-[10px] uppercase tracking-wider sticky top-0 border-b border-[#334155] z-10 shadow-sm" id="tableHeaderContainer">
+                        <thead class="text-slate-400 font-bold uppercase tracking-wider sticky top-0 border-b z-10" id="tableHeaderContainer">
                             <tr id="tableHeaderRow">
                                 <th class="py-3.5 px-4">Intervalo</th>
                                 <th class="py-3.5 px-4" id="colHeaderCalls">Llamadas (FCST)</th>
@@ -776,7 +1050,7 @@
             const btnChat = document.getElementById('btnTabChat');
             const btnGen = document.getElementById('btnTabGeneral');
 
-            const inactiveClass = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200";
+            const inactiveClass = "mode-tab";
             btnIn.className = inactiveClass;
             btnChat.className = inactiveClass;
             btnGen.className = inactiveClass;
@@ -785,7 +1059,7 @@
             const contInfoGen = document.getElementById('contInfoGeneral');
 
             if(mode === 'general') {
-                btnGen.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-[#070B14] shadow-md";
+                btnGen.className = "mode-tab mode-tab-active mode-general";
                 contParametros.style.display = 'none';
                 contInfoGen.style.display = 'block';
             } else {
@@ -793,12 +1067,12 @@
                 contInfoGen.style.display = 'none';
 
                 if(mode === 'llamadas') {
-                    btnIn.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-primary text-white shadow-md";
+                    btnIn.className = "mode-tab mode-tab-active";
                     document.getElementById('contTargetSl').style.display = 'block';
                     document.getElementById('contTargetTime').style.display = 'block';
                     document.getElementById('contConcurrencia').classList.add('hidden');
                 } else if (mode === 'chat') {
-                    btnChat.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-accentCyan text-[#0B1121] shadow-md";
+                    btnChat.className = "mode-tab mode-tab-active mode-chat";
                     document.getElementById('contTargetSl').style.display = 'block';
                     document.getElementById('contTargetTime').style.display = 'block';
                     document.getElementById('contConcurrencia').classList.remove('hidden');
