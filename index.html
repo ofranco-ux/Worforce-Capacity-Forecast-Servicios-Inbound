@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
     <meta http-equiv="Pragma" content="no-cache"/>
     <meta http-equiv="Expires" content="0"/>
-    <title>Workforce Capacity Forecast — C-Suite Analytics</title>
+    <title>Workforce Capacity Forecast — C-Suite Analytics Light</title>
     <!-- Enlaces CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -1091,9 +1091,256 @@
             .chart-well { height: 320px !important; }
         }
 
+
+
+        /* ================================================================
+           LIGHT EXECUTIVE THEME · CEO PRESENTATION PREVIEW
+           Alternate visual skin only. Forecast logic is unchanged.
+           ================================================================ */
+        html { background:#F4F7FB !important; }
+        body.light-theme {
+            color:#1B2738 !important;
+            background:
+                radial-gradient(circle at 84% -10%, rgba(111,134,255,.10), transparent 34rem),
+                radial-gradient(circle at -8% 35%, rgba(99,199,186,.07), transparent 30rem),
+                linear-gradient(180deg,#F8FAFD 0%,#F2F5F9 100%) !important;
+        }
+        body.light-theme::before {
+            opacity:.20 !important;
+            background-image:
+                linear-gradient(rgba(100,116,139,.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(100,116,139,.05) 1px, transparent 1px) !important;
+            mask-image:linear-gradient(to bottom, black, transparent 74%) !important;
+        }
+
+        body.light-theme .app-header,
+        body.light-theme .glass-panel,
+        body.light-theme #panelControl,
+        body.light-theme .filter-shell,
+        body.light-theme .capacity-hero,
+        body.light-theme .kpi-card,
+        body.light-theme .analysis-card,
+        body.light-theme .consolidated-channel-card,
+        body.light-theme .executive-mini-card {
+            background:rgba(255,255,255,.92) !important;
+            border-color:#DCE4EE !important;
+            box-shadow:0 18px 45px -34px rgba(30,41,59,.24), inset 0 1px 0 rgba(255,255,255,.92) !important;
+            backdrop-filter:blur(16px);
+        }
+        body.light-theme .app-header {
+            background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(248,250,253,.94)) !important;
+        }
+        body.light-theme .brand-mark {
+            background:linear-gradient(145deg,rgba(111,134,255,.13),rgba(99,199,186,.08)) !important;
+            border-color:rgba(111,134,255,.22) !important;
+            box-shadow:0 12px 28px -22px rgba(79,70,229,.35), inset 0 1px 0 rgba(255,255,255,.85) !important;
+        }
+        body.light-theme .brand-title,
+        body.light-theme .sidebar-title,
+        body.light-theme .capacity-title,
+        body.light-theme .analysis-title,
+        body.light-theme .table-toolbar-title,
+        body.light-theme .consolidated-channel-name { color:#172033 !important; }
+        body.light-theme .brand-eyebrow,
+        body.light-theme .brand-subtitle,
+        body.light-theme .sidebar-copy,
+        body.light-theme .section-heading-title,
+        body.light-theme .section-heading-copy,
+        body.light-theme .analysis-subtitle,
+        body.light-theme .table-toolbar-copy,
+        body.light-theme .kpi-label,
+        body.light-theme .kpi-help,
+        body.light-theme .capacity-subtitle,
+        body.light-theme .capacity-metric-label,
+        body.light-theme .capacity-metric-help,
+        body.light-theme .capacity-gap-help,
+        body.light-theme .capacity-meter-label,
+        body.light-theme .capacity-meter-explainer,
+        body.light-theme .consolidated-channel-label,
+        body.light-theme .consolidated-channel-meter-meta,
+        body.light-theme .consolidated-channel-foot-item span:first-child,
+        body.light-theme .executive-mini-label,
+        body.light-theme .executive-mini-copy,
+        body.light-theme .analysis-storyline-copy,
+        body.light-theme .chart-note-text,
+        body.light-theme .chart-note-badge { color:#66768C !important; }
+        body.light-theme .capacity-metric-value,
+        body.light-theme .capacity-meter-ratio,
+        body.light-theme .consolidated-channel-value,
+        body.light-theme .consolidated-channel-foot-item span:last-child,
+        body.light-theme .executive-mini-value,
+        body.light-theme .chart-note-text strong,
+        body.light-theme .analysis-storyline-copy strong { color:#1C2A3D !important; }
+        body.light-theme .capacity-required-value,
+        body.light-theme .consolidated-channel-value.req { color:#586DE0 !important; }
+        body.light-theme .capacity-current-value,
+        body.light-theme .consolidated-channel-value.actual { color:#2C968C !important; }
+        body.light-theme .capacity-gap-value.gap-danger,
+        body.light-theme .consolidated-channel-value.gap-negative { color:#D94F6D !important; text-shadow:none !important; }
+        body.light-theme .capacity-gap-value.gap-surplus,
+        body.light-theme .consolidated-channel-value.gap-positive { color:#B77816 !important; }
+        body.light-theme .capacity-gap-value.gap-ok { color:#258B78 !important; }
+
+        body.light-theme .mode-switch,
+        body.light-theme .command-meta-chip,
+        body.light-theme .ghost-action,
+        body.light-theme .toggle-chip,
+        body.light-theme .export-btn {
+            background:#F7F9FC !important;
+            border-color:#D8E1EC !important;
+            color:#52647B !important;
+            box-shadow:none !important;
+        }
+        body.light-theme .mode-tab { color:#64748B !important; }
+        body.light-theme .mode-tab:hover { color:#243247 !important; background:#EDF2F8 !important; }
+        body.light-theme .mode-tab-active {
+            color:#FFFFFF !important;
+            background:linear-gradient(135deg,#6278EE,#5065DC) !important;
+            box-shadow:0 7px 18px -12px rgba(80,101,220,.55) !important;
+        }
+        body.light-theme .mode-tab-active.mode-chat {
+            color:#FFFFFF !important;
+            background:linear-gradient(135deg,#35A99D,#258F84) !important;
+            box-shadow:0 7px 18px -12px rgba(37,143,132,.48) !important;
+        }
+        body.light-theme .mode-tab-active.mode-general {
+            color:#FFFFFF !important;
+            background:linear-gradient(135deg,#334155,#1F2937) !important;
+        }
+        body.light-theme .command-meta-dot { background:#2C968C !important; }
+
+        body.light-theme .input-clean,
+        body.light-theme .campaign-details,
+        body.light-theme #runStatus,
+        body.light-theme #panelControl [class*="bg-[#"],
+        body.light-theme .filter-shell [class*="bg-[#"] {
+            background:#F8FAFC !important;
+            border-color:#D7E0EB !important;
+            color:#243247 !important;
+            box-shadow:inset 0 1px 2px rgba(15,23,42,.04) !important;
+        }
+        body.light-theme .input-clean:hover,
+        body.light-theme .filter-control:hover { border-color:#AAB8CC !important; background:#FFFFFF !important; }
+        body.light-theme .input-clean:focus {
+            border-color:#6F86FF !important;
+            box-shadow:0 0 0 3px rgba(111,134,255,.12) !important;
+        }
+        body.light-theme .filter-shell { background:rgba(255,255,255,.92) !important; }
+        body.light-theme .filter-control {
+            background:#F8FAFC !important;
+            border-color:#D9E2EC !important;
+            color:#263449 !important;
+        }
+        body.light-theme .filter-control .filter-caption { color:#78899F !important; }
+        body.light-theme .filter-control .filter-value { color:#263449 !important; }
+        body.light-theme .filter-reset {
+            color:#B24B63 !important;
+            background:rgba(217,79,109,.055) !important;
+            border-color:rgba(217,79,109,.18) !important;
+        }
+        body.light-theme .filter-reset:hover { background:rgba(217,79,109,.09) !important; }
+
+        body.light-theme .capacity-metric,
+        body.light-theme .capacity-gap-block,
+        body.light-theme .consolidated-channel-metric {
+            background:#F8FAFD !important;
+            border-color:#E1E7EF !important;
+        }
+        body.light-theme .capacity-gap-block {
+            background:linear-gradient(145deg,rgba(217,79,109,.06),rgba(255,255,255,.96)) !important;
+            border-color:rgba(217,79,109,.17) !important;
+        }
+        body.light-theme .capacity-vs-pill {
+            background:#F1F5F9 !important;
+            color:#73839A !important;
+            border-color:#DCE4EE !important;
+        }
+        body.light-theme .capacity-vs-line { background:linear-gradient(180deg,transparent,#D5DEE9) !important; }
+        body.light-theme .capacity-vs-line:last-child { background:linear-gradient(180deg,#D5DEE9,transparent) !important; }
+        body.light-theme .capacity-meter-track,
+        body.light-theme .consolidated-channel-meter-track {
+            background:#E9EEF5 !important;
+            box-shadow:inset 0 1px 2px rgba(15,23,42,.08) !important;
+        }
+        body.light-theme .capacity-meter-scale { color:#8A98AA !important; }
+
+        body.light-theme .consolidated-channel-icon {
+            color:#5D70DC !important;
+            background:rgba(111,134,255,.10) !important;
+            border-color:rgba(111,134,255,.18) !important;
+        }
+        body.light-theme .channel-chat .consolidated-channel-icon {
+            color:#2D9489 !important;
+            background:rgba(99,199,186,.10) !important;
+            border-color:rgba(99,199,186,.20) !important;
+        }
+        body.light-theme .consolidated-coverage-badge {
+            color:#5E6F84 !important;
+            background:#F7F9FC !important;
+            border-color:#DDE5EE !important;
+        }
+        body.light-theme .consolidated-coverage-badge.is-deficit { color:#C94E68 !important; background:rgba(217,79,109,.06) !important; border-color:rgba(217,79,109,.18) !important; }
+        body.light-theme .consolidated-coverage-badge.is-ok { color:#258B78 !important; background:rgba(44,150,140,.07) !important; border-color:rgba(44,150,140,.16) !important; }
+        body.light-theme .consolidated-channel-foot { border-top-color:#E4E9F0 !important; }
+
+        body.light-theme .analysis-card { background:#FFFFFF !important; }
+        body.light-theme .executive-mini-card,
+        body.light-theme .analysis-storyline-pill,
+        body.light-theme .chart-executive-note {
+            background:#F8FAFD !important;
+            border-color:#E0E6EF !important;
+            box-shadow:none !important;
+        }
+        body.light-theme .analysis-storyline-pill { color:#617188 !important; }
+        body.light-theme .toggle-chip.toggle-volume { background:#F7F9FC !important; border-color:#D8E1EC !important; }
+        body.light-theme .toggle-chip.toggle-volume span { color:#52647B !important; }
+        body.light-theme .chart-well {
+            background:
+                linear-gradient(180deg,rgba(255,255,255,.99),rgba(248,250,253,.99)),
+                radial-gradient(circle at top right,rgba(111,134,255,.07),transparent 14rem) !important;
+            border-color:#DCE4EE !important;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.9) !important;
+        }
+
+        body.light-theme .table-well {
+            background:#FFFFFF !important;
+            border-color:#DCE4EE !important;
+        }
+        body.light-theme #tableHeaderContainer {
+            background:#F4F7FB !important;
+            color:#607188 !important;
+            border-color:#DCE4EE !important;
+        }
+        body.light-theme #intervalTableBody { color:#34445A !important; }
+        body.light-theme #intervalTableBody tr { border-color:#E8EDF3 !important; }
+        body.light-theme #intervalTableBody tr:hover { background:#F7F9FC !important; }
+        body.light-theme .table-well [class*="bg-[#"] { background:#F2F5F9 !important; }
+
+        body.light-theme .text-white { color:#172033 !important; }
+        body.light-theme .text-slate-200 { color:#29384D !important; }
+        body.light-theme .text-slate-300 { color:#3D4D63 !important; }
+        body.light-theme .text-slate-400 { color:#65758B !important; }
+        body.light-theme .text-slate-500 { color:#7B8A9D !important; }
+        body.light-theme .text-slate-600 { color:#94A0AF !important; }
+
+        body.light-theme #btnProcesar {
+            background:linear-gradient(135deg,#6278EE 0%,#5369DF 58%,#3DAEA3 125%) !important;
+            color:#FFFFFF !important;
+            box-shadow:0 14px 30px -18px rgba(83,105,223,.45) !important;
+        }
+        body.light-theme #dashboardError { background:rgba(217,79,109,.07) !important; color:#C64B65 !important; border-color:rgba(217,79,109,.22) !important; }
+        body.light-theme .status-danger { background:rgba(217,79,109,.09) !important; color:#C64B65 !important; }
+        body.light-theme .status-warning { background:rgba(183,120,22,.09) !important; color:#A76A13 !important; }
+        body.light-theme .status-success { background:rgba(44,150,140,.09) !important; color:#258B78 !important; }
+
+        body.light-theme #ambulanceRule {
+            background:rgba(183,120,22,.055) !important;
+            border-color:rgba(183,120,22,.18) !important;
+        }
+
     </style>
 </head>
-<body class="p-3 md:p-5 xl:p-6 min-h-screen">
+<body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
 
     <header class="app-header">
         <div class="brand-wrap">
@@ -1884,7 +2131,7 @@
                 ctx.beginPath();
                 ctx.arc(xPos, yReq, 4, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.fillStyle = 'rgba(15,23,42,0.96)';
+                ctx.fillStyle = 'rgba(255,255,255,0.97)';
                 ctx.strokeStyle = 'rgba(239,102,132,0.4)';
                 const padX = 10;
                 const h = 24;
@@ -1901,7 +2148,7 @@
                     ctx.fillRect(boxX, boxY, w, h);
                     ctx.strokeRect(boxX, boxY, w, h);
                 }
-                ctx.fillStyle = '#F8FAFC';
+                ctx.fillStyle = '#172033';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(text, boxX + padX, boxY + (h / 2));
                 ctx.restore();
@@ -2980,10 +3227,10 @@
                                 consolidatedChartExecutivePlugin: { enabled: true, reqData: generalReqData, dispData: generalDispData },
                                 legend: { display: false },
                                 tooltip: {
-                                    backgroundColor: '#0F172A',
-                                    titleColor: '#F8FAFC',
-                                    bodyColor: '#D6E0EC',
-                                    borderColor: '#31445F',
+                                    backgroundColor: '#FFFFFF',
+                                    titleColor: '#172033',
+                                    bodyColor: '#425269',
+                                    borderColor: '#D7E0EB',
                                     borderWidth: 1,
                                     padding: 12,
                                     displayColors: false,
@@ -3009,8 +3256,8 @@
                                     suggestedMax: Math.ceil(Math.max(...generalReqData, ...generalDispData, 1) * 1.18),
                                     grid: { color: 'rgba(148,163,184,.085)', drawBorder: false, tickLength: 0 },
                                     border: { display: false },
-                                    ticks: { color: '#73849B', precision: 0, padding: 8, font: { size: 10, weight: '600' } },
-                                    title: { display: true, text: 'Headcount (HC)', color: '#8CA0B8', font: { size: 10, weight: '800' } }
+                                    ticks: { color: '#697A90', precision: 0, padding: 8, font: { size: 10, weight: '600' } },
+                                    title: { display: true, text: 'Headcount (HC)', color: '#596B82', font: { size: 10, weight: '800' } }
                                 },
                                 y: {
                                     grid: { display: false, drawBorder: false },
@@ -3266,10 +3513,10 @@
                             legend: { display: false },
                             executiveDeficitHighlighter: { enabled: true },
                             tooltip: {
-                                backgroundColor: '#0F172A',
-                                titleColor: '#F8FAFC',
-                                bodyColor: '#D6E0EC',
-                                borderColor: '#31445F',
+                                backgroundColor: '#FFFFFF',
+                                titleColor: '#172033',
+                                bodyColor: '#425269',
+                                borderColor: '#D7E0EB',
                                 borderWidth: 1,
                                 padding: 12,
                                 displayColors: true,
@@ -3306,7 +3553,7 @@
                                 grid: { display: false, drawBorder: false },
                                 border: { display: false },
                                 ticks: {
-                                    color: '#73849B',
+                                    color: '#697A90',
                                     maxRotation: 0,
                                     autoSkip: false,
                                     padding: 8,
@@ -3326,16 +3573,16 @@
                                 title: {
                                     display: true,
                                     text: 'Dotación (HC)',
-                                    color: '#8CA0B8',
+                                    color: '#596B82',
                                     font: { size: 10, weight: '800' }
                                 },
                                 grid: {
-                                    color: 'rgba(148, 163, 184, 0.10)',
+                                    color: 'rgba(100, 116, 139, 0.16)',
                                     drawBorder: false,
                                     tickLength: 0
                                 },
                                 border: { display: false },
-                                ticks: { color: '#73849B', padding: 8, precision: 0 },
+                                ticks: { color: '#697A90', padding: 8, precision: 0 },
                                 beginAtZero: true
                             },
                             y1: {
@@ -3346,12 +3593,12 @@
                                 title: {
                                     display: showVolumeSeries,
                                     text: 'Volumen',
-                                    color: '#8CA0B8',
+                                    color: '#596B82',
                                     font: { size: 10, weight: '800' }
                                 },
                                 grid: { drawOnChartArea: false, drawBorder: false },
                                 border: { display: false },
-                                ticks: { color: '#73849B', padding: 8 },
+                                ticks: { color: '#697A90', padding: 8 },
                                 beginAtZero: true
                             }
                         }
