@@ -362,12 +362,18 @@
 
         function calcular_agentes_requeridos_erlang_c_js(A, aht, target_time, target_sl) {
             if (A <= 0 || aht <= 0) return 0;
+            const cacheKey = `${A}|${aht}|${target_time}|${target_sl}`;
+            if (erlangResultCache.has(cacheKey)) return erlangResultCache.get(cacheKey);
             let n = Math.max(1, Math.floor(A) + 1);
             if (A > 50) n = Math.max(n, Math.floor(A + Math.sqrt(A)));
             while (n < 3000) {
-                if (erlang_c_sl_optimizado(A, n, aht, target_time) >= target_sl) return n;
+                if (erlang_c_sl_optimizado(A, n, aht, target_time) >= target_sl) {
+                    erlangResultCache.set(cacheKey, n);
+                    return n;
+                }
                 n++;
             }
+            erlangResultCache.set(cacheKey, n);
             return n;
         }
 
@@ -417,29 +423,55 @@
         async function cargarCampanasConfiguracion() {
             const select = document.getElementById('campaignConfigSelect');
             if (!select || forecastMode === 'general') return;
-            const previous = select.value;
-            let campanas = [];
-            try {
-                const response = await fetch('/api/campaigns?mode=' + forecastMode + '&t=' + new Date().getTime());
-                if (response.ok) {
-                    const data = await response.json();
-                    if (Array.isArray(data)) campanas = data;
-                }
-            } catch (e) {}
 
-            if (!campanas.length && Array.isArray(globalData)) {
+            const previous = select.value;
+            const msg = document.getElementById('campaignTargetMessage');
+            let campanas = [];
+
+            // Si el forecast ya está cargado, usarlo primero. Así el selector no
+            // depende de otra lectura del Excel y aparece de inmediato.
+            if (Array.isArray(globalData) && globalData.length) {
                 campanas = [...new Set(globalData
                     .filter(r => forecastMode === 'llamadas' ? (r.Canal !== 'Chat') : (r.Canal !== 'Llamadas'))
                     .map(r => String(getProp(r, ['Campaña', 'Campana'], '')).trim())
                     .filter(Boolean))].sort();
             }
 
+            // Si aún no hay forecast, pedir únicamente el catálogo de campañas.
+            if (!campanas.length) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+                try {
+                    const response = await fetch('/api/campaigns?mode=' + forecastMode + '&t=' + new Date().getTime(), {
+                        signal: controller.signal,
+                        cache: 'no-store'
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (Array.isArray(data)) campanas = data;
+                    } else {
+                        let detalle = '';
+                        try { detalle = (await response.json()).error || ''; } catch (_) {}
+                        if (msg) msg.innerText = 'No se pudo cargar el catálogo de campañas' + (detalle ? ': ' + detalle : '.');
+                    }
+                } catch (e) {
+                    if (msg) {
+                        msg.innerText = e.name === 'AbortError'
+                            ? 'La carga de campañas tardó demasiado. El dashboard seguirá intentando cargar el forecast.'
+                            : 'No se pudo conectar con el catálogo de campañas.';
+                    }
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+            }
+
             select.innerHTML = '';
             if (!campanas.length) {
                 select.innerHTML = '<option value="">Sin campañas disponibles</option>';
-                document.getElementById('campaignTargetMessage').innerText = 'Genera el forecast o verifica el archivo histórico para cargar las campañas.';
+                if (msg && !msg.innerText) msg.innerText = 'Genera el forecast o verifica el archivo histórico para cargar las campañas.';
                 return;
             }
+
             campanas.forEach(c => {
                 const opt = document.createElement('option');
                 opt.value = c;
@@ -526,6 +558,14 @@
         let isSidebarVisible = true;
         let campaignSettings = { llamadas: {}, chat: {} };
 
+        // Cachés del navegador: cambiar de Llamadas a Chat no debe volver a
+        // descargar ni reconstruir decenas de miles de filas si ya se cargaron.
+        const modeDataCache = { llamadas: null, chat: null };
+        const modeFetchPromises = { llamadas: null, chat: null };
+        const erlangResultCache = new Map();
+        const weekNumberCache = new Map();
+        let warmupScheduled = false;
+
         function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
         async function loadSourceMeta(){ try { const r=await fetch('/api/status?t='+Date.now()); const m=await r.json(); if(r.ok){ document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}`; } } catch(e){} }
 
@@ -548,7 +588,8 @@
 
         function getWeekNumber(dateStr) {
             if (!dateStr) return '';
-            const cleanDate = dateStr.split(' ')[0].split('T')[0];
+            const cleanDate = String(dateStr).split(' ')[0].split('T')[0];
+            if (weekNumberCache.has(cleanDate)) return weekNumberCache.get(cleanDate);
             const parts = cleanDate.split('-');
             if (parts.length !== 3) return '';
             const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
@@ -564,7 +605,9 @@
                 const dd = String(date.getUTCDate()).padStart(2, '0');
                 return `${yyyy}/${mm}/${dd}`;
             };
-            return `W${formatDt(startOfWeek)} - ${formatDt(endOfWeek)}`;
+            const value = `W${formatDt(startOfWeek)} - ${formatDt(endOfWeek)}`;
+            weekNumberCache.set(cleanDate, value);
+            return value;
         }
 
         const mesesMap = {
@@ -620,7 +663,6 @@
                 }
             }
             fetchLatestData(mode);
-            if (mode !== 'general') cargarCampanasConfiguracion();
         }
 
         function switchMode(mode) {
@@ -679,41 +721,89 @@
             setTimeout(() => { if (gapChartInstance) gapChartInstance.resize(); }, 150);
         }
 
+        async function fetchModeData(mode, force = false) {
+            mode = mode === 'chat' ? 'chat' : 'llamadas';
+            if (!force && Array.isArray(modeDataCache[mode]) && modeDataCache[mode].length) {
+                return modeDataCache[mode];
+            }
+            if (modeFetchPromises[mode]) return modeFetchPromises[mode];
+
+            const promise = (async () => {
+                const response = await fetch('/api/latest?mode=' + mode, { cache: force ? 'no-cache' : 'default' });
+                let data = null;
+                try { data = await response.json(); } catch (_) { data = null; }
+                if (!response.ok) {
+                    throw new Error((data && data.error) || `HTTP ${response.status}`);
+                }
+                const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
+                const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
+                modeDataCache[mode] = prepared;
+                return prepared;
+            })();
+
+            modeFetchPromises[mode] = promise;
+            try {
+                return await promise;
+            } finally {
+                modeFetchPromises[mode] = null;
+            }
+        }
+
+        function scheduleModeWarmup(activeMode) {
+            if (warmupScheduled || activeMode === 'general') return;
+            warmupScheduled = true;
+            const otherMode = activeMode === 'chat' ? 'llamadas' : 'chat';
+            const run = () => fetchModeData(otherMode, false).catch(() => {});
+            if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 2500 });
+            else setTimeout(run, 800);
+        }
+
         async function fetchLatestData(mode, isBackground = false) {
             try {
+                let nextData = [];
+                const force = !!isBackground;
+
                 if (mode === 'general') {
-                    const [inRes, chatRes] = await Promise.all([
-                        fetch('/api/latest?mode=llamadas&t=' + new Date().getTime()),
-                        fetch('/api/latest?mode=chat&t=' + new Date().getTime())
+                    const [inData, chatData] = await Promise.all([
+                        fetchModeData('llamadas', force),
+                        fetchModeData('chat', force)
                     ]);
-                    const inData = inRes.ok ? await inRes.json() : [];
-                    const chatData = chatRes.ok ? await chatRes.json() : [];
-                    
-                    globalData = [
-                        ...inData.map(d => ({...d, Canal: 'Llamadas'})), 
-                        ...chatData.map(d => ({...d, Canal: 'Chat'}))
-                    ];
+                    nextData = [...inData, ...chatData];
                 } else {
-                    const response = await fetch('/api/latest?mode=' + mode + '&t=' + new Date().getTime());
-                    if (response.ok) {
-                        const data = await response.json();
-                        const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
-                        globalData = data.map(d => ({...d, Canal: canalName}));
-                    }
+                    nextData = await fetchModeData(mode, force);
                 }
 
-                if (globalData && globalData.length > 0) {
+                globalData = nextData;
+
+                if (globalData.length > 0) {
                     if (!isBackground) {
                         inicializarFiltrosMultiples();
                         applySavedFilters();
-                        if (mode !== 'general') cargarCampanasConfiguracion();
                     }
+                    if (mode !== 'general') await cargarCampanasConfiguracion();
                     debouncedActualizarGrafica();
-                } else {
-                    if (!isBackground) limpiarPantalla();
+                    const box = document.getElementById('dashboardError');
+                    if (box) box.classList.add('hidden');
+                    if (!isBackground) scheduleModeWarmup(mode);
+                } else if (!isBackground) {
+                    limpiarPantalla();
+                    if (mode !== 'general') await cargarCampanasConfiguracion();
+                    const box = document.getElementById('dashboardError');
+                    if (box) {
+                        box.innerText = 'No hay un forecast disponible todavía. Presiona RUN PLAN para generarlo.';
+                        box.classList.remove('hidden');
+                    }
                 }
             } catch (e) {
-                console.log("Error cargando pronóstico automático.");
+                console.error('Error cargando pronóstico automático:', e);
+                if (!isBackground) {
+                    const box = document.getElementById('dashboardError');
+                    if (box) {
+                        box.innerText = 'No se pudo cargar la información: ' + (e.message || 'error de conexión con el servidor.');
+                        box.classList.remove('hidden');
+                    }
+                    setRunStatus('Error al cargar', 'red');
+                }
             }
         }
 
@@ -747,6 +837,11 @@
                 globalData = await response.json();
                 
                 if (response.ok && Array.isArray(globalData)) {
+                    const modeKey = forecastMode === 'chat' ? 'chat' : 'llamadas';
+                    const canalName = modeKey === 'chat' ? 'Chat' : 'Llamadas';
+                    globalData = globalData.map(d => d.Canal ? d : ({...d, Canal: canalName}));
+                    modeDataCache[modeKey] = globalData;
+                    erlangResultCache.clear();
                     inicializarFiltrosMultiples();
                     await cargarCampanasConfiguracion();
                     debouncedActualizarGrafica();
@@ -775,7 +870,8 @@
             document.getElementById('kpiWorstGapDetail').innerText = "Sin déficit";
             document.getElementById('kpiHcRoster').innerText = "0 HC";
             document.getElementById('intervalTableBody').innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-500 font-medium">Sin datos. Presiona RUN PLAN.</td></tr>`;
-            if(gapChartInstance) gapChartInstance.destroy();
+            if (gapChartInstance) { gapChartInstance.destroy(); gapChartInstance = null; }
+            if (generalChartInstance) { generalChartInstance.destroy(); generalChartInstance = null; }
         }
 
         function inicializarFiltrosMultiples() {
@@ -979,15 +1075,15 @@
                 }
             } catch (e) {}
 
-            await cargarCampanasConfiguracion();
-
+            // Primero cargar el forecast. El selector de campañas se alimenta
+            // de esas mismas filas y así evitamos una lectura paralela del Excel.
             if ((mode === 'ops' || mode === 'operaciones') && window.savedFilters) {
                 if (forecastMode !== window.savedFilters.tab) {
                     setModeWFM(window.savedFilters.tab);
                     return; 
                 }
             }
-            fetchLatestData(forecastMode);
+            fetchLatestData(forecastMode).finally(() => loadSourceMeta());
 
             if (mode === 'ops' || mode === 'operaciones') {
                 setInterval(() => {
@@ -1029,6 +1125,17 @@
             });
         }
 
+        function backendFteCompatible(lookup, canal, campana, fecha, intervalo, concurrenciaActual) {
+            const key = `${canal}|${campana}|${fecha}|${intervalo}`;
+            const row = lookup.get(key);
+            if (!row) return null;
+            const objetivos = getCampaignTargets(campana, canal);
+            const sameSl = Math.abs(row.targetSl - objetivos.targetSl) < 1e-9;
+            const sameAsa = Math.abs(row.targetAsa - objetivos.targetTime) < 1e-9;
+            const sameConcurrency = canal !== 'Chat' || Math.abs(row.concurrency - Math.max(1.0, concurrenciaActual)) < 1e-9;
+            return sameSl && sameAsa && sameConcurrency ? row.fte : null;
+        }
+
         async function actualizarGrafica() {
             actualizarVisibilidadFiltros(); 
 
@@ -1064,6 +1171,7 @@
             let fechasSet = new Set();
             let totalCallsGlobal = 0;
             let totalHTGlobal = 0;
+            const backendFteLookup = new Map();
 
             for (let i = 0; i < dfFiltered.length; i++) {
                 let r = dfFiltered[i];
@@ -1074,6 +1182,20 @@
                 let calls = Number(getProp(r, ['Llamadas', 'Recibidas', 'Recibidos'], 0)) || 0;
                 let aht = Number(getProp(r, ['AHT_Segundos'], 180)) || 180;
                 let rosInter = Number(getProp(r, ['HC_Actual_Roster'], 0)) || 0;
+                const canalRow = r.Canal || (forecastMode === 'chat' ? 'Chat' : 'Llamadas');
+                const backendFte = Number(getProp(r, ['FTE_Erlang'], NaN));
+                const backendSl = Number(getProp(r, ['Target_SL'], NaN));
+                const backendAsa = Number(getProp(r, ['Target_ASA'], NaN));
+                const backendConcurrency = Number(getProp(r, ['Concurrencia_Aplicada'], canalRow === 'Chat' ? 3 : 1));
+                if (Number.isFinite(backendFte) && Number.isFinite(backendSl) && Number.isFinite(backendAsa)) {
+                    const fteKey = `${canalRow}|${c}|${d}|${inv}`;
+                    if (!backendFteLookup.has(fteKey)) {
+                        backendFteLookup.set(fteKey, { fte: backendFte, targetSl: backendSl, targetAsa: backendAsa, concurrency: backendConcurrency });
+                    } else {
+                        // Si hubiera duplicados, es más seguro usar el cálculo local agregado.
+                        backendFteLookup.set(fteKey, null);
+                    }
+                }
 
                 fechasSet.add(d);
                 totalCallsGlobal += calls;
@@ -1143,9 +1265,14 @@
                                     let avgAhtD = callsD > 0 ? campData[d].ht / callsD : 180;
                                     let aht_efectivo = ch === 'Chat' ? avgAhtD / Math.max(1.0, concurrenciaVal) : avgAhtD;
                                     if(callsD >= 0.05) {
-                                        let a_erlang = (callsD * aht_efectivo * factorCoberturaAmbulancia(c, ch)) / 1800.0;
-                                        const objetivosCampana = getCampaignTargets(c, ch);
-                                        interReqSumCamp += calcular_agentes_requeridos_erlang_c_js(a_erlang, aht_efectivo, objetivosCampana.targetTime, objetivosCampana.targetSl);
+                                        const fteBackend = backendFteCompatible(backendFteLookup, ch, c, d, inv, concurrenciaVal);
+                                        if (fteBackend !== null) {
+                                            interReqSumCamp += fteBackend;
+                                        } else {
+                                            let a_erlang = (callsD * aht_efectivo * factorCoberturaAmbulancia(c, ch)) / 1800.0;
+                                            const objetivosCampana = getCampaignTargets(c, ch);
+                                            interReqSumCamp += calcular_agentes_requeridos_erlang_c_js(a_erlang, aht_efectivo, objetivosCampana.targetTime, objetivosCampana.targetSl);
+                                        }
                                     }
                                 }
                                 if(!ftePorCampanaGeneral[c]) ftePorCampanaGeneral[c] = 0;
@@ -1210,18 +1337,26 @@
                 document.getElementById('contGapChart').classList.add('hidden');
                 document.getElementById('contGeneralChart').classList.remove('hidden');
 
-                if(generalChartInstance) generalChartInstance.destroy();
-                generalChartInstance = new Chart(document.getElementById('generalChart').getContext('2d'), {
-                    type: 'bar',
-                    data: {
-                        labels: ['Llamadas', 'Chat'],
-                        datasets: [
-                            { label: 'HC Requerido', data: [hcReqDict['Llamadas'], hcReqDict['Chat']], backgroundColor: '#A78BFA', borderRadius: 4 },
-                            { label: 'HC Disponible', data: [hcDispDict['Llamadas'], hcDispDict['Chat']], backgroundColor: '#34D399', borderRadius: 4 }
-                        ]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94A3B8' } } }, scales: { x: { grid: { display: false }, ticks: { color: '#64748B' } }, y: { grid: { color: '#1F2937', borderDash: [4, 4] }, ticks: { color: '#64748B' }, beginAtZero: true } } }
-                });
+                const generalReqData = [hcReqDict['Llamadas'], hcReqDict['Chat']];
+                const generalDispData = [hcDispDict['Llamadas'], hcDispDict['Chat']];
+                if (generalChartInstance) {
+                    generalChartInstance.data.labels = ['Llamadas', 'Chat'];
+                    generalChartInstance.data.datasets[0].data = generalReqData;
+                    generalChartInstance.data.datasets[1].data = generalDispData;
+                    generalChartInstance.update('none');
+                } else {
+                    generalChartInstance = new Chart(document.getElementById('generalChart').getContext('2d'), {
+                        type: 'bar',
+                        data: {
+                            labels: ['Llamadas', 'Chat'],
+                            datasets: [
+                                { label: 'HC Requerido', data: generalReqData, backgroundColor: '#A78BFA', borderRadius: 4 },
+                                { label: 'HC Disponible', data: generalDispData, backgroundColor: '#34D399', borderRadius: 4 }
+                            ]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { color: '#94A3B8' } } }, scales: { x: { grid: { display: false }, ticks: { color: '#64748B' } }, y: { grid: { color: '#1F2937', borderDash: [4, 4] }, ticks: { color: '#64748B' }, beginAtZero: true } } }
+                    });
+                }
                 return; 
             }
 
@@ -1251,9 +1386,14 @@
                             let aht_efectivo = forecastMode === 'chat' ? avgAhtD / Math.max(1.0, concurrenciaVal) : avgAhtD;
                             if (callsDay >= 0.05) {
                                 const canalActual = forecastMode === 'llamadas' ? 'Llamadas' : 'Chat';
-                                const cargaErlang = (callsDay * aht_efectivo * factorCoberturaAmbulancia(c, canalActual)) / 1800.0;
-                                const objetivosCampana = getCampaignTargets(c, canalActual);
-                                reqCampanaIntervalo += calcular_agentes_requeridos_erlang_c_js(cargaErlang, aht_efectivo, objetivosCampana.targetTime, objetivosCampana.targetSl);
+                                const fteBackend = backendFteCompatible(backendFteLookup, canalActual, c, d, inter, concurrenciaVal);
+                                if (fteBackend !== null) {
+                                    reqCampanaIntervalo += fteBackend;
+                                } else {
+                                    const cargaErlang = (callsDay * aht_efectivo * factorCoberturaAmbulancia(c, canalActual)) / 1800.0;
+                                    const objetivosCampana = getCampaignTargets(c, canalActual);
+                                    reqCampanaIntervalo += calcular_agentes_requeridos_erlang_c_js(cargaErlang, aht_efectivo, objetivosCampana.targetTime, objetivosCampana.targetSl);
+                                }
                             }
                         }
                     }
@@ -1342,8 +1482,19 @@
             document.getElementById('contGapChart').classList.remove('hidden');
             if (document.getElementById('contGeneralChart')) document.getElementById('contGeneralChart').classList.add('hidden');
 
-            if (gapChartInstance) gapChartInstance.destroy();
-            gapChartInstance = new Chart(document.getElementById('gapChart').getContext('2d'), {
+            const deficitData = reqAgrupadoGlobalParaPlot.map((r,i)=>Math.max(0, r-(rosterAgrupadoGlobal[i]||0)));
+            const volumenPlotData = llamadasAgrupadasGlobal.map(v => Math.round(v));
+            const volumenLabel = forecastMode === 'chat' ? 'Mensajes (FCST)' : 'Llamadas (FCST)';
+            if (gapChartInstance) {
+                gapChartInstance.data.labels = todosIntervalos;
+                gapChartInstance.data.datasets[0].data = reqAgrupadoGlobalParaPlot;
+                gapChartInstance.data.datasets[1].data = rosterAgrupadoGlobal;
+                gapChartInstance.data.datasets[2].data = deficitData;
+                gapChartInstance.data.datasets[3].data = volumenPlotData;
+                gapChartInstance.data.datasets[3].label = volumenLabel;
+                gapChartInstance.update('none');
+            } else {
+                    gapChartInstance = new Chart(document.getElementById('gapChart').getContext('2d'), {
                 type: 'bar',
                 data: {
                     labels: todosIntervalos,
@@ -1379,13 +1530,13 @@
                         },
                         {
                             type: 'bar', label: 'Déficit HC',
-                            data: reqAgrupadoGlobalParaPlot.map((r,i)=>Math.max(0, r-(rosterAgrupadoGlobal[i]||0))),
+                            data: deficitData,
                             backgroundColor: 'rgba(251, 113, 133, 0.55)', borderColor: '#FB7185', borderWidth: 1, borderRadius: 4, yAxisID: 'y', order: 0
                         },
                         { 
                             type: 'bar',
-                            label: forecastMode === 'chat' ? 'Mensajes (FCST)' : 'Llamadas (FCST)', 
-                            data: llamadasAgrupadasGlobal.map(v => Math.round(v)), 
+                            label: volumenLabel, 
+                            data: volumenPlotData, 
                             backgroundColor: 'rgba(59, 130, 246, 0.15)', 
                             borderColor: 'rgba(59, 130, 246, 0.5)',
                             borderWidth: 1,
@@ -1397,7 +1548,8 @@
                 },
                 options: { 
                     responsive: true, 
-                    maintainAspectRatio: false, 
+                    maintainAspectRatio: false,
+                    animation: false, 
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
                         legend: { labels: { color: '#94A3B8', usePointStyle: true } }, 
@@ -1422,6 +1574,7 @@
                     } 
                 }
             });
+            }
         }
 
         function exportarCSV() {
