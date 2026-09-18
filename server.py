@@ -1,4 +1,5 @@
 import os
+import sys
 import math
 import gc
 import re
@@ -9,11 +10,16 @@ from flask_cors import CORS
 import pandas as pd
 import numpy as np
 
-# --- LIBRERÍAS DE MACHINE LEARNING ---
+# Dependencias locales del forecast. Se distribuyen junto al servidor para que
+# el calendario de México y el modelo de machine learning estén siempre activos.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VENDOR_DIR = os.path.join(BASE_DIR, 'vendor')
+if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
+    sys.path.insert(0, VENDOR_DIR)
+
 import holidays
 from sklearn.ensemble import RandomForestRegressor
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
 CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
@@ -129,7 +135,7 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     anos_presentes = list(df_ml[col_fecha].dt.year.unique())
     anos_presentes.append(fecha_inicio_forecast.year)
     anos_presentes.append((fecha_inicio_forecast + timedelta(days=dias_futuros)).year)
-    festivos_pais = holidays.CountryHoliday('MX', years=list(set(anos_presentes)))
+    festivos_pais = holidays.country_holidays('MX', years=list(set(anos_presentes)))
     
     q1, q3 = df_ml[col_calls].quantile(0.25), df_ml[col_calls].quantile(0.75)
     iqr = q3 - q1
