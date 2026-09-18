@@ -439,6 +439,180 @@
             .toolbar-actions { width:100%; justify-content:flex-end; }
             .chart-well { height:270px !important; }
         }
+
+        /* ============================================================
+           EXECUTIVE UI V4 — Capacity Control Room
+           Refinamiento visual/UX. No altera fórmulas ni forecast.
+           ============================================================ */
+        :root {
+            --v4-surface: #0B1423;
+            --v4-surface-2: #0E1A2D;
+            --v4-line: rgba(148, 163, 184, .105);
+            --v4-line-strong: rgba(148, 163, 184, .18);
+            --v4-blue: #5B8CFF;
+            --v4-cyan: #33CFE8;
+            --v4-green: #43D6A1;
+            --v4-amber: #F3BD53;
+            --v4-red: #FC7D91;
+        }
+        body { letter-spacing: -.005em; }
+        .app-header::after {
+            content:''; position:absolute; left:18px; right:18px; bottom:-1px; height:1px;
+            background:linear-gradient(90deg, transparent, rgba(91,140,255,.45) 25%, rgba(51,207,232,.20) 55%, transparent);
+            opacity:.65; pointer-events:none;
+        }
+        .brand-title { font-size:19px; letter-spacing:-.035em; }
+        .brand-subtitle { color:#697B95; }
+        .brand-mark { position:relative; overflow:hidden; }
+        .brand-mark::after {
+            content:''; position:absolute; inset:-55% 35% auto -55%; height:150%;
+            transform:rotate(28deg); background:linear-gradient(90deg, transparent, rgba(255,255,255,.11), transparent);
+            pointer-events:none;
+        }
+        .header-actions { flex-wrap:wrap; justify-content:flex-end; }
+        .command-meta {
+            display:flex; align-items:center; gap:5px; padding:4px;
+            border:1px solid var(--v4-line); border-radius:12px; background:rgba(5,10,18,.35);
+        }
+        .command-meta-chip {
+            display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 8px;
+            border-radius:8px; color:#71839D; font-size:8px; font-weight:750; letter-spacing:.035em;
+            white-space:nowrap;
+        }
+        .command-meta-chip + .command-meta-chip { border-left:1px solid var(--v4-line); border-radius:0 8px 8px 0; }
+        .command-meta-dot { width:5px; height:5px; border-radius:50%; background:var(--v4-green); box-shadow:0 0 0 4px rgba(67,214,161,.08); }
+
+        #panelControl { padding:18px !important; }
+        #wfmForm > .grid, #wfmForm > #campaignTargetsPanel, #wfmForm > #contConcurrencia,
+        #wfmForm > .flex.flex-col.group, #wfmForm > .flex.items-center.justify-between.p-3 { margin-top:12px; }
+        .sidebar-topline { padding-bottom:16px; }
+        .sidebar-title { font-size:13px; }
+        .assumption-note { margin-top:12px; }
+        .input-clean {
+            min-height:46px; background:linear-gradient(180deg, rgba(6,13,24,.92), rgba(9,17,31,.96));
+            border-color:#22324A;
+        }
+        .input-clean:focus { background:#091426; }
+        .input-clean[type="number"] { font-size:14px !important; }
+        .campaign-details { border-radius:14px !important; }
+        .campaign-details[open] { border-color:rgba(91,140,255,.22) !important; box-shadow:0 12px 32px -28px rgba(91,140,255,.55); }
+        #btnProcesar { position:relative; overflow:hidden; margin-top:16px !important; font-size:11px !important; }
+        #btnProcesar::before {
+            content:''; position:absolute; inset:0;
+            background:linear-gradient(110deg, transparent 20%, rgba(255,255,255,.10) 45%, transparent 70%);
+            transform:translateX(-120%); transition:transform .55s ease;
+        }
+        #btnProcesar:hover::before { transform:translateX(120%); }
+        #runStatus { border-radius:12px !important; }
+
+        .filter-shell { grid-template-columns:minmax(130px,.7fr) minmax(0,4fr); }
+        .filter-intro { padding-right:12px; border-right:1px solid var(--v4-line); }
+        .filter-control { position:relative; overflow:hidden; transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease; }
+        .filter-control.filter-active {
+            border-color:rgba(91,140,255,.38) !important;
+            background:linear-gradient(180deg, rgba(17,31,53,.98), rgba(9,19,35,.98));
+            box-shadow:inset 0 0 0 1px rgba(91,140,255,.04), 0 8px 20px -18px rgba(91,140,255,.75);
+        }
+        .filter-control.filter-active::after {
+            content:''; position:absolute; top:7px; right:7px; width:5px; height:5px; border-radius:50%;
+            background:var(--v4-blue); box-shadow:0 0 0 4px rgba(91,140,255,.08);
+        }
+        .filter-control.filter-active .filter-caption { color:#789DE7; }
+        [id^="dropdown"][id$="Menu"] {
+            padding:7px !important; border-color:#253751 !important; background:rgba(9,18,32,.98) !important;
+            box-shadow:0 22px 50px -18px rgba(0,0,0,.92), inset 0 1px 0 rgba(255,255,255,.025) !important;
+            backdrop-filter:blur(22px);
+        }
+        [id^="dropdown"][id$="Menu"] label { border:1px solid transparent; }
+        [id^="dropdown"][id$="Menu"] label:hover { border-color:rgba(91,140,255,.09); background:rgba(91,140,255,.055) !important; }
+
+        #kpiCardsContainer { align-items:stretch; }
+        @media (min-width:1280px) {
+            #kpiCardsContainer { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); grid-auto-rows:minmax(124px,auto); }
+            #criticalGapCard.kpi-gap { grid-column:span 5 / span 5; grid-row:span 2 / span 2; }
+            .kpi-agents { grid-column:span 3 / span 3; }
+            .kpi-required { grid-column:span 4 / span 4; }
+            .kpi-current { grid-column:span 3 / span 3; }
+            .kpi-demand { grid-column:span 2 / span 2; }
+            .kpi-aht { grid-column:span 2 / span 2; }
+        }
+        .kpi-card {
+            isolation:isolate;
+            background:
+                radial-gradient(circle at 92% 6%, rgba(91,140,255,.035), transparent 8rem),
+                linear-gradient(150deg, rgba(16,28,48,.92), rgba(8,16,29,.96));
+        }
+        .kpi-card::after {
+            content:''; position:absolute; inset:0; z-index:-1; opacity:0;
+            background:linear-gradient(135deg, rgba(255,255,255,.025), transparent 38%);
+            transition:opacity .18s ease;
+        }
+        .kpi-card:hover::after { opacity:1; }
+        .kpi-card:hover { transform:translateY(-2px); box-shadow:0 22px 55px -42px rgba(91,140,255,.75), inset 0 1px 0 rgba(255,255,255,.025); }
+        .kpi-label { color:#71839D; }
+        .kpi-value { font-variant-numeric:tabular-nums; text-wrap:balance; }
+        .kpi-help { color:#586A84; }
+        .kpi-icon { background:rgba(255,255,255,.025); }
+        .kpi-hero { min-height:100%; padding:24px !important; display:flex; flex-direction:column; justify-content:space-between; }
+        .kpi-hero .kpi-value { font-size:46px; margin-top:18px !important; }
+        .kpi-hero .kpi-help { max-width:360px; font-size:10px; }
+        .kpi-hero-status {
+            background:rgba(252,125,145,.085); border:1px solid rgba(252,125,145,.10); padding:6px 9px;
+        }
+        .hero-meter-wrap { margin-top:18px; padding-top:14px; border-top:1px solid rgba(148,163,184,.085); }
+        .hero-meter-meta { display:flex; justify-content:space-between; gap:10px; margin-bottom:7px; font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#667891; }
+        .hero-meter { height:5px; overflow:hidden; border-radius:999px; background:#07101C; box-shadow:inset 0 1px 2px rgba(0,0,0,.55); }
+        #coverageMeterFill { height:100%; width:0%; border-radius:inherit; background:linear-gradient(90deg, var(--v4-red), #FF9B8A); transition:width .35s ease, background .25s ease; }
+        .kpi-critical-ok #coverageMeterFill { background:linear-gradient(90deg, #37C990, #55DDAA); }
+        .kpi-critical-ok .kpi-hero-status { border-color:rgba(67,214,161,.10); }
+        .kpi-secondary .kpi-value { font-size:28px; }
+        .kpi-demand #kpiCalls { font-size:25px; }
+        .kpi-demand #kpiCallsDaily { display:block; width:100%; margin-top:5px; }
+        .kpi-aht #kpiAht { font-size:24px; letter-spacing:-.055em; }
+
+        .analysis-card { padding:0 !important; overflow:hidden; }
+        .analysis-toolbar {
+            margin:0; padding:16px 18px; border-bottom:1px solid var(--v4-line);
+            background:linear-gradient(180deg, rgba(16,29,49,.76), rgba(12,22,38,.50));
+        }
+        .analysis-title { font-size:14px; }
+        .analysis-legend { display:flex; align-items:center; gap:10px; margin-top:5px; flex-wrap:wrap; }
+        .analysis-legend-item { display:inline-flex; align-items:center; gap:5px; color:#63748D; font-size:8px; font-weight:700; }
+        .analysis-legend-swatch { width:6px; height:6px; border-radius:2px; }
+        .chart-well {
+            margin:16px 16px 12px !important; width:calc(100% - 32px); height:330px !important;
+            border-radius:16px !important; background:linear-gradient(180deg,#07101D,#081220) !important;
+        }
+        .table-toolbar {
+            display:flex; align-items:center; justify-content:space-between; gap:10px;
+            margin:0 16px; padding:11px 2px 9px; border-top:1px solid var(--v4-line);
+        }
+        .table-toolbar-title { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.12em; color:#8393AA; }
+        .table-toolbar-copy { font-size:8px; color:#53647D; margin-top:2px; }
+        .table-well { margin:0 16px 16px; max-height:430px !important; }
+        .table-well thead { backdrop-filter:blur(12px); }
+        .table-well tbody tr { background:transparent !important; }
+        .table-well tbody tr:hover { background:rgba(91,140,255,.045) !important; }
+        .table-well tbody tr[class*="border-[#FB7185]"] { background:rgba(252,125,145,.018) !important; }
+
+        #runStatusDot { display:inline-block; animation:statusPulse 2.4s ease-in-out infinite; }
+        @keyframes statusPulse { 0%,100%{opacity:.55} 50%{opacity:1} }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+        }
+        @media (max-width:1280px) { .command-meta { display:none; } }
+        @media (max-width:900px) {
+            .filter-intro { border-right:0; padding-right:0; }
+            .chart-well { height:290px !important; }
+        }
+        @media (max-width:640px) {
+            .kpi-hero { padding:18px !important; }
+            .kpi-hero .kpi-value { font-size:38px; }
+            .chart-well { margin:12px !important; width:calc(100% - 24px); height:260px !important; }
+            .table-well { margin:0 12px 12px; }
+            .table-toolbar { margin:0 12px; }
+        }
+
     </style>
 </head>
 <body class="p-3 md:p-5 xl:p-6 min-h-screen">
@@ -465,6 +639,10 @@
                 <button id="btnTabLlamadas" onclick="setModeWFM('llamadas')" class="mode-tab mode-tab-active"><span>📞</span><span>Llamadas</span></button>
                 <button id="btnTabChat" onclick="setModeWFM('chat')" class="mode-tab"><span>💬</span><span>Chat</span></button>
                 <button id="btnTabGeneral" onclick="setModeWFM('general')" class="mode-tab"><span>◫</span><span>Consolidado</span></button>
+            </div>
+            <div class="command-meta" aria-label="Contexto del modelo">
+                <span class="command-meta-chip"><span class="command-meta-dot"></span>Erlang C</span>
+                <span class="command-meta-chip">Intervalos · 30 min</span>
             </div>
             <span id="tagModoOps" class="hidden ops-badge">Operaciones</span>
             <div id="containerShowSidebar" class="hidden">
@@ -658,13 +836,17 @@
                 </div>
             </div>
             <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3">
-                <div id="criticalGapCard" class="glass-panel kpi-card kpi-hero kpi-card-danger p-5 md:col-span-2 xl:col-span-6">
+                <div id="criticalGapCard" class="glass-panel kpi-card kpi-hero kpi-card-danger kpi-gap p-5 md:col-span-2">
                     <div class="flex items-start justify-between gap-4">
                         <div>
-                            <p class="kpi-label">Mayor déficit por intervalo</p>
+                            <p id="criticalGapLabel" class="kpi-label">Mayor déficit por intervalo</p>
                             <p id="kpiWorstGap" class="kpi-value font-mono-num text-brand-accentRose mt-4">—</p>
                             <p id="kpiWorstGapDetail" class="kpi-help mt-2">Sin déficit</p>
-                            <span class="kpi-hero-status"><span>●</span><span>Prioridad operativa</span></span>
+                            <span class="kpi-hero-status"><span class="hero-status-dot">●</span><span id="heroStatusText">Prioridad operativa</span></span>
+                            <div class="hero-meter-wrap">
+                                <div class="hero-meter-meta"><span>Cobertura de plantilla</span><span id="coverageRatioLabel">—</span></div>
+                                <div class="hero-meter"><div id="coverageMeterFill"></div></div>
+                            </div>
                         </div>
                         <div class="kpi-icon text-brand-accentRose">
                             <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v10M12 17.5v.5" stroke-linecap="round"/><path d="M10.2 4.2 3.7 16a2 2 0 0 0 1.8 3h13a2 2 0 0 0 1.8-3L13.8 4.2a2 2 0 0 0-3.6 0Z"/></svg>
@@ -672,31 +854,31 @@
                     </div>
                 </div>
 
-                <div class="glass-panel kpi-card kpi-card-primary p-5 xl:col-span-3">
+                <div class="glass-panel kpi-card kpi-card-primary kpi-agents p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Agentes por intervalo</p><div class="kpi-icon text-brand-accentCyan"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.8 18c.6-3 2.4-4.5 5.2-4.5s4.6 1.5 5.2 4.5M17 8.5a2.5 2.5 0 0 1 0 5M16.5 14.5c2 .4 3.2 1.6 3.7 3.5" stroke-linecap="round"/></svg></div></div>
                     <p id="kpiIntervalReq" class="kpi-value font-mono-num text-brand-accentCyan mt-5">0 HC</p>
                     <p class="kpi-help mt-2">Pico simultáneo del filtro</p>
                 </div>
 
-                <div class="glass-panel kpi-card kpi-card-primary p-5 xl:col-span-3">
+                <div class="glass-panel kpi-card kpi-card-primary kpi-required p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Plantilla requerida</p><div class="kpi-icon text-[#9BB9FF]"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 20v-9m7 9V4m7 16v-6" stroke-linecap="round"/><path d="M3 20h18"/></svg></div></div>
                     <p id="kpiHcRequerido" class="kpi-value font-mono-num text-white mt-5">0 HC</p>
                     <p class="kpi-help mt-2">Jornada, descanso y merma</p>
                 </div>
 
-                <div class="glass-panel kpi-card kpi-secondary kpi-card-success p-5 xl:col-span-4">
+                <div class="glass-panel kpi-card kpi-secondary kpi-card-success kpi-current p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Plantilla actual</p><div class="kpi-icon text-brand-accentEmerald"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8h16v12M8 8V4h8v4M8 13h2m4 0h2m-8 4h2m4 0h2" stroke-linecap="round"/></svg></div></div>
                     <div class="flex items-center gap-3 mt-4"><p id="kpiHcRoster" class="kpi-value font-mono-num text-brand-accentEmerald">0 HC</p><p id="kpiHcGap" class="text-[9px] font-extrabold px-2.5 py-1 rounded-full bg-[#1E293B] text-slate-300">0</p></div>
                     <p class="kpi-help mt-2">Dotación disponible en roster</p>
                 </div>
 
-                <div class="glass-panel kpi-card kpi-secondary p-5 xl:col-span-4">
+                <div class="glass-panel kpi-card kpi-secondary kpi-demand p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Demanda del periodo</p><div class="kpi-icon text-[#9BB9FF]"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 17V9m5 8V5m5 12v-4m4 4V7" stroke-linecap="round"/></svg></div></div>
                     <div class="flex items-end justify-between gap-4 mt-4 flex-wrap"><p id="kpiCalls" class="kpi-value font-mono-num text-white">0</p><p id="kpiCallsDaily" class="text-[9px] text-slate-400 pb-0.5">Promedio diario: 0</p></div>
                     <p class="kpi-help mt-2">Volumen total proyectado</p>
                 </div>
 
-                <div class="glass-panel kpi-card kpi-secondary kpi-card-warning p-5 xl:col-span-4">
+                <div class="glass-panel kpi-card kpi-secondary kpi-card-warning kpi-aht p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">AHT promedio</p><div class="kpi-icon text-brand-accentAmber"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="13" r="7"/><path d="M12 9v4l2.5 1.5M9 3h6" stroke-linecap="round"/></svg></div></div>
                     <p id="kpiAht" class="kpi-value font-mono-num text-brand-accentAmber mt-4">00:00:00</p>
                     <p class="kpi-help mt-2">Tiempo medio ponderado</p>
@@ -719,7 +901,15 @@
                 <div class="analysis-toolbar relative z-10">
                     <div class="analysis-title-wrap">
                         <div class="analysis-icon"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V9m5 10V5m5 14v-7m5 7V7" stroke-linecap="round"/></svg></div>
-                        <div><h3 class="analysis-title">Demanda vs. capacidad</h3><p class="analysis-subtitle">Requeridos, disponibles y gap por franja</p></div>
+                        <div>
+                            <h3 class="analysis-title">Demanda vs. capacidad</h3>
+                            <p class="analysis-subtitle">Requeridos, disponibles y gap por franja</p>
+                            <div class="analysis-legend" aria-hidden="true">
+                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#5B8CFF"></i>Requerido</span>
+                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#43D6A1"></i>Disponible</span>
+                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#FC7D91"></i>Déficit</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="toolbar-actions">
                         <label class="toggle-chip cursor-pointer"><input id="onlyDeficits" type="checkbox" onchange="debouncedActualizarGrafica()"><span>Solo faltantes</span></label>
@@ -735,6 +925,10 @@
                     <canvas id="generalChart"></canvas>
                 </div>
 
+                <div class="table-toolbar">
+                    <div><p class="table-toolbar-title">Detalle por intervalo</p><p class="table-toolbar-copy">Identifica rápidamente franjas con déficit, cobertura o excedente.</p></div>
+                    <span class="text-[8px] text-slate-600 font-mono">30 MIN</span>
+                </div>
                 <div class="table-well overflow-x-auto border">
                     <table class="w-full text-left text-xs text-slate-300">
                         <thead class="text-slate-400 font-bold uppercase tracking-wider sticky top-0 border-b z-10" id="tableHeaderContainer">
@@ -1000,6 +1194,19 @@
             const mins = Math.floor((secs % 3600) / 60);
             const remainderSecs = secs % 60;
             return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(remainderSecs).padStart(2, '0')}`;
+        }
+
+        function updateCoverageMeter(required, available, hasDeficit = false) {
+            const fill = document.getElementById('coverageMeterFill');
+            const label = document.getElementById('coverageRatioLabel');
+            const status = document.getElementById('heroStatusText');
+            if (!fill || !label) return;
+            const req = Math.max(0, Number(required) || 0);
+            const avail = Math.max(0, Number(available) || 0);
+            const ratio = req > 0 ? Math.min(1, avail / req) : (avail > 0 ? 1 : 0);
+            fill.style.width = `${Math.round(ratio * 100)}%`;
+            label.innerText = req > 0 ? `${Math.round((avail / req) * 100)}%` : '—';
+            if (status) status.innerText = hasDeficit ? 'Atención requerida' : 'Cobertura suficiente';
         }
 
         function getWeekNumber(dateStr) {
@@ -1321,18 +1528,18 @@
             menu.innerHTML = '';
             
             const headerDiv = document.createElement('div');
-            let checkboxHex = type === 'Mes' ? '#FBBF24' : type === 'Semana' ? '#FB7185' : type === 'Campana' ? '#A78BFA' : type === 'Fecha' ? '#22D3EE' : '#34D399';
+            let checkboxHex = '#5B8CFF';
 
-            headerDiv.className = 'flex items-center justify-between p-2 pb-3 mb-1 border-b border-[#334155] text-[11px] font-bold tracking-wider';
+            headerDiv.className = 'flex items-center justify-between p-2 pb-3 mb-1 border-b border-[#22324A] text-[10px] font-bold tracking-wider';
             headerDiv.innerHTML = `
-                <button type="button" onclick="selectAllFilter('${type}', true)" class="text-brand-accentCyan hover:text-white transition-colors">Todos</button>
-                <button type="button" onclick="selectAllFilter('${type}', false)" class="text-brand-accentRose hover:text-white transition-colors">Ninguno</button>
+                <button type="button" onclick="selectAllFilter('${type}', true)" class="text-[#82A8FF] hover:text-white transition-colors">Todos</button>
+                <button type="button" onclick="selectAllFilter('${type}', false)" class="text-slate-500 hover:text-white transition-colors">Ninguno</button>
             `;
             menu.appendChild(headerDiv);
             
             optionsToRender.forEach(opt => {
                 const label = document.createElement('label');
-                label.className = `flex items-center gap-3 p-2 hover:bg-[#1E293B] rounded-lg cursor-pointer transition-colors`;
+                label.className = `flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors`;
                 const input = document.createElement('input');
                 input.type = 'checkbox';
                 input.checked = setRef.has(opt);
@@ -1347,7 +1554,7 @@
                 });
 
                 const span = document.createElement('span');
-                span.className = 'truncate text-slate-200 font-medium text-[13px]';
+                span.className = 'truncate text-slate-300 font-medium text-[11px]';
                 span.innerText = opt;
 
                 label.appendChild(input);
@@ -1412,13 +1619,28 @@
         });
 
         function actualizarTextosBotones() {
-            const btnMes = document.getElementById('mesSelectedText');
-            if (btnMes) btnMes.innerText = `MES (${selectedMeses.size})`;
-            const btnSem = document.getElementById('semanaSelectedText');
-            if (btnSem) btnSem.innerText = `SEM. (${selectedSemanas.size})`;
-            document.getElementById('campanaSelectedText').innerText = `CAMPAÑA (${selectedCampanas.size})`;
-            document.getElementById('fechaSelectedText').innerText = `FECHA (${selectedFechas.size})`;
-            document.getElementById('intervaloSelectedText').innerText = `HORA (${selectedIntervalos.size})`;
+            const applyFilterText = (type, selectedSet, allOptions, defaultText, textId) => {
+                const textEl = document.getElementById(textId);
+                const btn = document.getElementById(`btnDropdown${type}`);
+                if (!textEl || !btn) return;
+                const total = allOptions.length;
+                const count = selectedSet.size;
+                const isAll = total > 0 && count === total;
+                let label = defaultText;
+                if (!isAll) {
+                    if (count === 0) label = 'Ninguno';
+                    else if (count === 1) label = String([...selectedSet][0]);
+                    else label = `${count} seleccionados`;
+                }
+                textEl.innerText = label;
+                textEl.title = label;
+                btn.classList.toggle('filter-active', !isAll);
+            };
+            applyFilterText('Mes', selectedMeses, allMesesOptions, 'Todos', 'mesSelectedText');
+            applyFilterText('Semana', selectedSemanas, allSemanasOptions, 'Todas', 'semanaSelectedText');
+            applyFilterText('Campana', selectedCampanas, allCampanasOptions, 'Todas', 'campanaSelectedText');
+            applyFilterText('Fecha', selectedFechas, allFechasOptions, 'Todas', 'fechaSelectedText');
+            applyFilterText('Intervalo', selectedIntervalos, allIntervalosOptions, 'Todos', 'intervaloSelectedText');
         }
 
         function guardarEstadoParametros() {
@@ -1732,6 +1954,19 @@
                 if (gapTotal > 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#34D399]/20 text-[#34D399]', gapEl.innerText = `+${gapTotal}`;
                 else if (gapTotal < 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#FB7185]/20 text-[#FB7185]', gapEl.innerText = `${gapTotal}`;
                 else gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#1E293B] text-slate-300', gapEl.innerText = `0`;
+                updateCoverageMeter(totalReqGlobal, totalDispGlobal, gapTotal < 0);
+                const criticalCard = document.getElementById('criticalGapCard');
+                const criticalLabel = document.getElementById('criticalGapLabel');
+                if (criticalLabel) criticalLabel.innerText = 'Déficit consolidado';
+                if (gapTotal < 0) {
+                    document.getElementById('kpiWorstGap').innerText = `${Math.abs(gapTotal)} HC`;
+                    document.getElementById('kpiWorstGapDetail').innerText = `Requiere ${totalReqGlobal}, disponibles ${totalDispGlobal}`;
+                    criticalCard?.classList.add('kpi-critical-active'); criticalCard?.classList.remove('kpi-critical-ok');
+                } else {
+                    document.getElementById('kpiWorstGap').innerText = '✓ Cubierto';
+                    document.getElementById('kpiWorstGapDetail').innerText = gapTotal > 0 ? `Excedente consolidado: ${gapTotal} HC` : 'Capacidad alineada con el requerimiento';
+                    criticalCard?.classList.remove('kpi-critical-active'); criticalCard?.classList.add('kpi-critical-ok');
+                }
 
                 document.getElementById('tableHeaderRow').innerHTML = `
                     <th class="py-3.5 px-4 text-left">Canal operativo</th>
@@ -1863,6 +2098,7 @@
             if (gapTotal > 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#34D399]/20 text-[#34D399]', gapEl.innerText = `+${gapTotal} Sobran`;
             else if (gapTotal < 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#FB7185]/20 text-[#FB7185]', gapEl.innerText = `${Math.abs(gapTotal)} Faltan`;
             else gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#1E293B] text-slate-300', gapEl.innerText = `✓ OK`;
+            updateCoverageMeter(hcNominaCalculado, totalRosterKPI, gapTotal < 0);
 
             let legendInteractions = forecastMode === 'chat' ? 'Mensajes' : 'Llamadas';
             document.getElementById('tableHeaderRow').innerHTML = `
@@ -1876,6 +2112,8 @@
             `;
 
             const gapsIntervalo = todosIntervalos.map((inter, idx) => ({inter, req:reqAgrupadoGlobalParaPlot[idx]||0, roster:rosterAgrupadoGlobal[idx]||0, gap:(rosterAgrupadoGlobal[idx]||0)-(reqAgrupadoGlobalParaPlot[idx]||0)}));
+            const criticalLabel = document.getElementById('criticalGapLabel');
+            if (criticalLabel) criticalLabel.innerText = 'Mayor déficit por intervalo';
             const worst = gapsIntervalo.filter(x=>x.gap<0).sort((a,b)=>a.gap-b.gap)[0];
             const criticalCard = document.getElementById('criticalGapCard');
             if(worst){
