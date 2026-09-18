@@ -744,6 +744,166 @@
             .kpi-gap-secondary, .hc-priority-layout .kpi-agents, .hc-priority-layout .kpi-demand, .hc-priority-layout .kpi-aht { grid-column:1 / -1; }
         }
 
+    
+
+        /* ================================================================
+           V6 · GRÁFICA EJECUTIVA PARA DIRECCIÓN
+           ================================================================ */
+        .analysis-card { position: relative; }
+        .analysis-toolbar {
+            position: relative;
+            z-index: 2;
+        }
+        .executive-chart-strip {
+            display:grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap:12px;
+            margin: 0 16px 12px;
+        }
+        .executive-mini-card {
+            position:relative;
+            overflow:hidden;
+            border:1px solid rgba(148,163,184,.10);
+            border-radius:14px;
+            background: linear-gradient(180deg, rgba(10,18,32,.92), rgba(8,15,28,.96));
+            padding:12px 14px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.02);
+        }
+        .executive-mini-card::before {
+            content:'';
+            position:absolute;
+            left:0; top:12px; bottom:12px;
+            width:2px;
+            border-radius:99px;
+            background:#334155;
+        }
+        .executive-mini-card.primary::before { background:#5B8CFF; }
+        .executive-mini-card.success::before { background:#43D6A1; }
+        .executive-mini-card.danger::before { background:#FC7D91; }
+        .executive-mini-card.neutral::before { background:#7C8CA3; }
+        .executive-mini-label {
+            font-size:8px;
+            line-height:1;
+            font-weight:800;
+            letter-spacing:.11em;
+            text-transform:uppercase;
+            color:#7F90A6;
+        }
+        .executive-mini-value {
+            margin-top:8px;
+            font-size:24px;
+            line-height:1;
+            font-weight:800;
+            letter-spacing:-.05em;
+            color:#F8FAFC;
+            font-family:'JetBrains Mono', monospace;
+        }
+        .executive-mini-copy {
+            margin-top:7px;
+            font-size:10px;
+            line-height:1.35;
+            color:#5F718A;
+        }
+        .analysis-toolbar .toolbar-actions {
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .toggle-chip input[type="checkbox"] {
+            accent-color:#5B8CFF;
+            width:13px;
+            height:13px;
+        }
+        .toggle-chip.toggle-volume {
+            border-color: rgba(91,140,255,.22);
+            background: linear-gradient(180deg, rgba(12,22,38,.95), rgba(8,16,29,.95));
+        }
+        .toggle-chip.toggle-volume span { color:#C7D5E7; }
+        .analysis-storyline {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:10px;
+            margin: 0 16px 0;
+            padding:0 2px 6px;
+        }
+        .analysis-storyline-copy {
+            font-size:10px;
+            color:#6D7E96;
+        }
+        .analysis-storyline-copy strong { color:#DDE6F2; font-weight:800; }
+        .analysis-storyline-pill {
+            display:inline-flex;
+            align-items:center;
+            gap:6px;
+            padding:6px 10px;
+            border-radius:999px;
+            border:1px solid rgba(148,163,184,.12);
+            background: rgba(10,18,32,.72);
+            font-size:9px;
+            color:#91A3BA;
+            font-weight:800;
+        }
+        .analysis-storyline-pill i {
+            width:6px; height:6px; border-radius:50%; background:#FC7D91; display:inline-block;
+            box-shadow: 0 0 0 4px rgba(252,125,145,.08);
+        }
+        .chart-well {
+            height: 390px !important;
+            margin-top: 10px !important;
+            background:
+                linear-gradient(180deg, rgba(8,17,30,.98), rgba(7,14,24,.98)),
+                radial-gradient(circle at top right, rgba(91,140,255,.06), transparent 14rem) !important;
+            border:1px solid rgba(37,55,81,.85) !important;
+        }
+        .chart-executive-note {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:10px;
+            margin:0 16px 14px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(148,163,184,.08);
+            background: linear-gradient(180deg, rgba(10,18,32,.68), rgba(8,15,27,.88));
+        }
+        .chart-note-text {
+            font-size:10px;
+            color:#7C8EA6;
+            line-height:1.45;
+        }
+        .chart-note-text strong { color:#EDF3FB; }
+        .chart-note-badges {
+            display:flex;
+            align-items:center;
+            gap:8px;
+            flex-wrap:wrap;
+        }
+        .chart-note-badge {
+            display:inline-flex;
+            align-items:center;
+            gap:6px;
+            font-size:8px;
+            font-weight:800;
+            letter-spacing:.08em;
+            text-transform:uppercase;
+            color:#90A2B8;
+        }
+        .chart-note-dot {
+            width:8px; height:8px; border-radius:999px; display:inline-block;
+        }
+        .chart-note-dot.req { background:#5B8CFF; }
+        .chart-note-dot.act { background:#43D6A1; }
+        .chart-note-dot.def { background:#FC7D91; }
+        .chart-note-dot.vol { background:#7EA8FF; opacity:.6; }
+        @media (max-width: 1100px) {
+            .executive-chart-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 640px) {
+            .executive-chart-strip { grid-template-columns: 1fr; margin: 0 12px 12px; }
+            .analysis-storyline, .chart-executive-note { margin-left:12px; margin-right:12px; }
+            .chart-well { height: 320px !important; }
+        }
+
     </style>
 </head>
 <body class="p-3 md:p-5 xl:p-6 min-h-screen">
@@ -1337,6 +1497,178 @@
         let currentMode = 'wfm';
         let forecastMode = 'llamadas';
         let isSidebarVisible = true;
+
+
+        function executiveNumber(value, suffix = '') {
+            const n = Number(value || 0);
+            return `${n.toLocaleString()}${suffix}`;
+        }
+
+        function executivePct(value) {
+            const n = Number(value || 0);
+            return `${Math.round(n)}%`;
+        }
+
+        function updateExecutiveChartSummary(labels, reqData, actualData) {
+            const safeLabels = Array.isArray(labels) ? labels : [];
+            const req = Array.isArray(reqData) ? reqData.map(v => Number(v || 0)) : [];
+            const act = Array.isArray(actualData) ? actualData.map(v => Number(v || 0)) : [];
+            if (!safeLabels.length || !req.length) {
+                const empty = {
+                    chartPeakRequired: '0 HC',
+                    chartPeakActual: '0 HC',
+                    chartWorstDeficit: '0 HC',
+                    chartAvgCoverage: '0%'
+                };
+                Object.entries(empty).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.innerText = val; });
+                const texts = {
+                    chartPeakRequiredCopy: 'Sin datos disponibles',
+                    chartPeakActualCopy: 'Sin datos disponibles',
+                    chartWorstDeficitCopy: 'Sin déficit',
+                    chartAvgCoverageCopy: 'Lectura agregada del filtro',
+                    analysisStorylineText: 'La lectura ejecutiva aparecerá aquí al cargar la proyección.'
+                };
+                Object.entries(texts).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.innerText = val; });
+                const pill = document.getElementById('analysisStorylinePill');
+                if (pill) pill.innerHTML = '<i></i><span>Sin franja crítica</span>';
+                return;
+            }
+
+            const peakReq = Math.max(...req, 0);
+            const peakReqIdx = req.indexOf(peakReq);
+            const peakAct = Math.max(...act, 0);
+            const peakActIdx = act.indexOf(peakAct);
+
+            const coverages = req.map((r, i) => r > 0 ? Math.min(250, (act[i] || 0) / r * 100) : 100);
+            const avgCoverage = coverages.length ? coverages.reduce((a,b)=>a+b,0) / coverages.length : 0;
+
+            const deficits = req.map((r, i) => ({
+                idx: i,
+                label: safeLabels[i],
+                req: r,
+                act: Number(act[i] || 0),
+                deficit: Math.max(0, r - Number(act[i] || 0))
+            }));
+            const worst = deficits.sort((a,b)=>b.deficit-a.deficit)[0] || null;
+            const hasDeficit = worst && worst.deficit > 0;
+
+            const peakReqEl = document.getElementById('chartPeakRequired');
+            if (peakReqEl) peakReqEl.innerText = `${executiveNumber(peakReq)} HC`;
+            const peakReqCopy = document.getElementById('chartPeakRequiredCopy');
+            if (peakReqCopy) peakReqCopy.innerText = `${safeLabels[peakReqIdx] || '—'} · máxima necesidad simultánea`;
+
+            const peakActEl = document.getElementById('chartPeakActual');
+            if (peakActEl) peakActEl.innerText = `${executiveNumber(peakAct)} HC`;
+            const peakActCopy = document.getElementById('chartPeakActualCopy');
+            if (peakActCopy) peakActCopy.innerText = `${safeLabels[peakActIdx] || '—'} · mayor cobertura disponible`;
+
+            const worstEl = document.getElementById('chartWorstDeficit');
+            if (worstEl) worstEl.innerText = hasDeficit ? `${executiveNumber(worst.deficit)} HC` : '✓ OK';
+            const worstCopy = document.getElementById('chartWorstDeficitCopy');
+            if (worstCopy) worstCopy.innerText = hasDeficit ? `${worst.label} · requiere ${worst.req} vs. ${worst.act} disponibles` : 'Sin faltantes en los intervalos filtrados';
+
+            const avgEl = document.getElementById('chartAvgCoverage');
+            if (avgEl) avgEl.innerText = executivePct(avgCoverage);
+            const avgCopy = document.getElementById('chartAvgCoverageCopy');
+            if (avgCopy) {
+                if (avgCoverage >= 100) avgCopy.innerText = 'Cobertura promedio suficiente';
+                else if (avgCoverage >= 90) avgCopy.innerText = 'Cobertura cercana al objetivo';
+                else avgCopy.innerText = 'Cobertura presionada por faltantes';
+            }
+
+            const storylineText = document.getElementById('analysisStorylineText');
+            if (storylineText) {
+                if (hasDeficit) {
+                    const pressure = avgCoverage >= 100 ? 'focalizada' : avgCoverage >= 90 ? 'moderada' : 'relevante';
+                    storylineText.innerHTML = `La principal presión operativa está en <strong>${worst.label}</strong>, donde faltan <strong>${worst.deficit} HC</strong>. La cobertura promedio del filtro es de <strong>${Math.round(avgCoverage)}%</strong>, con una brecha ${pressure} entre capacidad requerida y capacidad disponible.`;
+                } else {
+                    storylineText.innerHTML = `La capacidad disponible cubre el requerimiento en los intervalos filtrados. La cobertura promedio observada es de <strong>${Math.round(avgCoverage)}%</strong>.`;
+                }
+            }
+            const pill = document.getElementById('analysisStorylinePill');
+            if (pill) {
+                pill.innerHTML = hasDeficit
+                    ? `<i></i><span>Franja crítica · ${worst.label}</span>`
+                    : `<i style="background:#43D6A1; box-shadow:0 0 0 4px rgba(67,214,161,.08)"></i><span>Cobertura estable</span>`;
+            }
+        }
+
+        const executiveDeficitHighlighter = {
+            id: 'executiveDeficitHighlighter',
+            beforeDatasetsDraw(chart, args, pluginOptions) {
+                if (!pluginOptions || pluginOptions.enabled === false) return;
+                if (!chart || chart.canvas?.id !== 'gapChart') return;
+                const { ctx, chartArea, scales } = chart;
+                const x = scales.x;
+                if (!x || !chartArea) return;
+                const req = chart.data?.datasets?.[0]?.data || [];
+                const act = chart.data?.datasets?.[1]?.data || [];
+                const labels = chart.data?.labels || [];
+                const deficitIdx = [];
+                let worst = { idx: -1, val: 0 };
+                for (let i = 0; i < labels.length; i++) {
+                    const d = Math.max(0, Number(req[i] || 0) - Number(act[i] || 0));
+                    if (d > 0) deficitIdx.push(i);
+                    if (d > worst.val) worst = { idx: i, val: d };
+                }
+                if (!deficitIdx.length) return;
+                ctx.save();
+                deficitIdx.forEach((idx) => {
+                    const xCurr = x.getPixelForValue(idx);
+                    const prev = idx > 0 ? x.getPixelForValue(idx - 1) : xCurr - 18;
+                    const next = idx < labels.length - 1 ? x.getPixelForValue(idx + 1) : xCurr + 18;
+                    const width = Math.max(12, Math.min(34, (next - prev) * 0.58));
+                    ctx.fillStyle = idx === worst.idx ? 'rgba(252,125,145,0.12)' : 'rgba(252,125,145,0.06)';
+                    ctx.fillRect(xCurr - (width / 2), chartArea.top, width, chartArea.bottom - chartArea.top);
+                });
+                ctx.restore();
+            },
+            afterDatasetsDraw(chart, args, pluginOptions) {
+                if (!pluginOptions || pluginOptions.enabled === false) return;
+                if (!chart || chart.canvas?.id !== 'gapChart') return;
+                const { ctx, chartArea, scales } = chart;
+                const x = scales.x;
+                const y = scales.y;
+                if (!x || !y || !chartArea) return;
+                const req = chart.data?.datasets?.[0]?.data || [];
+                const act = chart.data?.datasets?.[1]?.data || [];
+                const labels = chart.data?.labels || [];
+                let worst = { idx: -1, val: 0 };
+                for (let i = 0; i < labels.length; i++) {
+                    const d = Math.max(0, Number(req[i] || 0) - Number(act[i] || 0));
+                    if (d > worst.val) worst = { idx: i, val: d };
+                }
+                if (worst.idx < 0 || worst.val <= 0) return;
+                const xPos = x.getPixelForValue(worst.idx);
+                const yPos = y.getPixelForValue(Number(req[worst.idx] || 0));
+                const text = `${labels[worst.idx]} · -${worst.val} HC`;
+                ctx.save();
+                ctx.font = '700 10px Plus Jakarta Sans';
+                const padX = 8;
+                const w = ctx.measureText(text).width + padX * 2;
+                const h = 24;
+                const boxX = Math.min(chartArea.right - w, Math.max(chartArea.left, xPos - w / 2));
+                const boxY = Math.max(chartArea.top + 10, yPos - 34);
+                ctx.fillStyle = 'rgba(15,23,42,0.96)';
+                ctx.strokeStyle = 'rgba(252,125,145,0.45)';
+                ctx.lineWidth = 1;
+                if (ctx.roundRect) {
+                    ctx.beginPath();
+                    ctx.roundRect(boxX, boxY, w, h, 8);
+                    ctx.fill();
+                    ctx.stroke();
+                } else {
+                    ctx.fillRect(boxX, boxY, w, h);
+                    ctx.strokeRect(boxX, boxY, w, h);
+                }
+                ctx.fillStyle = '#F8FAFC';
+                ctx.fillText(text, boxX + padX, boxY + 15);
+                ctx.restore();
+            }
+        };
+        if (window.Chart) {
+            try { Chart.register(executiveDeficitHighlighter); } catch (e) {}
+        }
         let campaignSettings = { llamadas: {}, chat: {} };
 
         // Cachés del navegador: cambiar de Llamadas a Chat no debe volver a
@@ -1346,6 +1678,103 @@
         const erlangResultCache = new Map();
         const weekNumberCache = new Map();
         let warmupScheduled = false;
+
+
+        function updateAnalysisPresentation(isGeneral) {
+            const titleEl = document.querySelector('.analysis-title');
+            const subtitleEl = document.querySelector('.analysis-subtitle');
+            const legendEl = document.querySelector('.analysis-legend');
+            const onlyDeficitsWrap = document.getElementById('onlyDeficits')?.closest('label');
+            if (isGeneral) {
+                if (titleEl) titleEl.innerText = 'Capacidad consolidada por canal';
+                if (subtitleEl) subtitleEl.innerText = 'Comparativo ejecutivo de HC requerido vs. HC actual para Llamadas y Chat';
+                if (legendEl) {
+                    legendEl.innerHTML = `
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#5B8CFF"></i>HC Requerido</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#43D6A1"></i>HC Actual</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#FC7D91"></i>Brecha de cobertura</span>
+                    `;
+                }
+                if (onlyDeficitsWrap) onlyDeficitsWrap.classList.add('hidden');
+            } else {
+                if (titleEl) titleEl.innerText = 'Demanda vs. capacidad';
+                if (subtitleEl) subtitleEl.innerText = 'Requeridos, disponibles y gap por franja';
+                if (legendEl) {
+                    legendEl.innerHTML = `
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#5B8CFF"></i>Requerido</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#43D6A1"></i>Disponible</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#FC7D91"></i>Déficit</span>
+                    `;
+                }
+                if (onlyDeficitsWrap) onlyDeficitsWrap.classList.remove('hidden');
+            }
+        }
+
+        const consolidatedChartExecutivePlugin = {
+            id: 'consolidatedChartExecutivePlugin',
+            afterDatasetsDraw(chart, args, pluginOptions) {
+                if (!pluginOptions || pluginOptions.enabled === false) return;
+                if (!chart || chart.canvas?.id !== 'generalChart') return;
+                const { ctx, chartArea } = chart;
+                const reqMeta = chart.getDatasetMeta(0);
+                const dispMeta = chart.getDatasetMeta(1);
+                const req = chart.data?.datasets?.[0]?.data || [];
+                const disp = chart.data?.datasets?.[1]?.data || [];
+                const labels = chart.data?.labels || [];
+                ctx.save();
+                ctx.textBaseline = 'middle';
+
+                labels.forEach((label, i) => {
+                    const reqEl = reqMeta.data[i];
+                    const dispEl = dispMeta.data[i];
+                    if (!reqEl || !dispEl) return;
+                    const reqVal = Number(req[i] || 0);
+                    const dispVal = Number(disp[i] || 0);
+                    const gap = dispVal - reqVal;
+                    const coverage = reqVal > 0 ? Math.round((dispVal / reqVal) * 100) : 100;
+
+                    const valueFont = '700 10px Plus Jakarta Sans';
+                    ctx.font = valueFont;
+                    ctx.fillStyle = '#DDE7F4';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(`${reqVal.toLocaleString()} HC`, reqEl.x + 8, reqEl.y);
+                    ctx.fillText(`${dispVal.toLocaleString()} HC`, dispEl.x + 8, dispEl.y);
+
+                    const badgeText = gap < 0
+                        ? `${coverage}% cobertura · déficit ${Math.abs(gap)} HC`
+                        : gap > 0
+                            ? `${coverage}% cobertura · excedente +${gap} HC`
+                            : `${coverage}% cobertura · cubierto`;
+                    ctx.font = '800 9px Plus Jakarta Sans';
+                    const padX = 8;
+                    const padY = 5;
+                    const badgeWidth = ctx.measureText(badgeText).width + padX * 2;
+                    const badgeHeight = 22;
+                    const badgeX = Math.max(chartArea.left + 12, chartArea.right - badgeWidth - 10);
+                    const badgeY = ((reqEl.y + dispEl.y) / 2) - (badgeHeight / 2);
+
+                    ctx.fillStyle = gap < 0 ? 'rgba(251,113,133,0.12)' : gap > 0 ? 'rgba(244,183,64,0.12)' : 'rgba(52,211,153,0.12)';
+                    ctx.strokeStyle = gap < 0 ? 'rgba(251,113,133,0.35)' : gap > 0 ? 'rgba(244,183,64,0.35)' : 'rgba(52,211,153,0.30)';
+                    ctx.lineWidth = 1;
+                    if (ctx.roundRect) {
+                        ctx.beginPath();
+                        ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 999);
+                        ctx.fill();
+                        ctx.stroke();
+                    } else {
+                        ctx.fillRect(badgeX, badgeY, badgeWidth, badgeHeight);
+                        ctx.strokeRect(badgeX, badgeY, badgeWidth, badgeHeight);
+                    }
+                    ctx.fillStyle = gap < 0 ? '#FDB2BD' : gap > 0 ? '#FCD67C' : '#8DF0C0';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(badgeText, badgeX + padX, badgeY + (badgeHeight / 2));
+                });
+                ctx.restore();
+            }
+        };
+        if (window.Chart) {
+            try { Chart.register(consolidatedChartExecutivePlugin); } catch (e) {}
+        }
 
         function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
         async function loadSourceMeta(){ try { const r=await fetch('/api/status?t='+Date.now()); const m=await r.json(); if(r.ok){ document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}`; } } catch(e){} }
@@ -2045,6 +2474,7 @@
             const todosIntervalos = Object.keys(aggInter).sort();
 
             if (forecastMode === 'general') {
+                updateAnalysisPresentation(true);
                 let aggGen = { 'Llamadas': {}, 'Chat': {} };
                 ['Llamadas', 'Chat'].forEach(ch => {
                     todosIntervalos.forEach(inv => { aggGen[ch][inv] = { silos: {} }; });
@@ -2175,26 +2605,132 @@
 
                 const generalReqData = [hcReqDict['Llamadas'], hcReqDict['Chat']];
                 const generalDispData = [hcDispDict['Llamadas'], hcDispDict['Chat']];
+                const generalCtx = document.getElementById('generalChart').getContext('2d');
                 if (generalChartInstance) {
                     generalChartInstance.data.labels = ['Llamadas', 'Chat'];
                     generalChartInstance.data.datasets[0].data = generalReqData;
                     generalChartInstance.data.datasets[1].data = generalDispData;
                     generalChartInstance.update('none');
                 } else {
-                    generalChartInstance = new Chart(document.getElementById('generalChart').getContext('2d'), {
+                    generalChartInstance = new Chart(generalCtx, {
                         type: 'bar',
                         data: {
                             labels: ['Llamadas', 'Chat'],
                             datasets: [
-                                { label: 'HC Requerido', data: generalReqData, backgroundColor: '#3B82F6', borderRadius: 4 },
-                                { label: 'HC Disponible', data: generalDispData, backgroundColor: '#34D399', borderRadius: 4 }
+                                {
+                                    label: 'HC Requerido',
+                                    data: generalReqData,
+                                    backgroundColor: '#4F8CFF',
+                                    borderColor: '#6AA2FF',
+                                    borderWidth: 1,
+                                    borderRadius: 12,
+                                    borderSkipped: false,
+                                    barThickness: 24,
+                                    categoryPercentage: 0.68,
+                                    barPercentage: 0.9,
+                                    clip: false
+                                },
+                                {
+                                    label: 'HC Actual',
+                                    data: generalDispData,
+                                    backgroundColor: '#35D399',
+                                    borderColor: '#57E0AE',
+                                    borderWidth: 1,
+                                    borderRadius: 12,
+                                    borderSkipped: false,
+                                    barThickness: 24,
+                                    categoryPercentage: 0.68,
+                                    barPercentage: 0.9,
+                                    clip: false
+                                }
                             ]
                         },
-                        options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { color: '#94A3B8' } } }, scales: { x: { grid: { display: false }, ticks: { color: '#64748B' } }, y: { grid: { color: '#1F2937', borderDash: [4, 4] }, ticks: { color: '#64748B' }, beginAtZero: true } } }
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            animation: false,
+                            indexAxis: 'y',
+                            layout: { padding: { top: 18, right: 170, bottom: 10, left: 8 } },
+                            plugins: {
+                                consolidatedChartExecutivePlugin: { enabled: true },
+                                legend: {
+                                    position: 'top',
+                                    align: 'center',
+                                    labels: {
+                                        color: '#A6B4C8',
+                                        usePointStyle: false,
+                                        boxWidth: 18,
+                                        boxHeight: 10,
+                                        padding: 16,
+                                        font: { size: 11, weight: '700' }
+                                    }
+                                },
+                                tooltip: {
+                                    backgroundColor: '#0F172A',
+                                    titleColor: '#F8FAFC',
+                                    bodyColor: '#D6E0EC',
+                                    borderColor: '#31445F',
+                                    borderWidth: 1,
+                                    padding: 12,
+                                    displayColors: true,
+                                    callbacks: {
+                                        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw || 0).toLocaleString()} HC`,
+                                        afterBody: (items) => {
+                                            if (!items || !items.length) return '';
+                                            const idx = items[0].dataIndex;
+                                            const req = Number(generalReqData[idx] || 0);
+                                            const disp = Number(generalDispData[idx] || 0);
+                                            const gap = disp - req;
+                                            const coverage = req > 0 ? Math.round((disp / req) * 100) : 100;
+                                            return gap < 0
+                                                ? [`Cobertura: ${coverage}%`, `Conclusión: faltan ${Math.abs(gap)} HC en ${items[0].label}.`]
+                                                : gap > 0
+                                                    ? [`Cobertura: ${coverage}%`, `Conclusión: hay ${gap} HC por encima del requerimiento.`]
+                                                    : [`Cobertura: ${coverage}%`, 'Conclusión: cobertura exacta.'];
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    beginAtZero: true,
+                                    grace: '18%',
+                                    grid: {
+                                        color: 'rgba(148,163,184,0.10)',
+                                        drawBorder: false,
+                                        tickLength: 0
+                                    },
+                                    border: { display: false },
+                                    ticks: {
+                                        color: '#73849B',
+                                        precision: 0,
+                                        padding: 8,
+                                        font: { size: 10, weight: '600' }
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'Headcount (HC)',
+                                        color: '#8CA0B8',
+                                        font: { size: 10, weight: '800' }
+                                    }
+                                },
+                                y: {
+                                    grid: { display: false, drawBorder: false },
+                                    border: { display: false },
+                                    ticks: {
+                                        color: '#D7E2F0',
+                                        padding: 10,
+                                        font: { size: 12, weight: '800' }
+                                    }
+                                }
+                            }
+                        }
                     });
                 }
                 return; 
             }
+
+            updateAnalysisPresentation(false);
 
             let llamadasAgrupadasGlobal = [];
             let ahtAgrupadoGlobal = [];
@@ -2337,107 +2873,196 @@
             const deficitData = reqAgrupadoGlobalParaPlot.map((r,i)=>Math.max(0, r-(rosterAgrupadoGlobal[i]||0)));
             const volumenPlotData = llamadasAgrupadasGlobal.map(v => Math.round(v));
             const volumenLabel = forecastMode === 'chat' ? 'Mensajes (FCST)' : 'Llamadas (FCST)';
+            const showVolumeSeries = !!document.getElementById('toggleVolumeSeries')?.checked;
+            updateExecutiveChartSummary(todosIntervalos, reqAgrupadoGlobalParaPlot, rosterAgrupadoGlobal);
+
+            const gapCtx = document.getElementById('gapChart').getContext('2d');
+            const reqGradient = gapCtx.createLinearGradient(0, 0, 0, 360);
+            reqGradient.addColorStop(0, 'rgba(91, 140, 255, 0.28)');
+            reqGradient.addColorStop(1, 'rgba(91, 140, 255, 0.02)');
+            const volumeGradient = gapCtx.createLinearGradient(0, 0, 0, 360);
+            volumeGradient.addColorStop(0, 'rgba(126, 168, 255, 0.26)');
+            volumeGradient.addColorStop(1, 'rgba(126, 168, 255, 0.04)');
+
             if (gapChartInstance) {
                 gapChartInstance.data.labels = todosIntervalos;
                 gapChartInstance.data.datasets[0].data = reqAgrupadoGlobalParaPlot;
+                gapChartInstance.data.datasets[0].backgroundColor = reqGradient;
                 gapChartInstance.data.datasets[1].data = rosterAgrupadoGlobal;
                 gapChartInstance.data.datasets[2].data = deficitData;
                 gapChartInstance.data.datasets[3].data = volumenPlotData;
+                gapChartInstance.data.datasets[3].backgroundColor = volumeGradient;
                 gapChartInstance.data.datasets[3].label = volumenLabel;
+                gapChartInstance.data.datasets[3].hidden = !showVolumeSeries;
+                gapChartInstance.options.scales.y1.display = showVolumeSeries;
+                gapChartInstance.options.scales.y1.title.display = showVolumeSeries;
                 gapChartInstance.update('none');
             } else {
-                    gapChartInstance = new Chart(document.getElementById('gapChart').getContext('2d'), {
-                type: 'bar',
-                data: {
-                    labels: todosIntervalos,
-                    datasets: [
-                        { 
-                            type: 'line',
-                            label: 'HC Requerido', 
-                            data: reqAgrupadoGlobalParaPlot, 
-                            borderColor: '#22D3EE', 
-                            backgroundColor: 'rgba(34, 211, 238, 0.1)', 
-                            fill: true, 
-                            tension: 0.4, 
-                            borderWidth: 3, 
-                            pointRadius: 0, 
-                            pointHoverRadius: 6,
-                            yAxisID: 'y',
-                            order: 1 
-                        },
-                        { 
-                            type: 'line',
-                            label: 'HC Actual', 
-                            data: rosterAgrupadoGlobal, 
-                            borderColor: '#34D399', 
-                            backgroundColor: '#34D399', 
-                            fill: false, 
-                            tension: 0.4, 
-                            borderWidth: 2, 
-                            borderDash: [5, 5], 
-                            pointRadius: 0, 
-                            pointHoverRadius: 6,
-                            yAxisID: 'y', 
-                            order: 2 
-                        },
-                        {
-                            type: 'bar', label: 'Déficit HC',
-                            data: deficitData,
-                            backgroundColor: 'rgba(251, 113, 133, 0.55)', borderColor: '#FB7185', borderWidth: 1, borderRadius: 4, yAxisID: 'y', order: 0
-                        },
-                        { 
-                            type: 'bar',
-                            label: volumenLabel, 
-                            data: volumenPlotData, 
-                            backgroundColor: 'rgba(59, 130, 246, 0.15)', 
-                            borderColor: 'rgba(59, 130, 246, 0.5)',
-                            borderWidth: 1,
-                            borderRadius: 4,
-                            yAxisID: 'y1', 
-                            order: 3 
-                        }
-                    ]
-                },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    animation: false, 
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: { 
-                        legend: { labels: { color: '#94A3B8', usePointStyle: true } }, 
-                        tooltip: {
-                            backgroundColor: '#111827', titleColor: '#F8FAFC', bodyColor: '#cbd5e1', borderColor: '#334155', borderWidth: 1,
-                            callbacks: {
-                                afterBody: (items) => {
-                                    if (!items || !items.length) return '';
-                                    const i = items[0].dataIndex;
-                                    const req = Number(reqAgrupadoGlobalParaPlot[i] || 0);
-                                    const disp = Number(rosterAgrupadoGlobal[i] || 0);
-                                    const gap = disp - req;
-                                    return gap < 0 ? `Estado: Déficit de ${Math.abs(gap)} HC` : gap > 0 ? `Estado: Excedente de ${gap} HC` : 'Estado: Cobertura suficiente';
+                gapChartInstance = new Chart(gapCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: todosIntervalos,
+                        datasets: [
+                            {
+                                type: 'line',
+                                label: 'HC Requerido',
+                                data: reqAgrupadoGlobalParaPlot,
+                                borderColor: '#5B8CFF',
+                                backgroundColor: reqGradient,
+                                fill: true,
+                                tension: 0.36,
+                                borderWidth: 3.5,
+                                pointRadius: 0,
+                                pointHoverRadius: 5,
+                                pointHoverBorderWidth: 0,
+                                pointHoverBackgroundColor: '#5B8CFF',
+                                yAxisID: 'y',
+                                order: 2
+                            },
+                            {
+                                type: 'line',
+                                label: 'HC Actual',
+                                data: rosterAgrupadoGlobal,
+                                borderColor: '#43D6A1',
+                                backgroundColor: '#43D6A1',
+                                fill: false,
+                                tension: 0.32,
+                                borderWidth: 3,
+                                pointRadius: 0,
+                                pointHoverRadius: 5,
+                                pointHoverBackgroundColor: '#43D6A1',
+                                pointHoverBorderWidth: 0,
+                                yAxisID: 'y',
+                                order: 3
+                            },
+                            {
+                                type: 'bar',
+                                label: 'Déficit HC',
+                                data: deficitData,
+                                backgroundColor: 'rgba(252, 125, 145, 0.52)',
+                                borderColor: 'rgba(252, 125, 145, 0.75)',
+                                borderWidth: 0,
+                                borderRadius: 8,
+                                maxBarThickness: 20,
+                                yAxisID: 'y',
+                                order: 1
+                            },
+                            {
+                                type: 'bar',
+                                label: volumenLabel,
+                                data: volumenPlotData,
+                                backgroundColor: volumeGradient,
+                                borderColor: 'rgba(126, 168, 255, 0.28)',
+                                borderWidth: 1,
+                                borderRadius: 8,
+                                maxBarThickness: 18,
+                                yAxisID: 'y1',
+                                hidden: !showVolumeSeries,
+                                order: 4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: false,
+                        interaction: { mode: 'index', intersect: false },
+                        layout: { padding: { top: 16, right: 10, bottom: 8, left: 4 } },
+                        plugins: {
+                            legend: { display: false },
+                            executiveDeficitHighlighter: { enabled: true },
+                            tooltip: {
+                                backgroundColor: '#0F172A',
+                                titleColor: '#F8FAFC',
+                                bodyColor: '#D6E0EC',
+                                borderColor: '#31445F',
+                                borderWidth: 1,
+                                padding: 12,
+                                displayColors: true,
+                                usePointStyle: true,
+                                titleFont: { weight: '800', size: 11 },
+                                bodyFont: { size: 10 },
+                                callbacks: {
+                                    label: (ctx) => {
+                                        const label = ctx.dataset.label || '';
+                                        const value = Number(ctx.raw || 0);
+                                        if (label === 'HC Requerido' || label === 'HC Actual' || label === 'Déficit HC') {
+                                            return `${label}: ${value.toLocaleString()} HC`;
+                                        }
+                                        return `${label}: ${value.toLocaleString()}`;
+                                    },
+                                    afterBody: (items) => {
+                                        if (!items || !items.length) return '';
+                                        const i = items[0].dataIndex;
+                                        const req = Number(reqAgrupadoGlobalParaPlot[i] || 0);
+                                        const disp = Number(rosterAgrupadoGlobal[i] || 0);
+                                        const gap = disp - req;
+                                        const coverage = req > 0 ? Math.round((disp / req) * 100) : 100;
+                                        return gap < 0
+                                            ? [`Cobertura: ${coverage}%`, `Conclusión: faltan ${Math.abs(gap)} HC para cubrir la franja.`]
+                                            : gap > 0
+                                                ? [`Cobertura: ${coverage}%`, `Conclusión: hay ${gap} HC por encima del requerimiento.`]
+                                                : [`Cobertura: ${coverage}%`, 'Conclusión: cobertura exacta en esta franja.'];
+                                    }
                                 }
                             }
-                        } 
-                    }, 
-                    scales: { 
-                        x: { grid: { display: false }, ticks: { color: '#64748B' } }, 
-                        y: { 
-                            type: 'linear', display: true, position: 'left',
-                            title: { display: true, text: 'Dotación (HC)', color: '#94A3B8', font: { size: 10 } },
-                            grid: { color: '#1F2937', borderDash: [4, 4] }, 
-                            ticks: { color: '#64748B' }, 
-                            beginAtZero: true 
                         },
-                        y1: { 
-                            type: 'linear', display: true, position: 'right',
-                            title: { display: true, text: 'Volumen', color: '#94A3B8', font: { size: 10 } },
-                            grid: { drawOnChartArea: false }, 
-                            ticks: { color: '#64748B' }, 
-                            beginAtZero: true 
+                        scales: {
+                            x: {
+                                grid: { display: false, drawBorder: false },
+                                border: { display: false },
+                                ticks: {
+                                    color: '#73849B',
+                                    maxRotation: 0,
+                                    autoSkip: false,
+                                    padding: 8,
+                                    callback: function(value, index) {
+                                        const labels = this.getLabels();
+                                        const total = labels.length || 1;
+                                        const step = total > 24 ? Math.ceil(total / 8) : total > 12 ? 2 : 1;
+                                        return index % step === 0 ? labels[index] : '';
+                                    }
+                                }
+                            },
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                grace: '12%',
+                                title: {
+                                    display: true,
+                                    text: 'Dotación (HC)',
+                                    color: '#8CA0B8',
+                                    font: { size: 10, weight: '800' }
+                                },
+                                grid: {
+                                    color: 'rgba(148, 163, 184, 0.10)',
+                                    drawBorder: false,
+                                    tickLength: 0
+                                },
+                                border: { display: false },
+                                ticks: { color: '#73849B', padding: 8, precision: 0 },
+                                beginAtZero: true
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: showVolumeSeries,
+                                position: 'right',
+                                grace: '14%',
+                                title: {
+                                    display: showVolumeSeries,
+                                    text: 'Volumen',
+                                    color: '#8CA0B8',
+                                    font: { size: 10, weight: '800' }
+                                },
+                                grid: { drawOnChartArea: false, drawBorder: false },
+                                border: { display: false },
+                                ticks: { color: '#73849B', padding: 8 },
+                                beginAtZero: true
+                            }
                         }
-                    } 
-                }
-            });
+                    }
+                });
             }
         }
 
