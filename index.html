@@ -749,6 +749,190 @@
 
     
 
+
+
+        /* ================================================================
+           CONSOLIDADO V2 · COMPARATIVO EJECUTIVO POR CANAL
+           ================================================================ */
+        #consolidatedChannelCards {
+            grid-column: 1 / -1;
+            display:grid;
+            grid-template-columns:repeat(2,minmax(0,1fr));
+            gap:12px;
+        }
+        #consolidatedChannelCards.hidden { display:none !important; }
+        .consolidated-channel-card {
+            position:relative;
+            overflow:hidden;
+            border:1px solid rgba(148,163,184,.11);
+            border-radius:18px;
+            padding:18px;
+            background:linear-gradient(150deg, rgba(14,25,43,.96), rgba(8,16,29,.98));
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.025), 0 18px 45px -38px rgba(0,0,0,.95);
+        }
+        .consolidated-channel-card::before {
+            content:'';
+            position:absolute;
+            left:0; top:18px; bottom:18px;
+            width:3px;
+            border-radius:99px;
+            background:#6F86FF;
+        }
+        .consolidated-channel-card.channel-chat::before { background:#63C7BA; }
+        .consolidated-channel-head {
+            display:flex;
+            align-items:flex-start;
+            justify-content:space-between;
+            gap:14px;
+            padding-left:6px;
+        }
+        .consolidated-channel-name {
+            display:flex;
+            align-items:center;
+            gap:9px;
+            color:#F4F7FB;
+            font-size:14px;
+            font-weight:850;
+            letter-spacing:-.015em;
+        }
+        .consolidated-channel-icon {
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            width:30px;
+            height:30px;
+            border-radius:10px;
+            color:#8EA1FF;
+            background:rgba(111,134,255,.08);
+            border:1px solid rgba(111,134,255,.14);
+        }
+        .channel-chat .consolidated-channel-icon {
+            color:#7CD8CC;
+            background:rgba(99,199,186,.07);
+            border-color:rgba(99,199,186,.14);
+        }
+        .consolidated-channel-icon svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+        .consolidated-coverage-badge {
+            display:inline-flex;
+            align-items:center;
+            gap:6px;
+            padding:6px 9px;
+            border-radius:999px;
+            font-family:'JetBrains Mono',monospace;
+            font-size:10px;
+            font-weight:800;
+            color:#9EACBF;
+            border:1px solid rgba(148,163,184,.12);
+            background:rgba(255,255,255,.018);
+            white-space:nowrap;
+        }
+        .consolidated-coverage-badge.is-deficit { color:#FF9BAC; border-color:rgba(239,102,132,.22); background:rgba(239,102,132,.07); }
+        .consolidated-coverage-badge.is-ok { color:#7ED9CC; border-color:rgba(99,199,186,.20); background:rgba(99,199,186,.065); }
+        .consolidated-channel-metrics {
+            display:grid;
+            grid-template-columns:repeat(3,minmax(0,1fr));
+            gap:10px;
+            margin-top:16px;
+            padding-left:6px;
+        }
+        .consolidated-channel-metric {
+            min-width:0;
+            padding:12px 13px;
+            border-radius:13px;
+            border:1px solid rgba(148,163,184,.08);
+            background:rgba(255,255,255,.012);
+        }
+        .consolidated-channel-label {
+            display:block;
+            color:#71839B;
+            font-size:8px;
+            font-weight:850;
+            letter-spacing:.11em;
+            text-transform:uppercase;
+        }
+        .consolidated-channel-value {
+            display:block;
+            margin-top:7px;
+            color:#EDF3FA;
+            font-family:'JetBrains Mono',monospace;
+            font-size:22px;
+            line-height:1;
+            font-weight:800;
+            letter-spacing:-.045em;
+        }
+        .consolidated-channel-value.req { color:#A6B4FF; }
+        .consolidated-channel-value.actual { color:#82D9CD; }
+        .consolidated-channel-value.gap-negative { color:#FF91A4; }
+        .consolidated-channel-value.gap-positive { color:#F3C76D; }
+        .consolidated-channel-meter {
+            margin:14px 0 0 6px;
+        }
+        .consolidated-channel-meter-meta {
+            display:flex;
+            justify-content:space-between;
+            gap:12px;
+            margin-bottom:6px;
+            color:#667991;
+            font-size:9px;
+            font-weight:700;
+        }
+        .consolidated-channel-meter-track {
+            height:6px;
+            border-radius:999px;
+            overflow:hidden;
+            background:#050C16;
+            box-shadow:inset 0 1px 3px rgba(0,0,0,.6);
+        }
+        .consolidated-channel-meter-fill {
+            height:100%;
+            width:0%;
+            border-radius:inherit;
+            background:linear-gradient(90deg,#63C7BA,#85DDD1);
+            transition:width .3s ease;
+        }
+        .consolidated-channel-meter-fill.is-deficit { background:linear-gradient(90deg,#EF6684,#FF93A5); }
+        .consolidated-channel-foot {
+            display:grid;
+            grid-template-columns:repeat(3,minmax(0,1fr));
+            gap:10px;
+            margin:13px 0 0 6px;
+            padding-top:12px;
+            border-top:1px solid rgba(148,163,184,.075);
+        }
+        .consolidated-channel-foot-item span:first-child {
+            display:block;
+            color:#60738C;
+            font-size:8px;
+            font-weight:800;
+            letter-spacing:.09em;
+            text-transform:uppercase;
+        }
+        .consolidated-channel-foot-item span:last-child {
+            display:block;
+            margin-top:4px;
+            color:#C9D5E5;
+            font-family:'JetBrains Mono',monospace;
+            font-size:10px;
+            font-weight:750;
+        }
+        .hc-priority-layout.consolidated-mode .kpi-agents,
+        .hc-priority-layout.consolidated-mode .kpi-demand,
+        .hc-priority-layout.consolidated-mode .kpi-aht { display:none !important; }
+        .hc-priority-layout.consolidated-mode #criticalGapCard {
+            grid-column:1 / -1;
+            min-height:auto;
+        }
+        .hc-priority-layout.consolidated-mode #criticalGapCard .kpi-value { font-size:26px; }
+        #contGeneralChart { height:300px !important; }
+        @media (max-width:900px) {
+            #consolidatedChannelCards { grid-template-columns:1fr; }
+        }
+        @media (max-width:640px) {
+            .consolidated-channel-metrics, .consolidated-channel-foot { grid-template-columns:1fr; }
+            #contGeneralChart { height:330px !important; }
+        }
+
+
         /* ================================================================
            V6 · GRÁFICA EJECUTIVA PARA DIRECCIÓN
            ================================================================ */
@@ -1186,6 +1370,50 @@
                     </div>
                 </section>
 
+                <div id="consolidatedChannelCards" class="hidden">
+                    <article class="consolidated-channel-card channel-calls">
+                        <div class="consolidated-channel-head">
+                            <div class="consolidated-channel-name"><span class="consolidated-channel-icon"><svg viewBox="0 0 24 24"><path d="M15.5 14.5c-1.5 1.5-3 2.2-4.5 2.2-2.6 0-5.2-2.1-6.8-5.2-.5-1-.8-2-.8-2.8 0-1.6.7-3.1 2.2-4.6l2-2a1.7 1.7 0 0 1 2.4 0l2.1 2.1a1.7 1.7 0 0 1 0 2.4l-1.2 1.2c.7 1.6 2 2.9 3.6 3.6l1.2-1.2a1.7 1.7 0 0 1 2.4 0l2.1 2.1a1.7 1.7 0 0 1 0 2.4l-1.9 1.8Z"/></svg></span><span>Llamadas</span></div>
+                            <span id="consolidatedCallsCoverage" class="consolidated-coverage-badge">—</span>
+                        </div>
+                        <div class="consolidated-channel-metrics">
+                            <div class="consolidated-channel-metric"><span class="consolidated-channel-label">HC requerido</span><span id="consolidatedCallsReq" class="consolidated-channel-value req">0</span></div>
+                            <div class="consolidated-channel-metric"><span class="consolidated-channel-label">HC actual</span><span id="consolidatedCallsActual" class="consolidated-channel-value actual">0</span></div>
+                            <div class="consolidated-channel-metric"><span class="consolidated-channel-label">Brecha</span><span id="consolidatedCallsGap" class="consolidated-channel-value">0</span></div>
+                        </div>
+                        <div class="consolidated-channel-meter">
+                            <div class="consolidated-channel-meter-meta"><span>Cobertura del canal</span><span id="consolidatedCallsMeterText">—</span></div>
+                            <div class="consolidated-channel-meter-track"><div id="consolidatedCallsMeter" class="consolidated-channel-meter-fill"></div></div>
+                        </div>
+                        <div class="consolidated-channel-foot">
+                            <div class="consolidated-channel-foot-item"><span>Demanda</span><span id="consolidatedCallsVolume">0</span></div>
+                            <div class="consolidated-channel-foot-item"><span>AHT</span><span id="consolidatedCallsAht">00:00:00</span></div>
+                            <div class="consolidated-channel-foot-item"><span>% del déficit</span><span id="consolidatedCallsContribution">0%</span></div>
+                        </div>
+                    </article>
+
+                    <article class="consolidated-channel-card channel-chat">
+                        <div class="consolidated-channel-head">
+                            <div class="consolidated-channel-name"><span class="consolidated-channel-icon"><svg viewBox="0 0 24 24"><path d="M7 18.5 3.5 21V6.8A1.8 1.8 0 0 1 5.3 5h13.4a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H7Z"/><path d="M8 10h8M8 13h5"/></svg></span><span>Chat</span></div>
+                            <span id="consolidatedChatCoverage" class="consolidated-coverage-badge">—</span>
+                        </div>
+                        <div class="consolidated-channel-metrics">
+                            <div class="consolidated-channel-metric"><span class="consolidated-channel-label">HC requerido</span><span id="consolidatedChatReq" class="consolidated-channel-value req">0</span></div>
+                            <div class="consolidated-channel-metric"><span class="consolidated-channel-label">HC actual</span><span id="consolidatedChatActual" class="consolidated-channel-value actual">0</span></div>
+                            <div class="consolidated-channel-metric"><span class="consolidated-channel-label">Brecha</span><span id="consolidatedChatGap" class="consolidated-channel-value">0</span></div>
+                        </div>
+                        <div class="consolidated-channel-meter">
+                            <div class="consolidated-channel-meter-meta"><span>Cobertura del canal</span><span id="consolidatedChatMeterText">—</span></div>
+                            <div class="consolidated-channel-meter-track"><div id="consolidatedChatMeter" class="consolidated-channel-meter-fill"></div></div>
+                        </div>
+                        <div class="consolidated-channel-foot">
+                            <div class="consolidated-channel-foot-item"><span>Demanda</span><span id="consolidatedChatVolume">0</span></div>
+                            <div class="consolidated-channel-foot-item"><span>AHT</span><span id="consolidatedChatAht">00:00:00</span></div>
+                            <div class="consolidated-channel-foot-item"><span>% del déficit</span><span id="consolidatedChatContribution">0%</span></div>
+                        </div>
+                    </article>
+                </div>
+
                 <!-- KPIs DE CONTEXTO -->
                 <div id="criticalGapCard" class="glass-panel kpi-card kpi-card-danger kpi-gap-secondary p-5">
                     <div class="flex items-start justify-between gap-4">
@@ -1200,19 +1428,19 @@
                     </div>
                 </div>
 
-                <div class="glass-panel kpi-card kpi-card-primary kpi-agents p-5">
+                <div id="kpiAgentsCard" class="glass-panel kpi-card kpi-card-primary kpi-agents p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Agentes por intervalo</p><div class="kpi-icon text-brand-accentCyan"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.8 18c.6-3 2.4-4.5 5.2-4.5s4.6 1.5 5.2 4.5M17 8.5a2.5 2.5 0 0 1 0 5M16.5 14.5c2 .4 3.2 1.6 3.7 3.5" stroke-linecap="round"/></svg></div></div>
                     <p id="kpiIntervalReq" class="kpi-value font-mono-num text-brand-accentCyan mt-5">0 HC</p>
                     <p class="kpi-help mt-2">Pico simultáneo del filtro</p>
                 </div>
 
-                <div class="glass-panel kpi-card kpi-secondary kpi-demand p-5">
+                <div id="kpiDemandCard" class="glass-panel kpi-card kpi-secondary kpi-demand p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Demanda del periodo</p><div class="kpi-icon text-[#9BB9FF]"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 17V9m5 8V5m5 12v-4m4 4V7" stroke-linecap="round"/></svg></div></div>
                     <div class="flex items-end justify-between gap-4 mt-4 flex-wrap"><p id="kpiCalls" class="kpi-value font-mono-num text-white">0</p><p id="kpiCallsDaily" class="text-[9px] text-slate-400 pb-0.5">Promedio diario: 0</p></div>
                     <p class="kpi-help mt-2">Volumen total proyectado</p>
                 </div>
 
-                <div class="glass-panel kpi-card kpi-secondary kpi-card-warning kpi-aht p-5">
+                <div id="kpiAhtCard" class="glass-panel kpi-card kpi-secondary kpi-card-warning kpi-aht p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">AHT promedio</p><div class="kpi-icon text-brand-accentAmber"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="13" r="7"/><path d="M12 9v4l2.5 1.5M9 3h6" stroke-linecap="round"/></svg></div></div>
                     <p id="kpiAht" class="kpi-value font-mono-num text-brand-accentAmber mt-4">00:00:00</p>
                     <p class="kpi-help mt-2">Tiempo medio ponderado</p>
@@ -1698,16 +1926,21 @@
             const subtitleEl = document.querySelector('.analysis-subtitle');
             const legendEl = document.querySelector('.analysis-legend');
             const onlyDeficitsWrap = document.getElementById('onlyDeficits')?.closest('label');
+            const consolidatedCards = document.getElementById('consolidatedChannelCards');
+            const kpiLayout = document.getElementById('kpiCardsContainer');
             if (isGeneral) {
-                if (titleEl) titleEl.innerText = 'Capacidad consolidada por canal';
-                if (subtitleEl) subtitleEl.innerText = 'Comparativo ejecutivo de HC requerido vs. HC actual para Llamadas y Chat';
+                if (titleEl) titleEl.innerText = 'Cobertura consolidada por canal';
+                if (subtitleEl) subtitleEl.innerText = 'HC actual frente al requerimiento y brecha de capacidad en Llamadas y Chat';
                 if (legendEl) {
                     legendEl.innerHTML = `
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#6F86FF"></i>HC Requerido</span>
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#63C7BA"></i>HC Actual</span>
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#EF6684"></i>Brecha de cobertura</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#63C7BA"></i>HC cubierto</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#EF6684"></i>Déficit</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#F3C76D"></i>Excedente</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="width:2px;height:10px;background:#8FA3FF"></i>HC requerido</span>
                     `;
                 }
+                consolidatedCards?.classList.remove('hidden');
+                kpiLayout?.classList.add('consolidated-mode');
                 if (onlyDeficitsWrap) onlyDeficitsWrap.classList.add('hidden');
             } else {
                 if (titleEl) titleEl.innerText = 'Demanda vs. capacidad';
@@ -1719,8 +1952,63 @@
                         <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#EF6684"></i>Déficit</span>
                     `;
                 }
+                consolidatedCards?.classList.add('hidden');
+                kpiLayout?.classList.remove('consolidated-mode');
                 if (onlyDeficitsWrap) onlyDeficitsWrap.classList.remove('hidden');
             }
+        }
+
+
+        function updateConsolidatedChannelCards(hcReqDict, hcDispDict, channelOps) {
+            const channels = [
+                { key: 'Llamadas', prefix: 'consolidatedCalls' },
+                { key: 'Chat', prefix: 'consolidatedChat' }
+            ];
+            const deficits = {};
+            channels.forEach(({key}) => {
+                deficits[key] = Math.max(0, Number(hcReqDict[key] || 0) - Number(hcDispDict[key] || 0));
+            });
+            const totalDeficit = deficits.Llamadas + deficits.Chat;
+
+            channels.forEach(({key, prefix}) => {
+                const req = Number(hcReqDict[key] || 0);
+                const actual = Number(hcDispDict[key] || 0);
+                const gap = actual - req;
+                const coverage = req > 0 ? (actual / req) * 100 : 100;
+                const volume = Number(channelOps?.[key]?.volume || 0);
+                const ht = Number(channelOps?.[key]?.ht || 0);
+                const aht = volume > 0 ? ht / volume : 0;
+                const contribution = totalDeficit > 0 ? (deficits[key] / totalDeficit) * 100 : 0;
+
+                const reqEl = document.getElementById(prefix + 'Req');
+                const actualEl = document.getElementById(prefix + 'Actual');
+                const gapEl = document.getElementById(prefix + 'Gap');
+                const coverageEl = document.getElementById(prefix + 'Coverage');
+                const meter = document.getElementById(prefix + 'Meter');
+                const meterText = document.getElementById(prefix + 'MeterText');
+                const volumeEl = document.getElementById(prefix + 'Volume');
+                const ahtEl = document.getElementById(prefix + 'Aht');
+                const contributionEl = document.getElementById(prefix + 'Contribution');
+
+                if (reqEl) reqEl.innerText = `${req.toLocaleString()} HC`;
+                if (actualEl) actualEl.innerText = `${actual.toLocaleString()} HC`;
+                if (gapEl) {
+                    gapEl.innerText = gap < 0 ? `-${Math.abs(gap)} HC` : gap > 0 ? `+${gap} HC` : '0 HC';
+                    gapEl.className = `consolidated-channel-value ${gap < 0 ? 'gap-negative' : gap > 0 ? 'gap-positive' : 'actual'}`;
+                }
+                if (coverageEl) {
+                    coverageEl.innerText = `${Math.round(coverage)}% cobertura`;
+                    coverageEl.className = `consolidated-coverage-badge ${gap < 0 ? 'is-deficit' : 'is-ok'}`;
+                }
+                if (meter) {
+                    meter.style.width = `${Math.max(0, Math.min(100, Math.round(coverage)))}%`;
+                    meter.className = `consolidated-channel-meter-fill ${gap < 0 ? 'is-deficit' : ''}`;
+                }
+                if (meterText) meterText.innerText = `${Math.round(coverage)}%`;
+                if (volumeEl) volumeEl.innerText = volume.toLocaleString();
+                if (ahtEl) ahtEl.innerText = formatAHT(aht);
+                if (contributionEl) contributionEl.innerText = totalDeficit > 0 ? `${Math.round(contribution)}%` : '0%';
+            });
         }
 
         const consolidatedChartExecutivePlugin = {
@@ -1728,59 +2016,46 @@
             afterDatasetsDraw(chart, args, pluginOptions) {
                 if (!pluginOptions || pluginOptions.enabled === false) return;
                 if (!chart || chart.canvas?.id !== 'generalChart') return;
-                const { ctx, chartArea } = chart;
-                const reqMeta = chart.getDatasetMeta(0);
-                const dispMeta = chart.getDatasetMeta(1);
-                const req = chart.data?.datasets?.[0]?.data || [];
-                const disp = chart.data?.datasets?.[1]?.data || [];
-                const labels = chart.data?.labels || [];
+                const req = pluginOptions.reqData || [];
+                const disp = pluginOptions.dispData || [];
+                const { ctx, chartArea, scales } = chart;
+                const x = scales.x;
+                const baseMeta = chart.getDatasetMeta(0);
+                if (!x || !baseMeta?.data?.length) return;
                 ctx.save();
-                ctx.textBaseline = 'middle';
 
-                labels.forEach((label, i) => {
-                    const reqEl = reqMeta.data[i];
-                    const dispEl = dispMeta.data[i];
-                    if (!reqEl || !dispEl) return;
+                chart.data.labels.forEach((label, i) => {
+                    const bar = baseMeta.data[i];
+                    if (!bar) return;
                     const reqVal = Number(req[i] || 0);
                     const dispVal = Number(disp[i] || 0);
                     const gap = dispVal - reqVal;
                     const coverage = reqVal > 0 ? Math.round((dispVal / reqVal) * 100) : 100;
+                    const y = bar.y;
+                    const reqX = x.getPixelForValue(reqVal);
 
-                    const valueFont = '700 10px Plus Jakarta Sans';
-                    ctx.font = valueFont;
-                    ctx.fillStyle = '#DDE7F4';
-                    ctx.textAlign = 'left';
-                    ctx.fillText(`${reqVal.toLocaleString()} HC`, reqEl.x + 10, reqEl.y);
-                    ctx.fillText(`${dispVal.toLocaleString()} HC`, dispEl.x + 10, dispEl.y);
+                    // Marcador vertical del HC requerido.
+                    ctx.strokeStyle = '#8FA3FF';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(reqX, y - 18);
+                    ctx.lineTo(reqX, y + 18);
+                    ctx.stroke();
 
-                    const badgeText = gap < 0
-                        ? `${coverage}% cobertura · déficit ${Math.abs(gap)} HC`
-                        : gap > 0
-                            ? `${coverage}% cobertura · excedente +${gap} HC`
-                            : `${coverage}% cobertura · cubierto`;
                     ctx.font = '800 9px Plus Jakarta Sans';
-                    const padX = 8;
-                    const padY = 5;
-                    const badgeWidth = ctx.measureText(badgeText).width + padX * 2;
-                    const badgeHeight = 22;
-                    const badgeX = Math.max(chartArea.left + 12, chartArea.right - badgeWidth - 10);
-                    const badgeY = ((reqEl.y + dispEl.y) / 2) - (badgeHeight / 2);
+                    ctx.fillStyle = '#9EAEFF';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`REQ ${reqVal}`, reqX, y - 26);
 
-                    ctx.fillStyle = gap < 0 ? 'rgba(251,113,133,0.12)' : gap > 0 ? 'rgba(244,183,64,0.12)' : 'rgba(52,211,153,0.12)';
-                    ctx.strokeStyle = gap < 0 ? 'rgba(251,113,133,0.35)' : gap > 0 ? 'rgba(244,183,64,0.35)' : 'rgba(52,211,153,0.30)';
-                    ctx.lineWidth = 1;
-                    if (ctx.roundRect) {
-                        ctx.beginPath();
-                        ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 999);
-                        ctx.fill();
-                        ctx.stroke();
-                    } else {
-                        ctx.fillRect(badgeX, badgeY, badgeWidth, badgeHeight);
-                        ctx.strokeRect(badgeX, badgeY, badgeWidth, badgeHeight);
-                    }
-                    ctx.fillStyle = gap < 0 ? '#FDB2BD' : gap > 0 ? '#FCD67C' : '#8DF0C0';
-                    ctx.textAlign = 'left';
-                    ctx.fillText(badgeText, badgeX + padX, badgeY + (badgeHeight / 2));
+                    const statusText = gap < 0
+                        ? `${coverage}% · -${Math.abs(gap)} HC`
+                        : gap > 0
+                            ? `${coverage}% · +${gap} HC`
+                            : `${coverage}% · OK`;
+                    ctx.font = '800 10px Plus Jakarta Sans';
+                    ctx.fillStyle = gap < 0 ? '#FF91A4' : gap > 0 ? '#F3C76D' : '#82D9CD';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(statusText, chartArea.right + 130, y);
                 });
                 ctx.restore();
             }
@@ -2510,6 +2785,15 @@
 
                 let hcReqDict = { 'Llamadas': 0, 'Chat': 0 };
                 let hcDispDict = { 'Llamadas': 0, 'Chat': 0 };
+                const channelOps = { 'Llamadas': { volume: 0, ht: 0 }, 'Chat': { volume: 0, ht: 0 } };
+                dfFiltered.forEach(r => {
+                    const ch = r.Canal || 'Llamadas';
+                    if (!channelOps[ch]) return;
+                    const volume = Number(getProp(r, ['Llamadas', 'Recibidas', 'Recibidos'], 0)) || 0;
+                    const aht = Number(getProp(r, ['AHT_Segundos'], 180)) || 180;
+                    channelOps[ch].volume += volume;
+                    channelOps[ch].ht += volume * aht;
+                });
 
                 ['Llamadas', 'Chat'].forEach(ch => {
                     let canalFechas = new Set(dfFiltered.filter(r => r.Canal === ch).map(r => String(getProp(r, ['Fecha'], '')).split(' ')[0]));
@@ -2576,18 +2860,20 @@
                 else if (gapTotal < 0) gapEl.className = 'capacity-gap-value gap-danger font-mono-num', gapEl.innerText = `${gapTotal}`;
                 else gapEl.className = 'capacity-gap-value gap-ok font-mono-num', gapEl.innerText = `0`;
                 updateCoverageMeter(totalReqGlobal, totalDispGlobal, gapTotal < 0);
+                updateConsolidatedChannelCards(hcReqDict, hcDispDict, channelOps);
                 const criticalCard = document.getElementById('criticalGapCard');
                 const criticalLabel = document.getElementById('criticalGapLabel');
                 const gapsCanal = ['Llamadas','Chat'].map(ch => ({ch, req:hcReqDict[ch]||0, disp:hcDispDict[ch]||0, gap:(hcDispDict[ch]||0)-(hcReqDict[ch]||0)}));
                 const worstCanal = gapsCanal.filter(x => x.gap < 0).sort((a,b) => a.gap-b.gap)[0];
-                if (criticalLabel) criticalLabel.innerText = 'Canal con mayor déficit';
+                if (criticalLabel) criticalLabel.innerText = 'Principal presión de capacidad';
                 if (worstCanal) {
-                    document.getElementById('kpiWorstGap').innerText = `${Math.abs(worstCanal.gap)} HC`;
-                    document.getElementById('kpiWorstGapDetail').innerText = `${worstCanal.ch} · requiere ${worstCanal.req}, disponibles ${worstCanal.disp}`;
+                    const pressureCoverage = worstCanal.req > 0 ? Math.round((worstCanal.disp / worstCanal.req) * 100) : 100;
+                    document.getElementById('kpiWorstGap').innerText = `${worstCanal.ch} · -${Math.abs(worstCanal.gap)} HC`;
+                    document.getElementById('kpiWorstGapDetail').innerText = `Cobertura ${pressureCoverage}% · requiere ${worstCanal.req} HC y tiene ${worstCanal.disp} HC`;
                     criticalCard?.classList.add('kpi-critical-active'); criticalCard?.classList.remove('kpi-critical-ok');
                 } else {
                     document.getElementById('kpiWorstGap').innerText = '✓ Cubierto';
-                    document.getElementById('kpiWorstGapDetail').innerText = 'Llamadas y Chat sin faltante de plantilla';
+                    document.getElementById('kpiWorstGapDetail').innerText = 'Llamadas y Chat cubren su requerimiento de plantilla';
                     criticalCard?.classList.remove('kpi-critical-active'); criticalCard?.classList.add('kpi-critical-ok');
                 }
 
@@ -2602,14 +2888,14 @@
                 const tbody = document.getElementById('intervalTableBody');
                 tbody.innerHTML = '';
                 [
-                    { name: '📞 Llamadas', req: hcReqDict['Llamadas'], disp: hcDispDict['Llamadas'] },
-                    { name: '💬 Chat', req: hcReqDict['Chat'], disp: hcDispDict['Chat'] },
-                    { name: '🌐 TOTAL', req: totalReqGlobal, disp: totalDispGlobal }
+                    { name: 'Llamadas', req: hcReqDict['Llamadas'], disp: hcDispDict['Llamadas'] },
+                    { name: 'Chat', req: hcReqDict['Chat'], disp: hcDispDict['Chat'] },
+                    { name: 'TOTAL', req: totalReqGlobal, disp: totalDispGlobal }
                 ].forEach(ch => {
                     const gap = ch.disp - ch.req;
                     let gapHtml = gap > 0 ? `<span class="font-bold text-[#FBBF24]">+${gap}</span>` : gap < 0 ? `<span class="font-bold text-[#FB7185]">${gap}</span>` : `<span class="font-bold text-[#34D399]">0</span>`;
                     let statusHtml = gap < 0 ? `<span class="table-status status-danger">● Déficit</span>` : gap > 0 ? `<span class="table-status status-warning">● Excedente</span>` : `<span class="table-status status-success">● Cubierto</span>`;
-                    let rowClass = ch.name === '🌐 TOTAL' ? "bg-[#1E293B] font-bold border-t border-[#334155]" : "hover:bg-[#1E293B] transition-colors";
+                    let rowClass = ch.name === 'TOTAL' ? "bg-[#1E293B] font-bold border-t border-[#334155]" : "hover:bg-[#1E293B] transition-colors";
                     tbody.innerHTML += `<tr class="${rowClass}"><td class="py-3.5 px-4 font-bold text-white">${ch.name}</td><td class="py-3.5 px-4 font-black text-slate-200">${ch.req}</td><td class="py-3.5 px-4 font-black text-slate-200">${ch.disp}</td><td class="py-3.5 px-4 text-center">${gapHtml}</td><td class="py-3.5 px-4 text-center">${statusHtml}</td></tr>`;
                 });
 
@@ -2618,11 +2904,26 @@
 
                 const generalReqData = [hcReqDict['Llamadas'], hcReqDict['Chat']];
                 const generalDispData = [hcDispDict['Llamadas'], hcDispDict['Chat']];
+                const generalCoveredData = generalReqData.map((req, i) => Math.min(req, generalDispData[i] || 0));
+                const generalDeficitData = generalReqData.map((req, i) => {
+                    const disp = Number(generalDispData[i] || 0);
+                    return disp < req ? [disp, req] : [req, req];
+                });
+                const generalSurplusData = generalReqData.map((req, i) => {
+                    const disp = Number(generalDispData[i] || 0);
+                    return disp > req ? [req, disp] : [req, req];
+                });
                 const generalCtx = document.getElementById('generalChart').getContext('2d');
+
                 if (generalChartInstance) {
                     generalChartInstance.data.labels = ['Llamadas', 'Chat'];
-                    generalChartInstance.data.datasets[0].data = generalReqData;
-                    generalChartInstance.data.datasets[1].data = generalDispData;
+                    generalChartInstance.data.datasets[0].data = generalCoveredData;
+                    generalChartInstance.data.datasets[1].data = generalDeficitData;
+                    generalChartInstance.data.datasets[2].data = generalSurplusData;
+                    generalChartInstance.options.plugins.consolidatedChartExecutivePlugin.reqData = generalReqData;
+                    generalChartInstance.options.plugins.consolidatedChartExecutivePlugin.dispData = generalDispData;
+                    const maxValue = Math.max(...generalReqData, ...generalDispData, 1);
+                    generalChartInstance.options.scales.x.suggestedMax = Math.ceil(maxValue * 1.18);
                     generalChartInstance.update('none');
                 } else {
                     generalChartInstance = new Chart(generalCtx, {
@@ -2631,32 +2932,40 @@
                             labels: ['Llamadas', 'Chat'],
                             datasets: [
                                 {
-                                    label: 'HC Requerido',
-                                    data: generalReqData,
-                                    backgroundColor: '#6F86FF',
-                                    borderColor: '#8FA3FF',
+                                    label: 'HC Actual cubierto',
+                                    data: generalCoveredData,
+                                    backgroundColor: '#63C7BA',
+                                    borderColor: '#82D9CD',
                                     borderWidth: 1,
-                                    borderRadius: 10,
+                                    borderRadius: 999,
                                     borderSkipped: false,
-                                    barThickness: 16,
-                                    maxBarThickness: 16,
-                                    categoryPercentage: 0.54,
-                                    barPercentage: 0.74,
-                                    clip: false
+                                    barThickness: 18,
+                                    grouped: false,
+                                    order: 3
                                 },
                                 {
-                                    label: 'HC Actual',
-                                    data: generalDispData,
-                                    backgroundColor: '#6CC7BD',
-                                    borderColor: '#8BDBD3',
+                                    label: 'Déficit',
+                                    data: generalDeficitData,
+                                    backgroundColor: 'rgba(239,102,132,.72)',
+                                    borderColor: 'rgba(255,145,164,.9)',
                                     borderWidth: 1,
-                                    borderRadius: 10,
+                                    borderRadius: 999,
                                     borderSkipped: false,
-                                    barThickness: 16,
-                                    maxBarThickness: 16,
-                                    categoryPercentage: 0.54,
-                                    barPercentage: 0.74,
-                                    clip: false
+                                    barThickness: 18,
+                                    grouped: false,
+                                    order: 2
+                                },
+                                {
+                                    label: 'Excedente',
+                                    data: generalSurplusData,
+                                    backgroundColor: 'rgba(243,199,109,.72)',
+                                    borderColor: 'rgba(250,218,145,.9)',
+                                    borderWidth: 1,
+                                    borderRadius: 999,
+                                    borderSkipped: false,
+                                    barThickness: 18,
+                                    grouped: false,
+                                    order: 1
                                 }
                             ]
                         },
@@ -2665,21 +2974,11 @@
                             maintainAspectRatio: false,
                             animation: false,
                             indexAxis: 'y',
-                            layout: { padding: { top: 18, right: 190, bottom: 12, left: 10 } },
+                            interaction: { mode: 'nearest', intersect: true },
+                            layout: { padding: { top: 28, right: 150, bottom: 12, left: 10 } },
                             plugins: {
-                                consolidatedChartExecutivePlugin: { enabled: true },
-                                legend: {
-                                    position: 'top',
-                                    align: 'center',
-                                    labels: {
-                                        color: '#A6B4C8',
-                                        usePointStyle: false,
-                                        boxWidth: 16,
-                                        boxHeight: 8,
-                                        padding: 16,
-                                        font: { size: 11, weight: '700' }
-                                    }
-                                },
+                                consolidatedChartExecutivePlugin: { enabled: true, reqData: generalReqData, dispData: generalDispData },
+                                legend: { display: false },
                                 tooltip: {
                                     backgroundColor: '#0F172A',
                                     titleColor: '#F8FAFC',
@@ -2687,21 +2986,19 @@
                                     borderColor: '#31445F',
                                     borderWidth: 1,
                                     padding: 12,
-                                    displayColors: true,
+                                    displayColors: false,
                                     callbacks: {
-                                        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw || 0).toLocaleString()} HC`,
-                                        afterBody: (items) => {
-                                            if (!items || !items.length) return '';
-                                            const idx = items[0].dataIndex;
+                                        title: (items) => items?.[0]?.label || '',
+                                        label: (ctx) => {
+                                            const idx = ctx.dataIndex;
                                             const req = Number(generalReqData[idx] || 0);
                                             const disp = Number(generalDispData[idx] || 0);
                                             const gap = disp - req;
-                                            const coverage = req > 0 ? Math.round((disp / req) * 100) : 100;
-                                            return gap < 0
-                                                ? [`Cobertura: ${coverage}%`, `Conclusión: faltan ${Math.abs(gap)} HC en ${items[0].label}.`]
-                                                : gap > 0
-                                                    ? [`Cobertura: ${coverage}%`, `Conclusión: hay ${gap} HC por encima del requerimiento.`]
-                                                    : [`Cobertura: ${coverage}%`, 'Conclusión: cobertura exacta.'];
+                                            return [
+                                                `HC requerido: ${req.toLocaleString()}`,
+                                                `HC actual: ${disp.toLocaleString()}`,
+                                                gap < 0 ? `Déficit: ${Math.abs(gap)} HC` : gap > 0 ? `Excedente: ${gap} HC` : 'Brecha: 0 HC'
+                                            ];
                                         }
                                     }
                                 }
@@ -2709,34 +3006,16 @@
                             scales: {
                                 x: {
                                     beginAtZero: true,
-                                    grace: '18%',
-                                    grid: {
-                                        color: 'rgba(148,163,184,0.10)',
-                                        drawBorder: false,
-                                        tickLength: 0
-                                    },
+                                    suggestedMax: Math.ceil(Math.max(...generalReqData, ...generalDispData, 1) * 1.18),
+                                    grid: { color: 'rgba(148,163,184,.085)', drawBorder: false, tickLength: 0 },
                                     border: { display: false },
-                                    ticks: {
-                                        color: '#73849B',
-                                        precision: 0,
-                                        padding: 8,
-                                        font: { size: 10, weight: '600' }
-                                    },
-                                    title: {
-                                        display: true,
-                                        text: 'Headcount (HC)',
-                                        color: '#8CA0B8',
-                                        font: { size: 10, weight: '800' }
-                                    }
+                                    ticks: { color: '#73849B', precision: 0, padding: 8, font: { size: 10, weight: '600' } },
+                                    title: { display: true, text: 'Headcount (HC)', color: '#8CA0B8', font: { size: 10, weight: '800' } }
                                 },
                                 y: {
                                     grid: { display: false, drawBorder: false },
                                     border: { display: false },
-                                    ticks: {
-                                        color: '#D7E2F0',
-                                        padding: 10,
-                                        font: { size: 12, weight: '800' }
-                                    }
+                                    ticks: { color: '#E0E8F2', padding: 12, font: { size: 12, weight: '800' } }
                                 }
                             }
                         }
