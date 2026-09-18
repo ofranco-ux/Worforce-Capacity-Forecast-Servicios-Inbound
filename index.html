@@ -613,6 +613,137 @@
             .table-toolbar { margin:0 12px; }
         }
 
+
+        /* ================================================================
+           V5 · PRIORIDAD VISUAL: HC REQUERIDO VS HC ACTUAL + BRECHA
+           ================================================================ */
+        .hc-priority-layout {
+            display:grid;
+            grid-template-columns:repeat(12,minmax(0,1fr));
+            gap:12px;
+            align-items:stretch;
+        }
+        .capacity-hero {
+            grid-column:1 / -1;
+            position:relative;
+            overflow:hidden;
+            padding:22px 24px 18px !important;
+            border-color:rgba(91,140,255,.20) !important;
+            background:
+                radial-gradient(circle at 12% 0%, rgba(91,140,255,.09), transparent 24rem),
+                radial-gradient(circle at 88% 8%, rgba(67,214,161,.055), transparent 18rem),
+                linear-gradient(145deg, rgba(15,28,49,.98), rgba(7,15,27,.99));
+            box-shadow:0 26px 70px -52px rgba(91,140,255,.75), inset 0 1px 0 rgba(255,255,255,.035);
+        }
+        .capacity-hero::before {
+            content:''; position:absolute; top:0; left:24px; right:24px; height:1px;
+            background:linear-gradient(90deg, transparent, rgba(91,140,255,.55), rgba(67,214,161,.38), transparent);
+            opacity:.8;
+        }
+        .capacity-hero-head {
+            display:flex; justify-content:space-between; align-items:flex-start; gap:20px;
+            padding-bottom:17px; border-bottom:1px solid rgba(148,163,184,.09);
+        }
+        .capacity-eyebrow {
+            display:flex; align-items:center; gap:7px; margin-bottom:7px;
+            color:#7893BD; font-size:8px; font-weight:850; letter-spacing:.17em;
+        }
+        .capacity-live-dot { width:6px; height:6px; border-radius:50%; background:var(--v4-blue); box-shadow:0 0 0 4px rgba(91,140,255,.08); }
+        .capacity-title { color:#F3F7FD; font-size:18px; line-height:1.2; font-weight:800; letter-spacing:-.025em; }
+        .capacity-subtitle { max-width:650px; margin-top:5px; color:#647791; font-size:9px; line-height:1.5; }
+        .capacity-status {
+            display:inline-flex; align-items:center; gap:7px; flex:0 0 auto;
+            padding:7px 10px; border:1px solid rgba(67,214,161,.16); border-radius:999px;
+            background:rgba(67,214,161,.055); color:#78DDB8;
+            font-size:8px; font-weight:800; letter-spacing:.075em; text-transform:uppercase;
+        }
+        .capacity-status-dot { width:5px; height:5px; border-radius:50%; background:currentColor; box-shadow:0 0 0 3px rgba(67,214,161,.08); }
+        .capacity-comparison-grid {
+            display:grid; grid-template-columns:minmax(0,1fr) 52px minmax(0,1fr) minmax(250px,.82fr);
+            gap:16px; align-items:stretch; margin-top:18px;
+        }
+        .capacity-metric, .capacity-gap-block {
+            min-width:0; border:1px solid rgba(148,163,184,.09); border-radius:15px;
+            background:linear-gradient(180deg, rgba(255,255,255,.019), rgba(255,255,255,.007));
+            padding:17px 18px 15px;
+        }
+        .capacity-required-block { box-shadow:inset 3px 0 0 rgba(91,140,255,.72); }
+        .capacity-current-block { box-shadow:inset 3px 0 0 rgba(67,214,161,.68); }
+        .capacity-gap-block {
+            position:relative;
+            background:linear-gradient(145deg, rgba(252,125,145,.055), rgba(255,255,255,.008));
+            border-color:rgba(252,125,145,.12);
+        }
+        .capacity-metric-top, .capacity-gap-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+        .capacity-metric-label { color:#8798AF; font-size:9px; font-weight:850; letter-spacing:.10em; text-transform:uppercase; }
+        .capacity-metric-tag, .capacity-gap-caption {
+            padding:4px 6px; border-radius:6px; background:rgba(91,140,255,.07); color:#718BC1;
+            font-size:7px; font-weight:850; letter-spacing:.10em;
+        }
+        .capacity-metric-tag-green { background:rgba(67,214,161,.065); color:#68CFA9; }
+        .capacity-gap-caption { background:rgba(252,125,145,.07); color:#D98392; }
+        .capacity-metric-value {
+            margin-top:12px; color:#EEF4FF; font-size:42px; line-height:1; font-weight:850; letter-spacing:-.055em;
+            font-variant-numeric:tabular-nums;
+        }
+        .capacity-current-value { color:#61DBAE; }
+        .capacity-required-value { color:#D8E5FF; }
+        .capacity-metric-help, .capacity-gap-help { margin-top:8px; color:#566981; font-size:8px; line-height:1.45; }
+        .capacity-vs { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; }
+        .capacity-vs-line { width:1px; height:22px; background:linear-gradient(180deg, transparent, rgba(148,163,184,.18)); }
+        .capacity-vs-line:last-child { background:linear-gradient(180deg, rgba(148,163,184,.18), transparent); }
+        .capacity-vs-pill {
+            display:flex; width:31px; height:31px; align-items:center; justify-content:center;
+            border:1px solid rgba(148,163,184,.12); border-radius:50%; background:#091322;
+            color:#667990; font-size:7px; font-weight:900; letter-spacing:.08em;
+        }
+        .capacity-gap-value {
+            margin-top:11px; font-size:39px; line-height:1; font-weight:900; letter-spacing:-.055em;
+            font-variant-numeric:tabular-nums;
+        }
+        .capacity-gap-value.gap-danger { color:#FF8497; text-shadow:0 0 24px rgba(252,125,145,.12); }
+        .capacity-gap-value.gap-surplus { color:#F3BD53; }
+        .capacity-gap-value.gap-ok { color:#5ED9AB; }
+        .capacity-gap-value.gap-neutral { color:#A5B2C5; }
+        .capacity-meter-zone { margin-top:16px; }
+        .capacity-meter-meta { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:7px; }
+        .capacity-meter-label { display:block; color:#8292A8; font-size:8px; font-weight:850; letter-spacing:.10em; text-transform:uppercase; }
+        .capacity-meter-explainer { display:block; margin-top:2px; color:#4C5E76; font-size:7px; }
+        .capacity-meter-ratio { color:#D7E2F1; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:800; }
+        .capacity-meter-track { height:7px; overflow:hidden; border-radius:999px; background:#050C16; box-shadow:inset 0 1px 3px rgba(0,0,0,.65); }
+        #coverageMeterFill { height:100%; width:0%; border-radius:inherit; background:linear-gradient(90deg, #FC7D91, #FF9B8A); transition:width .35s ease, background .25s ease; }
+        .capacity-meter-scale { display:flex; justify-content:space-between; margin-top:5px; color:#40526A; font-size:7px; font-family:'JetBrains Mono',monospace; }
+
+        .kpi-gap-secondary { grid-column:span 3 / span 3; }
+        .hc-priority-layout .kpi-agents { grid-column:span 3 / span 3; }
+        .hc-priority-layout .kpi-demand { grid-column:span 3 / span 3; }
+        .hc-priority-layout .kpi-aht { grid-column:span 3 / span 3; }
+        .hc-priority-layout .kpi-card { min-height:126px; }
+        .hc-priority-layout .kpi-card .kpi-value { font-size:29px; }
+        .hc-priority-layout .kpi-demand #kpiCalls { font-size:27px; }
+        .hc-priority-layout .kpi-aht #kpiAht { font-size:25px; }
+        .kpi-gap-secondary.kpi-critical-active { border-color:rgba(252,125,145,.22) !important; box-shadow:inset 0 0 0 1px rgba(252,125,145,.02); }
+        .kpi-gap-secondary.kpi-critical-ok { border-color:rgba(67,214,161,.13) !important; }
+        .kpi-gap-secondary.kpi-critical-ok #kpiWorstGap { color:#58D4A6 !important; }
+
+        @media (max-width:1279px) {
+            .capacity-comparison-grid { grid-template-columns:1fr 38px 1fr; }
+            .capacity-gap-block { grid-column:1 / -1; }
+            .kpi-gap-secondary, .hc-priority-layout .kpi-agents, .hc-priority-layout .kpi-demand, .hc-priority-layout .kpi-aht { grid-column:span 6 / span 6; }
+        }
+        @media (max-width:767px) {
+            .capacity-hero { padding:18px !important; }
+            .capacity-hero-head { flex-direction:column; gap:12px; }
+            .capacity-comparison-grid { grid-template-columns:1fr; gap:10px; }
+            .capacity-vs { flex-direction:row; height:28px; }
+            .capacity-vs-line { width:34px; height:1px; background:linear-gradient(90deg, transparent, rgba(148,163,184,.18)); }
+            .capacity-vs-line:last-child { background:linear-gradient(90deg, rgba(148,163,184,.18), transparent); }
+            .capacity-gap-block { grid-column:auto; }
+            .capacity-metric-value { font-size:36px; }
+            .capacity-gap-value { font-size:35px; }
+            .kpi-gap-secondary, .hc-priority-layout .kpi-agents, .hc-priority-layout .kpi-demand, .hc-priority-layout .kpi-aht { grid-column:1 / -1; }
+        }
+
     </style>
 </head>
 <body class="p-3 md:p-5 xl:p-6 min-h-screen">
@@ -832,21 +963,73 @@
             <div class="section-heading">
                 <div>
                     <p class="section-heading-title">Resumen ejecutivo</p>
-                    <p class="section-heading-copy">Capacidad, faltante y demanda del periodo seleccionado.</p>
+                    <p class="section-heading-copy">Primero: plantilla requerida, plantilla actual y brecha. Después, el contexto operativo.</p>
                 </div>
             </div>
-            <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3">
-                <div id="criticalGapCard" class="glass-panel kpi-card kpi-hero kpi-card-danger kpi-gap p-5 md:col-span-2">
-                    <div class="flex items-start justify-between gap-4">
+            <div id="kpiCardsContainer" class="hc-priority-layout">
+                <!-- HERO: HC REQUERIDO VS HC ACTUAL -->
+                <section id="capacityComparisonCard" class="glass-panel capacity-hero" aria-label="Comparativo de plantilla requerida contra plantilla actual">
+                    <div class="capacity-hero-head">
                         <div>
+                            <div class="capacity-eyebrow"><span class="capacity-live-dot"></span> COBERTURA DE PLANTILLA</div>
+                            <h2 class="capacity-title">HC requerido vs. HC actual</h2>
+                            <p class="capacity-subtitle">La brecha de plantilla es el indicador principal para decidir contratación, redistribución o ajuste operativo.</p>
+                        </div>
+                        <span class="capacity-status" id="heroStatusText"><span class="capacity-status-dot"></span>Cobertura suficiente</span>
+                    </div>
+
+                    <div class="capacity-comparison-grid">
+                        <div class="capacity-metric capacity-required-block">
+                            <div class="capacity-metric-top">
+                                <span class="capacity-metric-label">HC requerido</span>
+                                <span class="capacity-metric-tag">NECESIDAD</span>
+                            </div>
+                            <p id="kpiHcRequerido" class="capacity-metric-value capacity-required-value font-mono-num">0 HC</p>
+                            <p class="capacity-metric-help">Plantilla necesaria considerando jornada, descanso y merma.</p>
+                        </div>
+
+                        <div class="capacity-vs" aria-hidden="true">
+                            <span class="capacity-vs-line"></span>
+                            <span class="capacity-vs-pill">VS</span>
+                            <span class="capacity-vs-line"></span>
+                        </div>
+
+                        <div class="capacity-metric capacity-current-block">
+                            <div class="capacity-metric-top">
+                                <span class="capacity-metric-label">HC actual</span>
+                                <span class="capacity-metric-tag capacity-metric-tag-green">ROSTER</span>
+                            </div>
+                            <p id="kpiHcRoster" class="capacity-metric-value capacity-current-value font-mono-num">0 HC</p>
+                            <p class="capacity-metric-help">Dotación disponible actualmente en la plantilla seleccionada.</p>
+                        </div>
+
+                        <div class="capacity-gap-block">
+                            <div class="capacity-gap-top">
+                                <span class="capacity-metric-label">Déficit / excedente</span>
+                                <span class="capacity-gap-caption">BRECHA</span>
+                            </div>
+                            <p id="kpiHcGap" class="capacity-gap-value gap-neutral font-mono-num">0</p>
+                            <p class="capacity-gap-help">Diferencia entre HC actual y HC requerido.</p>
+                        </div>
+                    </div>
+
+                    <div class="capacity-meter-zone">
+                        <div class="capacity-meter-meta">
+                            <div><span class="capacity-meter-label">Cobertura de plantilla</span><span class="capacity-meter-explainer">HC actual ÷ HC requerido</span></div>
+                            <span id="coverageRatioLabel" class="capacity-meter-ratio">—</span>
+                        </div>
+                        <div class="capacity-meter-track"><div id="coverageMeterFill"></div></div>
+                        <div class="capacity-meter-scale"><span>0%</span><span>Objetivo 100%</span></div>
+                    </div>
+                </section>
+
+                <!-- KPIs DE CONTEXTO -->
+                <div id="criticalGapCard" class="glass-panel kpi-card kpi-card-danger kpi-gap-secondary p-5">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="min-w-0">
                             <p id="criticalGapLabel" class="kpi-label">Mayor déficit por intervalo</p>
                             <p id="kpiWorstGap" class="kpi-value font-mono-num text-brand-accentRose mt-4">—</p>
                             <p id="kpiWorstGapDetail" class="kpi-help mt-2">Sin déficit</p>
-                            <span class="kpi-hero-status"><span class="hero-status-dot">●</span><span id="heroStatusText">Prioridad operativa</span></span>
-                            <div class="hero-meter-wrap">
-                                <div class="hero-meter-meta"><span>Cobertura de plantilla</span><span id="coverageRatioLabel">—</span></div>
-                                <div class="hero-meter"><div id="coverageMeterFill"></div></div>
-                            </div>
                         </div>
                         <div class="kpi-icon text-brand-accentRose">
                             <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v10M12 17.5v.5" stroke-linecap="round"/><path d="M10.2 4.2 3.7 16a2 2 0 0 0 1.8 3h13a2 2 0 0 0 1.8-3L13.8 4.2a2 2 0 0 0-3.6 0Z"/></svg>
@@ -858,18 +1041,6 @@
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Agentes por intervalo</p><div class="kpi-icon text-brand-accentCyan"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.8 18c.6-3 2.4-4.5 5.2-4.5s4.6 1.5 5.2 4.5M17 8.5a2.5 2.5 0 0 1 0 5M16.5 14.5c2 .4 3.2 1.6 3.7 3.5" stroke-linecap="round"/></svg></div></div>
                     <p id="kpiIntervalReq" class="kpi-value font-mono-num text-brand-accentCyan mt-5">0 HC</p>
                     <p class="kpi-help mt-2">Pico simultáneo del filtro</p>
-                </div>
-
-                <div class="glass-panel kpi-card kpi-card-primary kpi-required p-5">
-                    <div class="flex items-start justify-between gap-3"><p class="kpi-label">Plantilla requerida</p><div class="kpi-icon text-[#9BB9FF]"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 20v-9m7 9V4m7 16v-6" stroke-linecap="round"/><path d="M3 20h18"/></svg></div></div>
-                    <p id="kpiHcRequerido" class="kpi-value font-mono-num text-white mt-5">0 HC</p>
-                    <p class="kpi-help mt-2">Jornada, descanso y merma</p>
-                </div>
-
-                <div class="glass-panel kpi-card kpi-secondary kpi-card-success kpi-current p-5">
-                    <div class="flex items-start justify-between gap-3"><p class="kpi-label">Plantilla actual</p><div class="kpi-icon text-brand-accentEmerald"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8h16v12M8 8V4h8v4M8 13h2m4 0h2m-8 4h2m4 0h2" stroke-linecap="round"/></svg></div></div>
-                    <div class="flex items-center gap-3 mt-4"><p id="kpiHcRoster" class="kpi-value font-mono-num text-brand-accentEmerald">0 HC</p><p id="kpiHcGap" class="text-[9px] font-extrabold px-2.5 py-1 rounded-full bg-[#1E293B] text-slate-300">0</p></div>
-                    <p class="kpi-help mt-2">Dotación disponible en roster</p>
                 </div>
 
                 <div class="glass-panel kpi-card kpi-secondary kpi-demand p-5">
@@ -1206,7 +1377,12 @@
             const ratio = req > 0 ? Math.min(1, avail / req) : (avail > 0 ? 1 : 0);
             fill.style.width = `${Math.round(ratio * 100)}%`;
             label.innerText = req > 0 ? `${Math.round((avail / req) * 100)}%` : '—';
-            if (status) status.innerText = hasDeficit ? 'Atención requerida' : 'Cobertura suficiente';
+            if (status) {
+                status.innerHTML = `<span class="capacity-status-dot"></span>${hasDeficit ? 'Déficit de plantilla' : 'Cobertura suficiente'}`;
+                status.style.color = hasDeficit ? '#FF8FA0' : '#78DDB8';
+                status.style.borderColor = hasDeficit ? 'rgba(252,125,145,.18)' : 'rgba(67,214,161,.16)';
+                status.style.background = hasDeficit ? 'rgba(252,125,145,.06)' : 'rgba(67,214,161,.055)';
+            }
         }
 
         function getWeekNumber(dateStr) {
@@ -1495,6 +1671,8 @@
             document.getElementById('kpiWorstGap').innerText = "—";
             document.getElementById('kpiWorstGapDetail').innerText = "Sin déficit";
             document.getElementById('kpiHcRoster').innerText = "0 HC";
+            const gapReset=document.getElementById('kpiHcGap'); if(gapReset){ gapReset.innerText='0'; gapReset.className='capacity-gap-value gap-neutral font-mono-num'; }
+            updateCoverageMeter(0, 0, false);
             document.getElementById('intervalTableBody').innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-500 font-medium">Sin datos. Presiona GENERAR FORECAST.</td></tr>`;
             if (gapChartInstance) { gapChartInstance.destroy(); gapChartInstance = null; }
             if (generalChartInstance) { generalChartInstance.destroy(); generalChartInstance = null; }
@@ -1951,20 +2129,22 @@
 
                 const gapTotal = totalDispGlobal - totalReqGlobal;
                 const gapEl = document.getElementById('kpiHcGap');
-                if (gapTotal > 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#34D399]/20 text-[#34D399]', gapEl.innerText = `+${gapTotal}`;
-                else if (gapTotal < 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#FB7185]/20 text-[#FB7185]', gapEl.innerText = `${gapTotal}`;
-                else gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#1E293B] text-slate-300', gapEl.innerText = `0`;
+                if (gapTotal > 0) gapEl.className = 'capacity-gap-value gap-surplus font-mono-num', gapEl.innerText = `+${gapTotal}`;
+                else if (gapTotal < 0) gapEl.className = 'capacity-gap-value gap-danger font-mono-num', gapEl.innerText = `${gapTotal}`;
+                else gapEl.className = 'capacity-gap-value gap-ok font-mono-num', gapEl.innerText = `0`;
                 updateCoverageMeter(totalReqGlobal, totalDispGlobal, gapTotal < 0);
                 const criticalCard = document.getElementById('criticalGapCard');
                 const criticalLabel = document.getElementById('criticalGapLabel');
-                if (criticalLabel) criticalLabel.innerText = 'Déficit consolidado';
-                if (gapTotal < 0) {
-                    document.getElementById('kpiWorstGap').innerText = `${Math.abs(gapTotal)} HC`;
-                    document.getElementById('kpiWorstGapDetail').innerText = `Requiere ${totalReqGlobal}, disponibles ${totalDispGlobal}`;
+                const gapsCanal = ['Llamadas','Chat'].map(ch => ({ch, req:hcReqDict[ch]||0, disp:hcDispDict[ch]||0, gap:(hcDispDict[ch]||0)-(hcReqDict[ch]||0)}));
+                const worstCanal = gapsCanal.filter(x => x.gap < 0).sort((a,b) => a.gap-b.gap)[0];
+                if (criticalLabel) criticalLabel.innerText = 'Canal con mayor déficit';
+                if (worstCanal) {
+                    document.getElementById('kpiWorstGap').innerText = `${Math.abs(worstCanal.gap)} HC`;
+                    document.getElementById('kpiWorstGapDetail').innerText = `${worstCanal.ch} · requiere ${worstCanal.req}, disponibles ${worstCanal.disp}`;
                     criticalCard?.classList.add('kpi-critical-active'); criticalCard?.classList.remove('kpi-critical-ok');
                 } else {
                     document.getElementById('kpiWorstGap').innerText = '✓ Cubierto';
-                    document.getElementById('kpiWorstGapDetail').innerText = gapTotal > 0 ? `Excedente consolidado: ${gapTotal} HC` : 'Capacidad alineada con el requerimiento';
+                    document.getElementById('kpiWorstGapDetail').innerText = 'Llamadas y Chat sin faltante de plantilla';
                     criticalCard?.classList.remove('kpi-critical-active'); criticalCard?.classList.add('kpi-critical-ok');
                 }
 
@@ -2095,9 +2275,9 @@
 
             const gapTotal = totalRosterKPI - hcNominaCalculado;
             const gapEl = document.getElementById('kpiHcGap');
-            if (gapTotal > 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#34D399]/20 text-[#34D399]', gapEl.innerText = `+${gapTotal} Sobran`;
-            else if (gapTotal < 0) gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#FB7185]/20 text-[#FB7185]', gapEl.innerText = `${Math.abs(gapTotal)} Faltan`;
-            else gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#1E293B] text-slate-300', gapEl.innerText = `✓ OK`;
+            if (gapTotal > 0) gapEl.className = 'capacity-gap-value gap-surplus font-mono-num', gapEl.innerText = `+${gapTotal} Sobran`;
+            else if (gapTotal < 0) gapEl.className = 'capacity-gap-value gap-danger font-mono-num', gapEl.innerText = `${Math.abs(gapTotal)} Faltan`;
+            else gapEl.className = 'capacity-gap-value gap-ok font-mono-num', gapEl.innerText = `✓ OK`;
             updateCoverageMeter(hcNominaCalculado, totalRosterKPI, gapTotal < 0);
 
             let legendInteractions = forecastMode === 'chat' ? 'Mensajes' : 'Llamadas';
