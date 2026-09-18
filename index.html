@@ -671,9 +671,12 @@
             const main = document.getElementById('dashboardMain');
             const tag = document.getElementById('tagModoOps');
             const containerShow = document.getElementById('containerShowSidebar');
+            const ambulanceRule = document.getElementById('ambulanceRule');
 
             if (mode === 'ops' || mode === 'operaciones') {
                 if (aside) aside.style.display = 'none';
+                // La regla de Ambulancias es informativa para WFM; no se muestra en Operaciones.
+                if (ambulanceRule) ambulanceRule.classList.add('hidden');
                 if (containerShow) containerShow.classList.add('hidden'); 
                 if (main) {
                     main.classList.remove('lg:col-span-9');
@@ -1413,7 +1416,8 @@
             document.getElementById('kpiIntervalReq').innerText = (Math.max(0, ...reqAgrupadoGlobalParaPlot)).toLocaleString() + ' HC';
             const selectedHasAmbulance = dfFiltered.some(r => forecastMode === 'llamadas' && esAmbulanciaServicios(getProp(r, ['Campaña','Campana'], '')));
             const ambBox = document.getElementById('ambulanceRule');
-            if (selectedHasAmbulance) {
+            const mostrarReglaAmbulancia = selectedHasAmbulance && currentMode !== 'ops' && currentMode !== 'operaciones';
+            if (mostrarReglaAmbulancia) {
                 let extraSeconds = dfFiltered.filter(r => esAmbulanciaServicios(getProp(r,['Campaña','Campana'],''))).reduce((acc,r) => acc + (Number(getProp(r,['Llamadas'],0))||0)*(Number(getProp(r,['AHT_Segundos'],0))||0)*0.30, 0);
                 ambBox.classList.remove('hidden'); document.getElementById('ambulanceImpact').innerText = `${(extraSeconds/3600).toFixed(1)} horas-persona`;
             } else ambBox.classList.add('hidden'); 
