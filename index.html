@@ -1604,23 +1604,19 @@
                 const req = chart.data?.datasets?.[0]?.data || [];
                 const act = chart.data?.datasets?.[1]?.data || [];
                 const labels = chart.data?.labels || [];
-                const deficitIdx = [];
                 let worst = { idx: -1, val: 0 };
                 for (let i = 0; i < labels.length; i++) {
                     const d = Math.max(0, Number(req[i] || 0) - Number(act[i] || 0));
-                    if (d > 0) deficitIdx.push(i);
                     if (d > worst.val) worst = { idx: i, val: d };
                 }
-                if (!deficitIdx.length) return;
+                if (worst.idx < 0 || worst.val <= 0) return;
+                const xCurr = x.getPixelForValue(worst.idx);
+                const prev = worst.idx > 0 ? x.getPixelForValue(worst.idx - 1) : xCurr - 18;
+                const next = worst.idx < labels.length - 1 ? x.getPixelForValue(worst.idx + 1) : xCurr + 18;
+                const width = Math.max(16, Math.min(34, (next - prev) * 0.44));
                 ctx.save();
-                deficitIdx.forEach((idx) => {
-                    const xCurr = x.getPixelForValue(idx);
-                    const prev = idx > 0 ? x.getPixelForValue(idx - 1) : xCurr - 18;
-                    const next = idx < labels.length - 1 ? x.getPixelForValue(idx + 1) : xCurr + 18;
-                    const width = Math.max(12, Math.min(34, (next - prev) * 0.58));
-                    ctx.fillStyle = idx === worst.idx ? 'rgba(252,125,145,0.12)' : 'rgba(252,125,145,0.06)';
-                    ctx.fillRect(xCurr - (width / 2), chartArea.top, width, chartArea.bottom - chartArea.top);
-                });
+                ctx.fillStyle = 'rgba(239, 102, 132, 0.08)';
+                ctx.fillRect(xCurr - (width / 2), chartArea.top, width, chartArea.bottom - chartArea.top);
                 ctx.restore();
             },
             afterDatasetsDraw(chart, args, pluginOptions) {
@@ -1640,18 +1636,31 @@
                 }
                 if (worst.idx < 0 || worst.val <= 0) return;
                 const xPos = x.getPixelForValue(worst.idx);
-                const yPos = y.getPixelForValue(Number(req[worst.idx] || 0));
+                const yReq = y.getPixelForValue(Number(req[worst.idx] || 0));
+                const yAct = y.getPixelForValue(Number(act[worst.idx] || 0));
+                const anchorY = Math.min(yReq, yAct);
                 const text = `${labels[worst.idx]} · -${worst.val} HC`;
                 ctx.save();
-                ctx.font = '700 10px Plus Jakarta Sans';
-                const padX = 8;
-                const w = ctx.measureText(text).width + padX * 2;
-                const h = 24;
-                const boxX = Math.min(chartArea.right - w, Math.max(chartArea.left, xPos - w / 2));
-                const boxY = Math.max(chartArea.top + 10, yPos - 34);
-                ctx.fillStyle = 'rgba(15,23,42,0.96)';
-                ctx.strokeStyle = 'rgba(252,125,145,0.45)';
+                ctx.strokeStyle = 'rgba(239, 102, 132, 0.45)';
                 ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(xPos, anchorY - 2);
+                ctx.lineTo(xPos, anchorY - 28);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = '#EF6684';
+                ctx.beginPath();
+                ctx.arc(xPos, yReq, 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(15,23,42,0.96)';
+                ctx.strokeStyle = 'rgba(239,102,132,0.4)';
+                const padX = 10;
+                const h = 24;
+                ctx.font = '700 10px Plus Jakarta Sans';
+                const w = ctx.measureText(text).width + padX * 2;
+                const boxX = Math.min(chartArea.right - w, Math.max(chartArea.left, xPos - w / 2));
+                const boxY = Math.max(chartArea.top + 8, anchorY - 56);
                 if (ctx.roundRect) {
                     ctx.beginPath();
                     ctx.roundRect(boxX, boxY, w, h, 8);
@@ -1662,7 +1671,8 @@
                     ctx.strokeRect(boxX, boxY, w, h);
                 }
                 ctx.fillStyle = '#F8FAFC';
-                ctx.fillText(text, boxX + padX, boxY + 15);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, boxX + padX, boxY + (h / 2));
                 ctx.restore();
             }
         };
@@ -2880,8 +2890,8 @@
 
             const gapCtx = document.getElementById('gapChart').getContext('2d');
             const reqGradient = gapCtx.createLinearGradient(0, 0, 0, 360);
-            reqGradient.addColorStop(0, 'rgba(91, 140, 255, 0.28)');
-            reqGradient.addColorStop(1, 'rgba(91, 140, 255, 0.02)');
+            reqGradient.addColorStop(0, 'rgba(111, 134, 255, 0.14)');
+            reqGradient.addColorStop(1, 'rgba(111, 134, 255, 0.01)');
             const volumeGradient = gapCtx.createLinearGradient(0, 0, 0, 360);
             volumeGradient.addColorStop(0, 'rgba(126, 168, 255, 0.26)');
             volumeGradient.addColorStop(1, 'rgba(126, 168, 255, 0.04)');
@@ -2909,15 +2919,15 @@
                                 type: 'line',
                                 label: 'HC Requerido',
                                 data: reqAgrupadoGlobalParaPlot,
-                                borderColor: '#5B8CFF',
+                                borderColor: '#6F86FF',
                                 backgroundColor: reqGradient,
                                 fill: true,
-                                tension: 0.36,
-                                borderWidth: 3.5,
+                                tension: 0.22,
+                                borderWidth: 3.25,
                                 pointRadius: 0,
                                 pointHoverRadius: 5,
                                 pointHoverBorderWidth: 0,
-                                pointHoverBackgroundColor: '#5B8CFF',
+                                pointHoverBackgroundColor: '#6F86FF',
                                 yAxisID: 'y',
                                 order: 2
                             },
@@ -2925,14 +2935,14 @@
                                 type: 'line',
                                 label: 'HC Actual',
                                 data: rosterAgrupadoGlobal,
-                                borderColor: '#43D6A1',
-                                backgroundColor: '#43D6A1',
+                                borderColor: '#63C7BA',
+                                backgroundColor: '#63C7BA',
                                 fill: false,
-                                tension: 0.32,
-                                borderWidth: 3,
+                                tension: 0.18,
+                                borderWidth: 3.1,
                                 pointRadius: 0,
                                 pointHoverRadius: 5,
-                                pointHoverBackgroundColor: '#43D6A1',
+                                pointHoverBackgroundColor: '#63C7BA',
                                 pointHoverBorderWidth: 0,
                                 yAxisID: 'y',
                                 order: 3
@@ -2941,11 +2951,11 @@
                                 type: 'bar',
                                 label: 'Déficit HC',
                                 data: deficitData,
-                                backgroundColor: 'rgba(252, 125, 145, 0.52)',
-                                borderColor: 'rgba(252, 125, 145, 0.75)',
+                                backgroundColor: 'rgba(239, 102, 132, 0.34)',
+                                borderColor: 'rgba(239, 102, 132, 0.55)',
                                 borderWidth: 0,
-                                borderRadius: 8,
-                                maxBarThickness: 20,
+                                borderRadius: 999,
+                                maxBarThickness: 10,
                                 yAxisID: 'y',
                                 order: 1
                             },
@@ -2969,7 +2979,7 @@
                         maintainAspectRatio: false,
                         animation: false,
                         interaction: { mode: 'index', intersect: false },
-                        layout: { padding: { top: 16, right: 10, bottom: 8, left: 4 } },
+                        layout: { padding: { top: 14, right: 10, bottom: 8, left: 4 } },
                         plugins: {
                             legend: { display: false },
                             executiveDeficitHighlighter: { enabled: true },
