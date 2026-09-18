@@ -4,6 +4,8 @@ import math
 import gc
 import re
 import json
+import threading
+from functools import lru_cache
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
@@ -24,6 +26,83 @@ CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
 CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
 EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
+
+# Caché en memoria para evitar volver a leer/parsear JSON grandes cada vez que
+# el usuario cambia entre Llamadas, Chat y Consolidado. El disco queda como
+# respaldo entre reinicios, pero la respuesta normal sale de RAM.
+_FORECAST_MEMORY_CACHE = {'llamadas': None, 'chat': None}
+_FORECAST_CACHE_GENERATION = {'llamadas': 0, 'chat': 0}
+_FORECAST_CACHE_LOCK = threading.RLock()
+_EXCEL_INFO_CACHE = {}
+
+def _cache_path(mode):
+    return CACHE_FILE_CHAT if str(mode).lower() == 'chat' else CACHE_FILE_LLAMADAS
+
+def _guardar_cache_forecast(mode, data):
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    with _FORECAST_CACHE_LOCK:
+        _FORECAST_MEMORY_CACHE[mode] = data
+        _FORECAST_CACHE_GENERATION[mode] += 1
+        generation = _FORECAST_CACHE_GENERATION[mode]
+
+    # Persistir en segundo plano evita que json.dump bloquee la respuesta HTTP.
+    # Si se lanza un cálculo nuevo antes de terminar, el resultado anterior no
+    # sobreescribe al más reciente.
+    def _persistir():
+        try:
+            payload = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+            with _FORECAST_CACHE_LOCK:
+                if generation != _FORECAST_CACHE_GENERATION[mode]:
+                    return
+                target = _cache_path(mode)
+                tmp = f"{target}.{generation}.tmp"
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    f.write(payload)
+                os.replace(tmp, target)
+        except Exception as e:
+            print(f"No se pudo persistir caché {mode}: {e}")
+
+    threading.Thread(target=_persistir, daemon=True, name=f'wfm-cache-{mode}').start()
+
+def _leer_cache_forecast(mode):
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    with _FORECAST_CACHE_LOCK:
+        mem = _FORECAST_MEMORY_CACHE.get(mode)
+    if isinstance(mem, list) and mem:
+        return mem
+
+    target = _cache_path(mode)
+    if not os.path.exists(target):
+        return None
+    try:
+        with open(target, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, list) and data:
+            with _FORECAST_CACHE_LOCK:
+                _FORECAST_MEMORY_CACHE[mode] = data
+            return data
+    except Exception:
+        pass
+    return None
+
+def _excel_signature(excel_path):
+    try:
+        st = os.stat(excel_path)
+        return (os.path.abspath(excel_path), st.st_mtime_ns, st.st_size)
+    except Exception:
+        return (os.path.abspath(excel_path), None, None)
+
+def _cache_excel_info_get(excel_path, key):
+    return _EXCEL_INFO_CACHE.get((_excel_signature(excel_path), key))
+
+def _cache_excel_info_set(excel_path, key, value):
+    sig = _excel_signature(excel_path)
+    # Mantener sólo entradas de la versión actual del Excel.
+    for old_key in list(_EXCEL_INFO_CACHE):
+        if old_key[0][0] == sig[0] and old_key[0] != sig:
+            _EXCEL_INFO_CACHE.pop(old_key, None)
+    _EXCEL_INFO_CACHE[(sig, key)] = value
+    return value
 
 # =====================================================================
 # 🧨 EXTERMINADOR DE CACHÉ
@@ -103,37 +182,61 @@ def objetivos_campana(campana, target_sl, target_time, campaign_settings=None):
     return sl, asa
 
 def forzar_cuadre_dashboard(df_final):
-    if df_final.empty: return df_final
-    
-    for mes in df_final['Mes'].unique():
-        df_mes = df_final[df_final['Mes'] == mes]
-        suma_picos_mes = df_mes.groupby('Campaña')['Agentes_Requeridos'].max().sum()
-        suma_por_intervalo = df_mes.groupby(['Fecha', 'Intervalo'])['Agentes_Requeridos'].sum()
-        if suma_por_intervalo.empty: continue
-        
-        pico_actual_tablero = suma_por_intervalo.max()
-        fecha_pico, hora_pico = suma_por_intervalo.idxmax()
-        diferencia = suma_picos_mes - pico_actual_tablero
-        
-        if diferencia > 0:
-            idx = df_final[(df_final['Fecha'] == fecha_pico) & (df_final['Intervalo'] == hora_pico)].index
-            if len(idx) > 0:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] += diferencia
+    if df_final.empty:
+        return df_final
 
-    for fecha in df_final['Fecha'].unique():
-        df_dia = df_final[df_final['Fecha'] == fecha]
-        suma_picos_dia = df_dia.groupby('Campaña')['Agentes_Requeridos'].max().sum()
-        suma_por_intervalo_dia = df_dia.groupby('Intervalo')['Agentes_Requeridos'].sum()
-        if suma_por_intervalo_dia.empty: continue
-        
-        pico_actual_dia = suma_por_intervalo_dia.max()
-        hora_pico_dia = suma_por_intervalo_dia.idxmax()
-        diferencia_dia = suma_picos_dia - pico_actual_dia
-        
-        if diferencia_dia > 0:
-            idx = df_final[(df_final['Fecha'] == fecha) & (df_final['Intervalo'] == hora_pico_dia)].index
-            if len(idx) > 0:
-                df_final.loc[idx[0], 'Agentes_Requeridos'] += diferencia_dia
+    # Mismo criterio de cuadre, pero evitando filtrar y reagrupar todo el
+    # DataFrame una vez por mes y una vez por día. En horizontes largos esta
+    # parte era una de las más costosas.
+    first_idx = (
+        df_final.reset_index()
+        .groupby(['Fecha', 'Intervalo'], sort=True)['index']
+        .first()
+    )
+
+    picos_camp_mes = (
+        df_final.groupby(['Mes', 'Campaña'], sort=True)['Agentes_Requeridos']
+        .max()
+        .groupby(level=0)
+        .sum()
+    )
+    totales_intervalo_mes = df_final.groupby(
+        ['Mes', 'Fecha', 'Intervalo'], sort=True
+    )['Agentes_Requeridos'].sum()
+
+    if not totales_intervalo_mes.empty:
+        claves_pico_mes = totales_intervalo_mes.groupby(level=0).idxmax()
+        for mes, clave in claves_pico_mes.items():
+            pico_actual = float(totales_intervalo_mes.loc[clave])
+            diferencia = float(picos_camp_mes.get(mes, 0)) - pico_actual
+            if diferencia > 0:
+                _, fecha_pico, hora_pico = clave
+                idx = first_idx.get((fecha_pico, hora_pico))
+                if idx is not None:
+                    df_final.loc[idx, 'Agentes_Requeridos'] += diferencia
+
+    # El cuadre diario se calcula después del mensual, igual que antes, para
+    # conservar el mismo orden de efectos sobre Agentes_Requeridos.
+    picos_camp_dia = (
+        df_final.groupby(['Fecha', 'Campaña'], sort=True)['Agentes_Requeridos']
+        .max()
+        .groupby(level=0)
+        .sum()
+    )
+    totales_intervalo_dia = df_final.groupby(
+        ['Fecha', 'Intervalo'], sort=True
+    )['Agentes_Requeridos'].sum()
+
+    if not totales_intervalo_dia.empty:
+        claves_pico_dia = totales_intervalo_dia.groupby(level=0).idxmax()
+        for fecha, clave in claves_pico_dia.items():
+            pico_actual = float(totales_intervalo_dia.loc[clave])
+            diferencia = float(picos_camp_dia.get(fecha, 0)) - pico_actual
+            if diferencia > 0:
+                _, hora_pico = clave
+                idx = first_idx.get((fecha, hora_pico))
+                if idx is not None:
+                    df_final.loc[idx, 'Agentes_Requeridos'] += diferencia
 
     return df_final
 
@@ -155,29 +258,34 @@ def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_fore
         fecha_actual += timedelta(days=1)
     return preds_finales
 
+@lru_cache(maxsize=16)
+def _festivos_mexico(years_tuple):
+    return holidays.country_holidays('MX', years=list(years_tuple))
+
 def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     df_ml = df_diario_campana.sort_values(col_fecha).copy()
     anos_presentes = list(df_ml[col_fecha].dt.year.unique())
     anos_presentes.append(fecha_inicio_forecast.year)
     anos_presentes.append((fecha_inicio_forecast + timedelta(days=dias_futuros)).year)
-    festivos_pais = holidays.country_holidays('MX', years=list(set(anos_presentes)))
-    
+    years_key = tuple(sorted(set(int(x) for x in anos_presentes)))
+    festivos_pais = _festivos_mexico(years_key)
+
     q1, q3 = df_ml[col_calls].quantile(0.25), df_ml[col_calls].quantile(0.75)
     iqr = q3 - q1
     df_ml['calls_clean'] = np.clip(df_ml[col_calls], max(0, q1 - 1.5 * iqr), q3 + 1.5 * iqr)
     df_ml['baseline'] = df_ml['calls_clean'].shift(1).rolling(window=10, min_periods=1).mean()
     df_ml['ratio'] = np.where(df_ml['baseline'] > 0, df_ml['calls_clean'] / df_ml['baseline'], 1.0)
-    
+
     r_q1, r_q3 = df_ml['ratio'].quantile(0.25), df_ml['ratio'].quantile(0.75)
     r_iqr = r_q3 - r_q1
     df_ml['ratio_smooth'] = np.clip(df_ml['ratio'], max(0.2, r_q1 - 1.5 * r_iqr), r_q3 + 1.5 * r_iqr)
 
     df_ml['dia_semana'] = df_ml[col_fecha].dt.weekday
     df_ml['dia_mes'] = df_ml[col_fecha].dt.day
-    df_ml['es_inicio_mes'] = df_ml['dia_mes'].apply(lambda x: 1 if x <= 5 else 0)
-    df_ml['es_quincena'] = df_ml['dia_mes'].apply(lambda x: 1 if x in [14, 15, 16, 29, 30, 31, 1] else 0)
+    df_ml['es_inicio_mes'] = (df_ml['dia_mes'] <= 5).astype(int)
+    df_ml['es_quincena'] = df_ml['dia_mes'].isin([14, 15, 16, 29, 30, 31, 1]).astype(int)
     df_ml['es_festivo'] = df_ml[col_fecha].apply(lambda x: 1 if x in festivos_pais else 0)
-    
+
     df_train = df_ml.dropna().copy()
     if len(df_train) < 14:
         return [max(0.0, float(df_diario_campana.tail(7)[col_calls].mean()))] * dias_futuros
@@ -185,29 +293,29 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     features = ['dia_semana', 'es_inicio_mes', 'es_quincena', 'es_festivo']
     modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2)
     modelo.fit(df_train[features], df_train['ratio_smooth'])
-    
-    historial_simulado = df_ml.to_dict('records')
+
+    # El ratio que predice el bosque depende sólo del calendario. Generarlo para
+    # todo el horizonte en una sola llamada evita crear un DataFrame y ejecutar
+    # model.predict() una vez por día. El baseline sigue siendo recursivo, por
+    # lo que la lógica y el resultado del forecast se conservan.
+    fechas_futuras = [fecha_inicio_forecast + timedelta(days=d) for d in range(dias_futuros)]
+    X_pred = pd.DataFrame({
+        'dia_semana': [f.weekday() for f in fechas_futuras],
+        'es_inicio_mes': [1 if f.day <= 5 else 0 for f in fechas_futuras],
+        'es_quincena': [1 if f.day in [14, 15, 16, 29, 30, 31, 1] else 0 for f in fechas_futuras],
+        'es_festivo': [1 if f in festivos_pais else 0 for f in fechas_futuras],
+    })
+    ratios_futuros = modelo.predict(X_pred[features])
+
+    historial_calls = [float(x) for x in df_ml['calls_clean'].tolist()]
     preds_finales = []
-    fecha_actual = fecha_inicio_forecast
-    
-    for d in range(dias_futuros):
-        ultimas_llamadas = [r.get('calls_clean', r.get(col_calls, 0)) for r in historial_simulado]
-        current_baseline = np.mean(ultimas_llamadas[-10:]) if len(ultimas_llamadas) >= 10 else np.mean(ultimas_llamadas)
-        
-        X_pred = pd.DataFrame([{
-            'dia_semana': fecha_actual.weekday(),
-            'es_inicio_mes': 1 if fecha_actual.day <= 5 else 0,
-            'es_quincena': 1 if fecha_actual.day in [14, 15, 16, 29, 30, 31, 1] else 0,
-            'es_festivo': 1 if fecha_actual in festivos_pais else 0
-        }])
-        
-        pred_ratio = float(modelo.predict(X_pred[features])[0])
-        pred_vol = max(0.0, float(current_baseline * pred_ratio))
+    for pred_ratio in ratios_futuros:
+        ultimos = historial_calls[-10:] if len(historial_calls) >= 10 else historial_calls
+        current_baseline = float(np.mean(ultimos)) if ultimos else 0.0
+        pred_vol = max(0.0, float(current_baseline * float(pred_ratio)))
         preds_finales.append(pred_vol)
-        
-        historial_simulado.append({col_fecha: fecha_actual, col_calls: pred_vol, 'calls_clean': pred_vol})
-        fecha_actual += timedelta(days=1)
-        
+        historial_calls.append(pred_vol)
+
     return preds_finales
 
 def buscar_archivo_excel():
@@ -565,6 +673,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
                     'Factor_Cobertura_Ambulancia': factor_cobertura,
                     'Volumen_Doble_Cobertura': round(calls_float * REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'], 2) if es_ambulancia_servicios(camp) else 0.0,
                     'Target_SL': camp_target_sl, 'Target_ASA': camp_target_time,
+                    'FTE_Erlang': int(req_ftes), 'Concurrencia_Aplicada': 1.0,
                     'Factor_Correccion': 1.0
                 })
 
@@ -573,9 +682,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
         df_final = forzar_cuadre_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
-    try:
-        with open(CACHE_FILE_LLAMADAS, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
-    except: pass
+    _guardar_cache_forecast('llamadas', data_processed)
     return data_processed
 
 def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None):
@@ -739,7 +846,9 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
                     'Intervalo': inter, 'Llamadas': calls_int, 'AHT': format_aht_str(aht),
                     'AHT_Segundos': int(round(aht)), 'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
                     'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia,
-                    'Target_SL': camp_target_sl, 'Target_ASA': camp_target_time, 'Factor_Correccion': 1.0
+                    'Target_SL': camp_target_sl, 'Target_ASA': camp_target_time,
+                    'FTE_Erlang': int(req_ftes), 'Concurrencia_Aplicada': float(max(1.0, concurrencia)),
+                    'Factor_Correccion': 1.0
                 })
 
     df_final = pd.DataFrame(data_processed)
@@ -747,9 +856,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
         df_final = forzar_cuadre_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
-    try:
-        with open(CACHE_FILE_CHAT, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
-    except: pass
+    _guardar_cache_forecast('chat', data_processed)
     return data_processed
 
 @app.route('/api/campaigns', methods=['GET'])
@@ -758,6 +865,9 @@ def get_campaigns():
     excel_path = buscar_archivo_excel()
     if not excel_path:
         return jsonify([]), 200
+    cached = _cache_excel_info_get(excel_path, f'campaigns:{mode}')
+    if cached is not None:
+        return jsonify(cached), 200
     try:
         xls = pd.ExcelFile(excel_path, engine='openpyxl')
         sheet = None
@@ -781,6 +891,7 @@ def get_campaigns():
         if not col_camp:
             return jsonify([]), 200
         campanas = sorted({str(x).strip().title() for x in preview[col_camp].dropna().tolist() if str(x).strip() and str(x).strip().lower() != 'nan'})
+        _cache_excel_info_set(excel_path, f'campaigns:{mode}', campanas)
         return jsonify(campanas), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -790,6 +901,9 @@ def get_forecast_status():
     excel_path = buscar_archivo_excel()
     if not excel_path:
         return jsonify({'archivo': None, 'ultimo_dato': None, 'actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}), 200
+    cached = _cache_excel_info_get(excel_path, 'status')
+    if cached is not None:
+        return jsonify(cached), 200
     ultimo_dato = None
     try:
         xls = pd.ExcelFile(excel_path, engine='openpyxl')
@@ -804,25 +918,20 @@ def get_forecast_status():
             if not fechas.empty: ultimo_dato = fechas.max().strftime('%Y-%m-%d')
     except Exception:
         pass
-    return jsonify({
+    payload = {
         'archivo': os.path.basename(excel_path),
         'ultimo_dato': ultimo_dato,
         'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S')
-    }), 200
+    }
+    _cache_excel_info_set(excel_path, 'status', payload)
+    return jsonify(payload), 200
 
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
     mode = request.args.get('mode', 'llamadas')
-    if mode == 'chat': target_cache = CACHE_FILE_CHAT
-    else: target_cache = CACHE_FILE_LLAMADAS
-    
-    if os.path.exists(target_cache):
-        try:
-            with open(target_cache, 'r', encoding='utf-8') as f:
-                cache_data = json.load(f)
-                if isinstance(cache_data, list) and len(cache_data) > 0: 
-                    return jsonify(cache_data), 200
-        except: pass
+    cache_data = _leer_cache_forecast(mode)
+    if isinstance(cache_data, list) and cache_data:
+        return jsonify(cache_data), 200
             
     excel_path = buscar_archivo_excel()
     if excel_path:
