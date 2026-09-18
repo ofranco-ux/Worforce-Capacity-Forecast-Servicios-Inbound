@@ -238,7 +238,7 @@
         }
         .brand-eyebrow { font-size:9px; line-height:1; font-weight:800; letter-spacing:.18em; text-transform:uppercase; color:#6F82A0; margin-bottom:5px; }
         .brand-title { font-size:18px; line-height:1.25; font-weight:800; color:#F8FAFC; letter-spacing:-.025em; }
-        .brand-subtitle { margin-top:4px; font-size:10px; color:#73839B; font-weight:500; }
+        .brand-subtitle { margin-top:4px; font-size:11px; color:#8090A6; font-weight:500; }
         .header-actions { display:flex; align-items:center; gap:10px; margin-left:auto; }
         .mode-switch {
             display:flex; align-items:center; gap:3px; padding:4px;
@@ -247,11 +247,13 @@
             box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
         }
         .mode-tab {
-            display:inline-flex; align-items:center; justify-content:center; gap:6px;
+            display:inline-flex; align-items:center; justify-content:center; gap:8px;
             height:34px; padding:0 12px; border-radius:9px;
             font-size:10px; font-weight:750; color:#77869D;
             transition: background .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease;
         }
+        .mode-tab-icon { display:inline-flex; width:14px; height:14px; align-items:center; justify-content:center; color:currentColor; opacity:.96; }
+        .mode-tab-icon svg { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
         .mode-tab:hover { color:#DCE6F3; background:rgba(148,163,184,.06); }
         .mode-tab-active {
             color:#F8FAFC;
@@ -284,7 +286,7 @@
         }
         .sidebar-topline { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding-bottom:14px; border-bottom:1px solid var(--premium-border); }
         .sidebar-title { color:#F8FAFC; font-size:12px; font-weight:800; letter-spacing:-.01em; }
-        .sidebar-copy { color:#6F7F97; font-size:9px; margin-top:3px; line-height:1.5; }
+        .sidebar-copy { color:#7B8BA2; font-size:10px; margin-top:3px; line-height:1.55; }
         .ghost-action {
             display:inline-flex; align-items:center; justify-content:center; height:30px; padding:0 10px;
             border:1px solid var(--premium-border); border-radius:9px; color:#8391A7; background:rgba(255,255,255,.015);
@@ -339,12 +341,12 @@
             color:#C7D1DF; box-shadow:none;
         }
         .filter-control:hover { transform:translateY(-1px); border-color:#3B5679; background:#0B1526; }
-        .filter-control .filter-caption { display:block; margin-bottom:2px; font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; line-height:1; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:#60718B; text-align:left; }
-        .filter-control .filter-value { display:block; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; color:#DCE5F1; text-align:left; }
+        .filter-control .filter-caption { display:block; margin-bottom:2px; font-family:'Plus Jakarta Sans',sans-serif; font-size:9px; line-height:1; font-weight:800; letter-spacing:.10em; text-transform:uppercase; color:#697D99; text-align:left; }
+        .filter-control .filter-value { display:block; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:#E2EAF4; text-align:left; }
         .filter-reset {
             display:flex; align-items:center; justify-content:center; gap:6px; min-height:48px;
             border:1px solid rgba(251,113,133,.17); border-radius:11px; color:#C68A98; background:rgba(251,113,133,.035);
-            font-size:9px; font-weight:800; transition:.18s ease;
+            font-size:10px; font-weight:800; transition:.18s ease;
         }
         .filter-reset:hover { color:#FB7185; border-color:rgba(251,113,133,.35); background:rgba(251,113,133,.075); }
         @media (max-width:1350px) { .filter-shell{grid-template-columns:1fr;} .filter-grid{grid-template-columns:88px repeat(5,minmax(100px,1fr));} }
@@ -352,7 +354,7 @@
 
         .section-heading { margin:1px 3px 10px; }
         .section-heading-title { color:#9EACC0; font-size:9px; letter-spacing:.17em; }
-        .section-heading-copy { color:#5E6C81; font-size:9px; }
+        .section-heading-copy { color:#74859D; font-size:10px; }
         .kpi-card {
             min-height:126px;
             border:1px solid var(--premium-border) !important;
@@ -365,7 +367,7 @@
         .kpi-card::before { top:16px; bottom:16px; height:auto; width:2px; border-radius:99px; opacity:.9; }
         .kpi-label { font-size:9px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; color:#74849B; }
         .kpi-value { font-size:30px; line-height:1; font-weight:800; letter-spacing:-.045em; }
-        .kpi-help { font-size:9px; line-height:1.45; color:#607087; }
+        .kpi-help { font-size:10px; line-height:1.5; color:#74859A; }
         .kpi-icon {
             display:flex; align-items:center; justify-content:center; width:30px; height:30px;
             border-radius:10px; background:rgba(148,163,184,.055); border:1px solid rgba(148,163,184,.09); color:#8798AF;
@@ -398,7 +400,7 @@
         .analysis-title-wrap { display:flex; align-items:center; gap:10px; }
         .analysis-icon { display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:10px; color:#78A6FF; background:rgba(79,140,255,.08); border:1px solid rgba(79,140,255,.15); }
         .analysis-title { font-size:13px; font-weight:800; color:#F4F7FB; letter-spacing:-.01em; }
-        .analysis-subtitle { font-size:9px; color:#607087; margin-top:2px; }
+        .analysis-subtitle { font-size:10px; color:#72839A; margin-top:2px; }
         .toolbar-actions { display:flex; align-items:center; gap:8px; }
         .toggle-chip {
             display:flex; align-items:center; gap:7px; min-height:34px; padding:0 10px;
@@ -588,7 +590,7 @@
             margin:0 16px; padding:11px 2px 9px; border-top:1px solid var(--v4-line);
         }
         .table-toolbar-title { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.12em; color:#8393AA; }
-        .table-toolbar-copy { font-size:8px; color:#53647D; margin-top:2px; }
+        .table-toolbar-copy { font-size:9px; color:#6D7D94; margin-top:2px; }
         .table-well { margin:0 16px 16px; max-height:430px !important; }
         .table-well thead { backdrop-filter:blur(12px); }
         .table-well tbody tr { background:transparent !important; }
@@ -667,28 +669,29 @@
             background:linear-gradient(180deg, rgba(255,255,255,.019), rgba(255,255,255,.007));
             padding:17px 18px 15px;
         }
-        .capacity-required-block { box-shadow:inset 3px 0 0 rgba(91,140,255,.72); }
-        .capacity-current-block { box-shadow:inset 3px 0 0 rgba(67,214,161,.68); }
+        .capacity-required-block { box-shadow:inset 3px 0 0 rgba(111,134,255,.78); }
+        .capacity-current-block { box-shadow:inset 3px 0 0 rgba(99,199,186,.72); }
         .capacity-gap-block {
             position:relative;
-            background:linear-gradient(145deg, rgba(252,125,145,.055), rgba(255,255,255,.008));
-            border-color:rgba(252,125,145,.12);
+            background:linear-gradient(145deg, rgba(239,102,132,.08), rgba(255,255,255,.012));
+            border-color:rgba(239,102,132,.18);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.02), 0 10px 30px -24px rgba(239,102,132,.25);
         }
         .capacity-metric-top, .capacity-gap-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
         .capacity-metric-label { color:#8798AF; font-size:9px; font-weight:850; letter-spacing:.10em; text-transform:uppercase; }
         .capacity-metric-tag, .capacity-gap-caption {
-            padding:4px 6px; border-radius:6px; background:rgba(91,140,255,.07); color:#718BC1;
-            font-size:7px; font-weight:850; letter-spacing:.10em;
+            padding:4px 6px; border-radius:6px; background:rgba(111,134,255,.08); color:#8397CC;
+            font-size:8px; font-weight:850; letter-spacing:.10em;
         }
-        .capacity-metric-tag-green { background:rgba(67,214,161,.065); color:#68CFA9; }
-        .capacity-gap-caption { background:rgba(252,125,145,.07); color:#D98392; }
+        .capacity-metric-tag-green { background:rgba(99,199,186,.08); color:#7AD7CA; }
+        .capacity-gap-caption { background:rgba(239,102,132,.09); color:#E290A0; }
         .capacity-metric-value {
             margin-top:12px; color:#EEF4FF; font-size:42px; line-height:1; font-weight:850; letter-spacing:-.055em;
             font-variant-numeric:tabular-nums;
         }
         .capacity-current-value { color:#61DBAE; }
         .capacity-required-value { color:#D8E5FF; }
-        .capacity-metric-help, .capacity-gap-help { margin-top:8px; color:#566981; font-size:8px; line-height:1.45; }
+        .capacity-metric-help, .capacity-gap-help { margin-top:8px; color:#72849B; font-size:10px; line-height:1.5; }
         .capacity-vs { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; }
         .capacity-vs-line { width:1px; height:22px; background:linear-gradient(180deg, transparent, rgba(148,163,184,.18)); }
         .capacity-vs-line:last-child { background:linear-gradient(180deg, rgba(148,163,184,.18), transparent); }
@@ -698,21 +701,21 @@
             color:#667990; font-size:7px; font-weight:900; letter-spacing:.08em;
         }
         .capacity-gap-value {
-            margin-top:11px; font-size:39px; line-height:1; font-weight:900; letter-spacing:-.055em;
+            margin-top:10px; font-size:44px; line-height:1; font-weight:900; letter-spacing:-.06em;
             font-variant-numeric:tabular-nums;
         }
-        .capacity-gap-value.gap-danger { color:#FF8497; text-shadow:0 0 24px rgba(252,125,145,.12); }
+        .capacity-gap-value.gap-danger { color:#FF8EA0; text-shadow:0 0 24px rgba(239,102,132,.14); }
         .capacity-gap-value.gap-surplus { color:#F3BD53; }
-        .capacity-gap-value.gap-ok { color:#5ED9AB; }
+        .capacity-gap-value.gap-ok { color:#79DDC5; }
         .capacity-gap-value.gap-neutral { color:#A5B2C5; }
         .capacity-meter-zone { margin-top:16px; }
         .capacity-meter-meta { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:7px; }
-        .capacity-meter-label { display:block; color:#8292A8; font-size:8px; font-weight:850; letter-spacing:.10em; text-transform:uppercase; }
-        .capacity-meter-explainer { display:block; margin-top:2px; color:#4C5E76; font-size:7px; }
-        .capacity-meter-ratio { color:#D7E2F1; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:800; }
+        .capacity-meter-label { display:block; color:#8A9AB0; font-size:9px; font-weight:850; letter-spacing:.10em; text-transform:uppercase; }
+        .capacity-meter-explainer { display:block; margin-top:2px; color:#64758A; font-size:9px; }
+        .capacity-meter-ratio { color:#E5EDF8; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:800; }
         .capacity-meter-track { height:7px; overflow:hidden; border-radius:999px; background:#050C16; box-shadow:inset 0 1px 3px rgba(0,0,0,.65); }
         #coverageMeterFill { height:100%; width:0%; border-radius:inherit; background:linear-gradient(90deg, #FC7D91, #FF9B8A); transition:width .35s ease, background .25s ease; }
-        .capacity-meter-scale { display:flex; justify-content:space-between; margin-top:5px; color:#40526A; font-size:7px; font-family:'JetBrains Mono',monospace; }
+        .capacity-meter-scale { display:flex; justify-content:space-between; margin-top:5px; color:#5D7087; font-size:8px; font-family:'JetBrains Mono',monospace; }
 
         .kpi-gap-secondary { grid-column:span 3 / span 3; }
         .hc-priority-layout .kpi-agents { grid-column:span 3 / span 3; }
@@ -891,9 +894,9 @@
         .chart-note-dot {
             width:8px; height:8px; border-radius:999px; display:inline-block;
         }
-        .chart-note-dot.req { background:#5B8CFF; }
-        .chart-note-dot.act { background:#43D6A1; }
-        .chart-note-dot.def { background:#FC7D91; }
+        .chart-note-dot.req { background:#6F86FF; }
+        .chart-note-dot.act { background:#63C7BA; }
+        .chart-note-dot.def { background:#EF6684; }
         .chart-note-dot.vol { background:#7EA8FF; opacity:.6; }
         @media (max-width: 1100px) {
             .executive-chart-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -927,9 +930,9 @@
 
         <div class="header-actions">
             <div class="mode-switch" aria-label="Canal de forecast">
-                <button id="btnTabLlamadas" onclick="setModeWFM('llamadas')" class="mode-tab mode-tab-active"><span>📞</span><span>Llamadas</span></button>
-                <button id="btnTabChat" onclick="setModeWFM('chat')" class="mode-tab"><span>💬</span><span>Chat</span></button>
-                <button id="btnTabGeneral" onclick="setModeWFM('general')" class="mode-tab"><span>◫</span><span>Consolidado</span></button>
+                <button id="btnTabLlamadas" onclick="setModeWFM('llamadas')" class="mode-tab mode-tab-active"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M15.5 14.5c-1.5 1.5-3 2.2-4.5 2.2-2.6 0-5.2-2.1-6.8-5.2-.5-1-.8-2-.8-2.8 0-1.6.7-3.1 2.2-4.6l2-2a1.7 1.7 0 0 1 2.4 0l2.1 2.1a1.7 1.7 0 0 1 0 2.4l-1.2 1.2c.7 1.6 2 2.9 3.6 3.6l1.2-1.2a1.7 1.7 0 0 1 2.4 0l2.1 2.1a1.7 1.7 0 0 1 0 2.4l-1.9 1.8Z"/></svg></span><span>Llamadas</span></button>
+                <button id="btnTabChat" onclick="setModeWFM('chat')" class="mode-tab"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 18.5 3.5 21V6.8A1.8 1.8 0 0 1 5.3 5h13.4a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H7Z"/><path d="M8 10h8M8 13h5"/></svg></span><span>Chat</span></button>
+                <button id="btnTabGeneral" onclick="setModeWFM('general')" class="mode-tab"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="7" height="6" rx="1.3"/><rect x="13" y="5" width="7" height="6" rx="1.3"/><rect x="4" y="13" width="7" height="6" rx="1.3"/><rect x="13" y="13" width="7" height="6" rx="1.3"/></svg></span><span>Consolidado</span></button>
             </div>
             <div class="command-meta" aria-label="Contexto del modelo">
                 <span class="command-meta-chip"><span class="command-meta-dot"></span>Erlang C</span>
@@ -959,12 +962,12 @@
                     <div class="flex items-center justify-between pt-1">
                         <div>
                             <p class="text-[9px] font-extrabold text-slate-400 uppercase tracking-[.16em]">Supuestos base</p>
-                            <p class="text-[9px] text-slate-600 mt-1">Aplican a campañas sin configuración específica.</p>
+                            <p class="text-[10px] text-slate-500 mt-1">Aplican a campañas sin configuración específica.</p>
                         </div>
                     </div>
 
                     <div class="assumption-note">
-                        <p class="text-[9px] text-slate-400 leading-relaxed"><span class="text-[#78A6FF] font-bold">Erlang C</span> usa Nivel de Servicio y ASA para convertir demanda en dotación requerida.</p>
+                        <p class="text-[10px] text-slate-400 leading-relaxed"><span class="text-[#78A6FF] font-bold">Erlang C</span> usa Nivel de Servicio y ASA para convertir demanda en dotación requerida.</p>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
@@ -987,7 +990,7 @@
                                     <p class="text-[10px] text-white font-extrabold uppercase tracking-widest">Configuración por campaña</p>
                                     <span id="campaignTargetBadge" class="text-[9px] px-2 py-0.5 rounded-lg border border-[#334155] text-slate-400 whitespace-nowrap">Valores base</span>
                                 </div>
-                                <p class="text-[9px] text-slate-500 mt-1">Sobrescribe Nivel de Servicio y ASA solo donde sea necesario.</p>
+                                <p class="text-[10px] text-slate-500 mt-1">Sobrescribe Nivel de Servicio y ASA solo donde sea necesario.</p>
                             </div>
                             <span class="campaign-chevron text-slate-500 text-[10px]">▼</span>
                         </summary>
@@ -1015,7 +1018,7 @@
                             <button type="button" onclick="guardarObjetivoCampana()" class="bg-brand-primary/15 hover:bg-brand-primary/25 border border-brand-primary/40 text-brand-primary px-3 py-2.5 rounded-xl text-[10px] font-bold transition-all">Guardar campaña</button>
                             <button type="button" onclick="usarObjetivosBaseCampana()" class="bg-[#111827] hover:bg-[#1E293B] border border-[#334155] text-slate-300 px-3 py-2.5 rounded-xl text-[10px] font-bold transition-all">Usar valores base</button>
                         </div>
-                        <p id="campaignTargetMessage" class="text-[9px] text-slate-500 leading-relaxed"></p>
+                        <p id="campaignTargetMessage" class="text-[10px] text-slate-500 leading-relaxed"></p>
                         </div>
                     </details>
 
@@ -1050,7 +1053,7 @@
                     </button>
                     <div id="runStatus" class="mt-3 p-3 rounded-xl bg-[#0B1121] border border-[#1F2937] text-[10px] text-slate-400 leading-relaxed">
                         <div><span id="runStatusDot" class="text-slate-500">●</span> <span id="runStatusText">Listo para generar</span></div>
-                        <div id="sourceMeta" class="mt-1 font-mono text-[9px] text-slate-500">Archivo: — · Último dato: — · Actualización: —</div>
+                        <div id="sourceMeta" class="mt-1 font-mono text-[10px] text-slate-500">Archivo: — · Último dato: — · Actualización: —</div>
                     </div>
                     <div id="dashboardError" class="hidden mt-3 p-3 rounded-xl bg-[#FB7185]/10 border border-[#FB7185]/40 text-[11px] text-[#FB7185]"></div>
                 </form>
@@ -1236,9 +1239,9 @@
                             <h3 class="analysis-title">Demanda vs. capacidad</h3>
                             <p class="analysis-subtitle">Requeridos, disponibles y gap por franja</p>
                             <div class="analysis-legend" aria-hidden="true">
-                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#5B8CFF"></i>Requerido</span>
-                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#43D6A1"></i>Disponible</span>
-                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#FC7D91"></i>Déficit</span>
+                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#6F86FF"></i>Requerido</span>
+                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#63C7BA"></i>Disponible</span>
+                                <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#EF6684"></i>Déficit</span>
                             </div>
                         </div>
                     </div>
@@ -1700,9 +1703,9 @@
                 if (subtitleEl) subtitleEl.innerText = 'Comparativo ejecutivo de HC requerido vs. HC actual para Llamadas y Chat';
                 if (legendEl) {
                     legendEl.innerHTML = `
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#5B8CFF"></i>HC Requerido</span>
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#43D6A1"></i>HC Actual</span>
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#FC7D91"></i>Brecha de cobertura</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#6F86FF"></i>HC Requerido</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#63C7BA"></i>HC Actual</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#EF6684"></i>Brecha de cobertura</span>
                     `;
                 }
                 if (onlyDeficitsWrap) onlyDeficitsWrap.classList.add('hidden');
@@ -1711,9 +1714,9 @@
                 if (subtitleEl) subtitleEl.innerText = 'Requeridos, disponibles y gap por franja';
                 if (legendEl) {
                     legendEl.innerHTML = `
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#5B8CFF"></i>Requerido</span>
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#43D6A1"></i>Disponible</span>
-                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#FC7D91"></i>Déficit</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#6F86FF"></i>Requerido</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#63C7BA"></i>Disponible</span>
+                        <span class="analysis-legend-item"><i class="analysis-legend-swatch" style="background:#EF6684"></i>Déficit</span>
                     `;
                 }
                 if (onlyDeficitsWrap) onlyDeficitsWrap.classList.remove('hidden');
