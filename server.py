@@ -722,6 +722,31 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     except: pass
     return data_processed
 
+@app.route('/api/status', methods=['GET'])
+def get_forecast_status():
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        return jsonify({'archivo': None, 'ultimo_dato': None, 'actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}), 200
+    ultimo_dato = None
+    try:
+        xls = pd.ExcelFile(excel_path, engine='openpyxl')
+        sheet = xls.sheet_names[0]
+        for sh in xls.sheet_names:
+            if 'llam' in sh.lower() or 'hist' in sh.lower() or 'datos' in sh.lower():
+                sheet = sh; break
+        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
+        col_fecha = encontrar_columna(preview, ['fecha', 'date'])
+        if col_fecha:
+            fechas = pd.to_datetime(preview[col_fecha], dayfirst=True, errors='coerce').dropna()
+            if not fechas.empty: ultimo_dato = fechas.max().strftime('%Y-%m-%d')
+    except Exception:
+        pass
+    return jsonify({
+        'archivo': os.path.basename(excel_path),
+        'ultimo_dato': ultimo_dato,
+        'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S')
+    }), 200
+
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
     mode = request.args.get('mode', 'llamadas')
