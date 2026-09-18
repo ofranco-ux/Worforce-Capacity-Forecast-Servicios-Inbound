@@ -73,13 +73,110 @@
             border-color: #3B82F6;
             box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
         }
+
+        /* Refinamiento visual ejecutivo */
+        :root {
+            --ui-bg: #070B14;
+            --ui-surface: #111827;
+            --ui-surface-soft: #0B1121;
+            --ui-border: #243047;
+            --ui-border-soft: #1F2937;
+            --ui-primary: #3B82F6;
+            --ui-cyan: #22D3EE;
+            --ui-success: #34D399;
+            --ui-warning: #FBBF24;
+            --ui-danger: #FB7185;
+        }
+        .glass-panel {
+            border-color: var(--ui-border-soft);
+            box-shadow: 0 12px 30px -24px rgba(0,0,0,.9);
+        }
+        .section-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: .75rem;
+            margin-bottom: .75rem;
+        }
+        .section-heading-title {
+            font-size: .68rem;
+            line-height: 1rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: .14em;
+            color: #94A3B8;
+        }
+        .section-heading-copy {
+            margin-top: .2rem;
+            font-size: .68rem;
+            color: #64748B;
+        }
+        .filter-control {
+            background: #0B1121;
+            border: 1px solid #334155;
+            color: #CBD5E1;
+            box-shadow: none;
+        }
+        .filter-control:hover {
+            border-color: #3B82F6;
+            color: #F8FAFC;
+            background: #101A2C;
+        }
+        .kpi-card {
+            position: relative;
+            overflow: hidden;
+            min-height: 132px;
+            border: 1px solid #1F2937;
+            border-top-width: 1px !important;
+            box-shadow: none;
+        }
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 3px;
+            background: #334155;
+        }
+        .kpi-card-primary::before { background: #3B82F6; }
+        .kpi-card-success::before { background: #34D399; }
+        .kpi-card-warning::before { background: #FBBF24; }
+        .kpi-card-danger::before { background: #FB7185; }
+        .kpi-critical-active {
+            background: linear-gradient(135deg, rgba(251,113,133,.10), rgba(17,24,39,.98) 60%);
+            border-color: rgba(251,113,133,.38) !important;
+        }
+        .kpi-critical-ok {
+            background: linear-gradient(135deg, rgba(52,211,153,.06), rgba(17,24,39,.98) 65%);
+            border-color: rgba(52,211,153,.22) !important;
+        }
+        .campaign-details > summary { list-style: none; }
+        .campaign-details > summary::-webkit-details-marker { display: none; }
+        .campaign-details[open] .campaign-chevron { transform: rotate(180deg); }
+        .campaign-chevron { transition: transform .2s ease; }
+        .table-status {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            border-radius: 999px;
+            padding: .2rem .55rem;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: .62rem;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .status-danger { background: rgba(251,113,133,.12); color: #FB7185; }
+        .status-warning { background: rgba(251,191,36,.12); color: #FBBF24; }
+        .status-success { background: rgba(52,211,153,.12); color: #34D399; }
+        @media (min-width: 1280px) {
+            #panelControl { max-width: 390px; }
+        }
     </style>
 </head>
-<body class="p-6 md:p-8 min-h-screen">
+<body class="p-4 md:p-6 min-h-screen">
 
-    <header class="flex justify-between items-center bg-[#111827] border border-[#1F2937] shadow-lg rounded-2xl p-6 mb-8 relative flex-wrap gap-4">
+    <header class="flex justify-between items-center bg-[#111827] border border-[#1F2937] rounded-2xl px-5 py-4 mb-6 relative flex-wrap gap-4">
         <div class="flex items-center gap-5 z-10">
-            <svg class="h-12 w-12 flex-shrink-0 text-brand-accentCyan transition-transform hover:scale-110 duration-300 drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <svg class="h-10 w-10 flex-shrink-0 text-brand-accentCyan" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="100" cy="100" r="85" stroke="#3B82F6" stroke-width="12" stroke-linecap="round" stroke-dasharray="350 150" transform="rotate(-45 100 100)"/>
                 <circle cx="100" cy="100" r="65" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-dasharray="150 250" transform="rotate(135 100 100)"/>
                 <circle cx="100" cy="75" r="16" fill="#3B82F6"/>
@@ -92,9 +189,9 @@
 
             <div>
                 <div class="flex items-center gap-3">
-                    <h1 class="text-2xl font-bold text-white tracking-tight">Workforce Capacity Forecast</h1>
+                    <h1 class="text-xl font-bold text-white tracking-tight">Planeación de Capacidad WFM</h1>
                     
-                    <div class="bg-[#1E293B] rounded-xl p-1 flex items-center shadow-inner border border-[#334155] ml-4">
+                    <div class="bg-[#0B1121] rounded-xl p-1 flex items-center border border-[#273449] ml-3">
                         <button id="btnTabLlamadas" onclick="setModeWFM('llamadas')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-brand-primary text-white shadow-md">📞 Llamadas</button>
                         <button id="btnTabChat" onclick="setModeWFM('chat')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-400 hover:text-slate-200">💬 Chat</button>
                         <div class="w-px h-6 bg-[#334155] mx-1"></div>
@@ -103,7 +200,7 @@
 
                     <span id="tagModoOps" class="hidden text-[10px] bg-brand-primary/20 text-brand-primary border border-brand-primary/40 px-2.5 py-0.5 rounded-full font-mono font-bold uppercase tracking-wider drop-shadow-md ml-4">Vista Operaciones</span>
                 </div>
-                <p class="text-xs text-slate-400 mt-1 font-medium tracking-wide">Capacity Planning & Scheduling Optimizer</p>
+                <p class="text-xs text-slate-400 mt-1 font-medium tracking-wide">Pronóstico, cobertura y dimensionamiento operativo</p>
             </div>
         </div>
 
@@ -114,10 +211,10 @@
         </div>
     </header>
 
-    <div class="grid grid-cols-12 gap-8">
+    <div class="grid grid-cols-12 gap-6">
 
         <!-- SIDEBAR DE PARÁMETROS -->
-        <aside id="panelControl" class="col-span-12 lg:col-span-3 glass-panel p-6 rounded-[1.5rem] space-y-6 h-fit transition-all duration-300 relative overflow-hidden">
+        <aside id="panelControl" class="col-span-12 lg:col-span-3 glass-panel p-5 rounded-2xl space-y-5 h-fit transition-all duration-300 relative overflow-hidden">
             <div class="absolute -top-10 -right-10 w-32 h-32 bg-brand-accentViolet/10 rounded-full blur-3xl pointer-events-none"></div>
 
             <button onclick="toggleSidebar()" class="w-full bg-[#111827] hover:bg-[#1E293B] text-slate-200 border border-[#1F2937] px-4 py-3.5 rounded-[14px] text-[11px] font-bold transition-all flex items-center justify-center gap-2 font-mono relative z-10 shadow-sm">
@@ -128,7 +225,7 @@
                 <form id="wfmForm" class="space-y-5 pt-2 relative z-10" onsubmit="event.preventDefault(); procesarWFM();">
                     <div class="flex items-center justify-between pb-2 border-b border-[#1F2937]">
                         <h2 class="text-xs font-extrabold text-white uppercase tracking-widest flex items-center gap-2">
-                            <span>⚙️</span> KEY ASSUMPTIONS
+                            <span>⚙️</span> PARÁMETROS DE PLANEACIÓN
                         </h2>
                     </div>
 
@@ -149,14 +246,18 @@
                         </div>
                     </div>
 
-                    <div id="campaignTargetsPanel" class="p-4 bg-[#0B1121] border border-[#334155] rounded-xl space-y-3">
-                        <div class="flex items-start justify-between gap-3">
-                            <div>
-                                <p class="text-[10px] text-white font-extrabold uppercase tracking-widest">Objetivos por campaña</p>
-                                <p class="text-[9px] text-slate-500 mt-1">Cada campaña puede usar un Nivel de Servicio y ASA distintos. Si no tiene configuración, usa los valores base de arriba.</p>
+                    <details id="campaignTargetsPanel" class="campaign-details bg-[#0B1121] border border-[#273449] rounded-xl">
+                        <summary class="cursor-pointer p-3.5 flex items-center justify-between gap-3 select-none">
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <p class="text-[10px] text-white font-extrabold uppercase tracking-widest">Configuración por campaña</p>
+                                    <span id="campaignTargetBadge" class="text-[9px] px-2 py-0.5 rounded-lg border border-[#334155] text-slate-400 whitespace-nowrap">Valores base</span>
+                                </div>
+                                <p class="text-[9px] text-slate-500 mt-1">Sobrescribe Nivel de Servicio y ASA solo donde sea necesario.</p>
                             </div>
-                            <span id="campaignTargetBadge" class="text-[9px] px-2 py-1 rounded-lg border border-[#334155] text-slate-400 whitespace-nowrap">Valores base</span>
-                        </div>
+                            <span class="campaign-chevron text-slate-500 text-[10px]">▼</span>
+                        </summary>
+                        <div class="px-3.5 pb-3.5 pt-1 space-y-3 border-t border-[#1F2937]">
 
                         <div class="flex flex-col group">
                             <label class="text-[10px] text-slate-400 font-medium mb-1.5">Campaña</label>
@@ -181,7 +282,8 @@
                             <button type="button" onclick="usarObjetivosBaseCampana()" class="bg-[#111827] hover:bg-[#1E293B] border border-[#334155] text-slate-300 px-3 py-2.5 rounded-xl text-[10px] font-bold transition-all">Usar valores base</button>
                         </div>
                         <p id="campaignTargetMessage" class="text-[9px] text-slate-500 leading-relaxed"></p>
-                    </div>
+                        </div>
+                    </details>
 
                     <div class="flex flex-col group hidden" id="contConcurrencia">
                         <label class="text-[11px] text-slate-400 font-medium mb-1.5">Concurrencia (Chats por Agente)</label>
@@ -210,7 +312,7 @@
                     </div>
 
                     <button type="submit" id="btnProcesar" class="w-full bg-gradient-to-r from-[#3B82F6] to-[#22D3EE] hover:from-[#2563EB] hover:to-[#06B6D4] text-white font-extrabold py-4 px-4 rounded-[14px] text-[13px] transition-all shadow-[0_4px_15px_-3px_rgba(34,211,238,0.4)] hover:shadow-[0_8px_25px_-5px_rgba(34,211,238,0.6)] uppercase tracking-wider mt-4">
-                        ▶ RUN PLAN
+                        ▶ GENERAR FORECAST
                     </button>
                     <div id="runStatus" class="mt-3 p-3 rounded-xl bg-[#0B1121] border border-[#1F2937] text-[10px] text-slate-400 leading-relaxed">
                         <div><span id="runStatusDot" class="text-slate-500">●</span> <span id="runStatusText">Listo para generar</span></div>
@@ -238,8 +340,8 @@
                         <span class="text-base">🎯</span>
                     </div>
                     <div>
-                        <p class="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Filtros Operativos</p>
-                        <p class="text-xs text-slate-200 font-medium">Selecciona campaña y fechas</p>
+                        <p class="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Filtros operativos</p>
+                        <p class="text-xs text-slate-200 font-medium">Acota el periodo y la operación</p>
                     </div>
                 </div>
                 
@@ -249,35 +351,35 @@
                     </button>
 
                     <div class="flex flex-col relative group">
-                        <button id="btnDropdownMes" onclick="toggleDropdown('Mes')" class="bg-[#0B1121] border border-brand-accentAmber/50 hover:border-brand-accentAmber text-xs rounded-xl px-4 py-2.5 text-brand-accentAmber font-mono-num font-bold transition-all min-w-[120px] flex items-center justify-between gap-3">
+                        <button id="btnDropdownMes" onclick="toggleDropdown('Mes')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[120px] flex items-center justify-between gap-3">
                             <span id="mesSelectedText">MES</span> <span class="text-[10px]">▼</span>
                         </button>
                         <div id="dropdownMesMenu" class="hidden absolute top-full left-0 mt-2 w-56 max-h-60 bg-[#111827] border border-brand-accentAmber/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
 
                     <div class="flex flex-col relative group">
-                        <button id="btnDropdownSemana" onclick="toggleDropdown('Semana')" class="bg-[#0B1121] border border-brand-accentRose/50 hover:border-brand-accentRose text-xs rounded-xl px-4 py-2.5 text-brand-accentRose font-mono-num font-bold transition-all min-w-[160px] flex items-center justify-between gap-3">
+                        <button id="btnDropdownSemana" onclick="toggleDropdown('Semana')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[160px] flex items-center justify-between gap-3">
                             <span id="semanaSelectedText">SEM.</span> <span class="text-[10px]">▼</span>
                         </button>
                         <div id="dropdownSemanaMenu" class="hidden absolute top-full left-0 mt-2 w-72 max-h-60 bg-[#111827] border border-brand-accentRose/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
 
                     <div class="flex flex-col relative group">
-                        <button id="btnDropdownCampana" onclick="toggleDropdown('Campana')" class="bg-[#0B1121] border border-brand-accentViolet/50 hover:border-brand-accentViolet text-xs rounded-xl px-4 py-2.5 text-brand-accentViolet font-mono-num font-bold transition-all min-w-[140px] flex items-center justify-between gap-3">
+                        <button id="btnDropdownCampana" onclick="toggleDropdown('Campana')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[140px] flex items-center justify-between gap-3">
                             <span id="campanaSelectedText">CAMPAÑA</span> <span class="text-[10px]">▼</span>
                         </button>
                         <div id="dropdownCampanaMenu" class="hidden absolute top-full left-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentViolet/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
 
                     <div class="flex flex-col relative group">
-                        <button id="btnDropdownFecha" onclick="toggleDropdown('Fecha')" class="bg-[#0B1121] border border-brand-accentCyan/50 hover:border-brand-accentCyan text-xs rounded-xl px-4 py-2.5 text-brand-accentCyan font-mono-num font-bold transition-all min-w-[140px] flex items-center justify-between gap-3">
+                        <button id="btnDropdownFecha" onclick="toggleDropdown('Fecha')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[140px] flex items-center justify-between gap-3">
                             <span id="fechaSelectedText">FECHA</span> <span class="text-[10px]">▼</span>
                         </button>
                         <div id="dropdownFechaMenu" class="hidden absolute top-full left-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentCyan/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
                     </div>
 
                     <div class="flex flex-col relative group">
-                        <button id="btnDropdownIntervalo" onclick="toggleDropdown('Intervalo')" class="bg-[#0B1121] border border-brand-accentEmerald/50 hover:border-brand-accentEmerald text-xs rounded-xl px-4 py-2.5 text-brand-accentEmerald font-mono-num font-bold transition-all min-w-[120px] flex items-center justify-between gap-3">
+                        <button id="btnDropdownIntervalo" onclick="toggleDropdown('Intervalo')" class="filter-control text-xs rounded-xl px-4 py-2.5 font-mono-num font-bold transition-all min-w-[120px] flex items-center justify-between gap-3">
                             <span id="intervaloSelectedText">HORA</span> <span class="text-[10px]">▼</span>
                         </button>
                         <div id="dropdownIntervaloMenu" class="hidden absolute top-full right-0 mt-2 w-64 max-h-60 bg-[#111827] border border-brand-accentEmerald/50 rounded-xl shadow-2xl overflow-y-auto z-[999] p-2"></div>
@@ -286,13 +388,46 @@
             </div>
 
             <!-- CARDS KPI -->
-            <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-primary"><p class="text-[10px] text-slate-400 font-bold uppercase">Demanda total del periodo</p><p id="kpiCalls" class="text-3xl font-black font-mono-num text-white mt-2">0</p><p id="kpiCallsDaily" class="text-[10px] text-slate-500 mt-1">Promedio diario: 0</p></div>
-                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentCyan"><p class="text-[10px] text-slate-400 font-bold uppercase">Agentes necesarios por intervalo</p><p id="kpiIntervalReq" class="text-3xl font-black font-mono-num text-brand-accentCyan mt-2">0 HC</p><p class="text-[10px] text-slate-500 mt-1">Pico simultáneo del filtro</p></div>
-                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentViolet"><p class="text-[10px] text-slate-400 font-bold uppercase">Plantilla total requerida</p><p id="kpiHcRequerido" class="text-3xl font-black font-mono-num text-brand-accentViolet mt-2">0 HC</p><p class="text-[10px] text-slate-500 mt-1">Incluye jornada, descanso y merma</p></div>
-                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentEmerald"><p class="text-[10px] text-slate-400 font-bold uppercase">Plantilla actual</p><div class="flex items-center gap-3 mt-2"><p id="kpiHcRoster" class="text-3xl font-black font-mono-num text-brand-accentEmerald">0 HC</p><p id="kpiHcGap" class="text-[11px] font-bold px-2.5 py-1 rounded bg-[#1E293B]">0</p></div></div>
-                <div id="criticalGapCard" class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentRose"><p class="text-[10px] text-slate-400 font-bold uppercase">Mayor déficit por intervalo</p><p id="kpiWorstGap" class="text-3xl font-black font-mono-num text-brand-accentRose mt-2">—</p><p id="kpiWorstGapDetail" class="text-[10px] text-slate-500 mt-1">Sin déficit</p></div>
-                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentAmber"><p class="text-[10px] text-slate-400 font-bold uppercase">AHT promedio</p><p id="kpiAht" class="text-3xl font-black font-mono-num text-brand-accentAmber mt-2">00:00:00</p><p class="text-[10px] text-slate-500 mt-1">Tiempo medio de atención</p></div>
+            <div class="section-heading px-1">
+                <div>
+                    <p class="section-heading-title">Resumen de capacidad</p>
+                    <p class="section-heading-copy">Primero el faltante, después el dimensionamiento y la demanda.</p>
+                </div>
+            </div>
+            <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+                <div id="criticalGapCard" class="glass-panel kpi-card kpi-card-danger p-5 rounded-xl md:col-span-2 xl:col-span-3">
+                    <div class="flex items-center justify-between gap-3"><p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Mayor déficit por intervalo</p><span class="text-[#FB7185] text-xs">●</span></div>
+                    <p id="kpiWorstGap" class="text-3xl font-black font-mono-num text-brand-accentRose mt-3">—</p>
+                    <p id="kpiWorstGapDetail" class="text-[10px] text-slate-500 mt-1">Sin déficit</p>
+                </div>
+                <div class="glass-panel kpi-card kpi-card-primary p-5 rounded-xl xl:col-span-3">
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Agentes necesarios por intervalo</p>
+                    <p id="kpiIntervalReq" class="text-3xl font-black font-mono-num text-brand-accentCyan mt-3">0 HC</p>
+                    <p class="text-[10px] text-slate-500 mt-1">Pico simultáneo del filtro</p>
+                </div>
+                <div class="glass-panel kpi-card kpi-card-primary p-5 rounded-xl xl:col-span-3">
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Plantilla total requerida</p>
+                    <p id="kpiHcRequerido" class="text-3xl font-black font-mono-num text-white mt-3">0 HC</p>
+                    <p class="text-[10px] text-slate-500 mt-1">Incluye jornada, descanso y merma</p>
+                </div>
+                <div class="glass-panel kpi-card kpi-card-success p-5 rounded-xl xl:col-span-3">
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Plantilla actual</p>
+                    <div class="flex items-center gap-3 mt-3"><p id="kpiHcRoster" class="text-3xl font-black font-mono-num text-brand-accentEmerald">0 HC</p><p id="kpiHcGap" class="text-[11px] font-bold px-2.5 py-1 rounded bg-[#1E293B]">0</p></div>
+                    <p class="text-[10px] text-slate-500 mt-1">Dotación disponible del roster</p>
+                </div>
+                <div class="glass-panel kpi-card p-5 rounded-xl md:col-span-1 xl:col-span-6">
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Demanda del periodo</p>
+                    <div class="flex items-end justify-between gap-4 mt-3 flex-wrap">
+                        <p id="kpiCalls" class="text-3xl font-black font-mono-num text-white">0</p>
+                        <p id="kpiCallsDaily" class="text-[11px] text-slate-400 pb-1">Promedio diario: 0</p>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1">Volumen total y promedio diario del filtro</p>
+                </div>
+                <div class="glass-panel kpi-card kpi-card-warning p-5 rounded-xl md:col-span-1 xl:col-span-6">
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">AHT promedio</p>
+                    <p id="kpiAht" class="text-3xl font-black font-mono-num text-brand-accentAmber mt-3">00:00:00</p>
+                    <p class="text-[10px] text-slate-500 mt-1">Tiempo medio de atención ponderado</p>
+                </div>
             </div>
 
             <div id="ambulanceRule" class="hidden glass-panel p-4 rounded-xl border border-brand-accentAmber/40 bg-brand-accentAmber/5">
@@ -301,14 +436,20 @@
             </div>
 
             <!-- GRÁFICAS Y TABLAS -->
-            <div class="glass-panel p-6 rounded-2xl border-t-2 border-t-brand-accentAmber shadow-[0_4px_15px_-5px_rgba(251,191,36,0.15)] relative overflow-hidden">
+            <div class="section-heading px-1 pt-1">
+                <div>
+                    <p class="section-heading-title">Detalle por intervalo</p>
+                    <p class="section-heading-copy">Compara requerimiento, capacidad y faltantes en cada franja.</p>
+                </div>
+            </div>
+            <div class="glass-panel p-5 md:p-6 rounded-2xl border border-[#1F2937] shadow-[0_4px_15px_-5px_rgba(251,191,36,0.15)] relative overflow-hidden">
                 <div class="flex justify-between items-center mb-6 relative z-10">
                     <h3 class="text-[15px] font-extrabold text-white flex items-center gap-2 tracking-wide">
-                        <span class="text-brand-accentAmber drop-shadow-[0_0_5px_rgba(251,191,36,0.6)]">📊</span> Demand vs. Capacity
+                        <span class="text-brand-accentAmber drop-shadow-[0_0_5px_rgba(251,191,36,0.6)]">📊</span> Demanda vs. capacidad
                     </h3>
                     <div class="flex items-center gap-2"><label class="text-[10px] text-slate-400 flex items-center gap-2 cursor-pointer"><input id="onlyDeficits" type="checkbox" onchange="debouncedActualizarGrafica()"> Solo faltantes</label>
                     <button onclick="exportarCSV()" class="bg-[#1E293B] hover:bg-brand-accentAmber/20 text-slate-200 hover:text-brand-accentAmber border border-[#334155] hover:border-brand-accentAmber/50 text-xs py-2 px-4 rounded-lg transition-all duration-200 font-bold shadow-md">
-                        📥 Export CSV
+                        📥 Exportar CSV
                     </button></div>
                 </div>
                 
@@ -327,13 +468,14 @@
                                 <th class="py-3.5 px-4">Intervalo</th>
                                 <th class="py-3.5 px-4" id="colHeaderCalls">Llamadas (FCST)</th>
                                 <th class="py-3.5 px-4">AHT (HH:MM:SS)</th>
-                                <th class="py-3.5 px-4 text-brand-accentCyan">HC Requerido</th>
-                                <th class="py-3.5 px-4 text-brand-accentEmerald">HC Actual</th>
+                                <th class="py-3.5 px-4">HC Requerido</th>
+                                <th class="py-3.5 px-4">HC Actual</th>
                                 <th class="py-3.5 px-4 text-center">Gap</th>
+                                <th class="py-3.5 px-4 text-center">Estado</th>
                             </tr>
                         </thead>
                         <tbody id="intervalTableBody" class="divide-y divide-[#1F2937] font-mono-num text-[11px]">
-                            <tr><td colspan="6" class="text-center py-8 text-slate-500 font-medium font-sans">Cargue datos...</td></tr>
+                            <tr><td colspan="7" class="text-center py-8 text-slate-500 font-medium font-sans">Cargue datos...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -793,7 +935,7 @@
                     if (mode !== 'general') await cargarCampanasConfiguracion();
                     const box = document.getElementById('dashboardError');
                     if (box) {
-                        box.innerText = 'No hay un forecast disponible todavía. Presiona RUN PLAN para generarlo.';
+                        box.innerText = 'No hay un forecast disponible todavía. Presiona GENERAR FORECAST para generarlo.';
                         box.classList.remove('hidden');
                     }
                 }
@@ -859,7 +1001,7 @@
                 const box=document.getElementById('dashboardError'); box.innerText='Error de conexión: '+e.message; box.classList.remove('hidden'); setRunStatus('Sin conexión', 'red');
             } finally {
                 btn.disabled = false;
-                btn.innerText = "▶ RUN PLAN";
+                btn.innerText = "▶ GENERAR FORECAST";
             }
         }
 
@@ -872,7 +1014,7 @@
             document.getElementById('kpiWorstGap').innerText = "—";
             document.getElementById('kpiWorstGapDetail').innerText = "Sin déficit";
             document.getElementById('kpiHcRoster').innerText = "0 HC";
-            document.getElementById('intervalTableBody').innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-500 font-medium">Sin datos. Presiona RUN PLAN.</td></tr>`;
+            document.getElementById('intervalTableBody').innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-500 font-medium">Sin datos. Presiona GENERAR FORECAST.</td></tr>`;
             if (gapChartInstance) { gapChartInstance.destroy(); gapChartInstance = null; }
             if (generalChartInstance) { generalChartInstance.destroy(); generalChartInstance = null; }
         }
@@ -1318,10 +1460,11 @@
                 else gapEl.className = 'text-[11px] font-bold px-2.5 py-1 rounded-md bg-[#1E293B] text-slate-300', gapEl.innerText = `0`;
 
                 document.getElementById('tableHeaderRow').innerHTML = `
-                    <th class="py-3.5 px-4 text-left">Canal Operativo</th>
-                    <th class="py-3.5 px-4 text-brand-primary">HC Requerido</th>
-                    <th class="py-3.5 px-4 text-brand-accentEmerald">HC Actual</th>
-                    <th class="py-3.5 px-4 text-center">Delta (Gap)</th>
+                    <th class="py-3.5 px-4 text-left">Canal operativo</th>
+                    <th class="py-3.5 px-4">HC Requerido</th>
+                    <th class="py-3.5 px-4">HC Actual</th>
+                    <th class="py-3.5 px-4 text-center">Gap</th>
+                    <th class="py-3.5 px-4 text-center">Estado</th>
                 `;
 
                 const tbody = document.getElementById('intervalTableBody');
@@ -1332,9 +1475,10 @@
                     { name: '🌐 TOTAL', req: totalReqGlobal, disp: totalDispGlobal }
                 ].forEach(ch => {
                     const gap = ch.disp - ch.req;
-                    let gapHtml = gap > 0 ? `<span class="bg-[#34D399]/20 text-[#34D399] px-2 py-0.5 rounded-md font-bold">+${gap}</span>` : gap < 0 ? `<span class="bg-[#FB7185]/20 text-[#FB7185] px-2 py-0.5 rounded-md font-bold">${gap}</span>` : `<span class="text-slate-500 font-bold">0</span>`;
+                    let gapHtml = gap > 0 ? `<span class="font-bold text-[#FBBF24]">+${gap}</span>` : gap < 0 ? `<span class="font-bold text-[#FB7185]">${gap}</span>` : `<span class="font-bold text-[#34D399]">0</span>`;
+                    let statusHtml = gap < 0 ? `<span class="table-status status-danger">● Déficit</span>` : gap > 0 ? `<span class="table-status status-warning">● Excedente</span>` : `<span class="table-status status-success">● Cubierto</span>`;
                     let rowClass = ch.name === '🌐 TOTAL' ? "bg-[#1E293B] font-bold border-t border-[#334155]" : "hover:bg-[#1E293B] transition-colors";
-                    tbody.innerHTML += `<tr class="${rowClass}"><td class="py-3.5 px-4 font-bold text-white">${ch.name}</td><td class="py-3.5 px-4 text-brand-primary font-black">${ch.req}</td><td class="py-3.5 px-4 text-brand-accentEmerald font-black">${ch.disp}</td><td class="py-3.5 px-4 text-center">${gapHtml}</td></tr>`;
+                    tbody.innerHTML += `<tr class="${rowClass}"><td class="py-3.5 px-4 font-bold text-white">${ch.name}</td><td class="py-3.5 px-4 font-black text-slate-200">${ch.req}</td><td class="py-3.5 px-4 font-black text-slate-200">${ch.disp}</td><td class="py-3.5 px-4 text-center">${gapHtml}</td><td class="py-3.5 px-4 text-center">${statusHtml}</td></tr>`;
                 });
 
                 document.getElementById('contGapChart').classList.add('hidden');
@@ -1353,7 +1497,7 @@
                         data: {
                             labels: ['Llamadas', 'Chat'],
                             datasets: [
-                                { label: 'HC Requerido', data: generalReqData, backgroundColor: '#A78BFA', borderRadius: 4 },
+                                { label: 'HC Requerido', data: generalReqData, backgroundColor: '#3B82F6', borderRadius: 4 },
                                 { label: 'HC Disponible', data: generalDispData, backgroundColor: '#34D399', borderRadius: 4 }
                             ]
                         },
@@ -1451,14 +1595,24 @@
                 <th class="py-3.5 px-4 text-left">Intervalo</th>
                 <th class="py-3.5 px-4">${legendInteractions}</th>
                 <th class="py-3.5 px-4">AHT (HH:MM:SS)</th>
-                <th class="py-3.5 px-4 text-brand-accentCyan">HC Requerido</th>
-                <th class="py-3.5 px-4 text-brand-accentEmerald">HC Actual</th>
+                <th class="py-3.5 px-4">HC Requerido</th>
+                <th class="py-3.5 px-4">HC Actual</th>
                 <th class="py-3.5 px-4 text-center">Gap</th>
+                <th class="py-3.5 px-4 text-center">Estado</th>
             `;
 
             const gapsIntervalo = todosIntervalos.map((inter, idx) => ({inter, req:reqAgrupadoGlobalParaPlot[idx]||0, roster:rosterAgrupadoGlobal[idx]||0, gap:(rosterAgrupadoGlobal[idx]||0)-(reqAgrupadoGlobalParaPlot[idx]||0)}));
             const worst = gapsIntervalo.filter(x=>x.gap<0).sort((a,b)=>a.gap-b.gap)[0];
-            if(worst){ document.getElementById('kpiWorstGap').innerText=`${Math.abs(worst.gap)} HC`; document.getElementById('kpiWorstGapDetail').innerText=`${worst.inter} · requiere ${worst.req}, disponibles ${worst.roster}`; } else { document.getElementById('kpiWorstGap').innerText='✓ Cubierto'; document.getElementById('kpiWorstGapDetail').innerText='No hay intervalos con faltante'; }
+            const criticalCard = document.getElementById('criticalGapCard');
+            if(worst){
+                document.getElementById('kpiWorstGap').innerText=`${Math.abs(worst.gap)} HC`;
+                document.getElementById('kpiWorstGapDetail').innerText=`${worst.inter} · requiere ${worst.req}, disponibles ${worst.roster}`;
+                criticalCard?.classList.add('kpi-critical-active'); criticalCard?.classList.remove('kpi-critical-ok');
+            } else {
+                document.getElementById('kpiWorstGap').innerText='✓ Cubierto';
+                document.getElementById('kpiWorstGapDetail').innerText='No hay intervalos con faltante';
+                criticalCard?.classList.remove('kpi-critical-active'); criticalCard?.classList.add('kpi-critical-ok');
+            }
             const onlyDeficits = document.getElementById('onlyDeficits')?.checked;
             const tbody = document.getElementById('intervalTableBody');
             tbody.innerHTML = '';
@@ -1467,7 +1621,8 @@
                 const rowReq = reqAgrupadoGlobalParaPlot[idx] || 0; 
                 const rowRoster = rosterAgrupadoGlobal[idx] || 0;
                 const gap = rowRoster - rowReq;
-                let gapHtml = gap > 0 ? `<span class="bg-[#FBBF24]/20 text-[#FBBF24] px-2 py-0.5 rounded-md font-bold">+${gap} excedente</span>` : gap < 0 ? `<span class="bg-[#FB7185]/20 text-[#FB7185] px-2 py-0.5 rounded-md font-bold">${Math.abs(gap)} faltan</span>` : `<span class="bg-[#34D399]/15 text-[#34D399] px-2 py-0.5 rounded-md font-bold">✓ cubierto</span>`;
+                let gapHtml = gap > 0 ? `<span class="font-bold text-[#FBBF24]">+${gap}</span>` : gap < 0 ? `<span class="font-bold text-[#FB7185]">-${Math.abs(gap)}</span>` : `<span class="font-bold text-[#34D399]">0</span>`;
+                let statusHtml = gap < 0 ? `<span class="table-status status-danger">● Déficit</span>` : gap > 0 ? `<span class="table-status status-warning">● Excedente</span>` : `<span class="table-status status-success">● Cubierto</span>`;
                 if (onlyDeficits && gap >= 0) return;
                 const rowTone = gap < 0 ? 'bg-[#FB7185]/5 border-l-2 border-[#FB7185]' : gap > 0 ? 'bg-[#FBBF24]/5 border-l-2 border-[#FBBF24]' : 'border-l-2 border-[#34D399]';
 
@@ -1479,6 +1634,7 @@
                         <td class="py-2.5 px-4 text-brand-primary font-black">${rowReq}</td>
                         <td class="py-2.5 px-4 text-brand-accentEmerald font-black">${rowRoster}</td>
                         <td class="py-2.5 px-4 text-center">${gapHtml}</td>
+                        <td class="py-2.5 px-4 text-center">${statusHtml}</td>
                     </tr>
                 `;
             });
@@ -1557,13 +1713,25 @@
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
                         legend: { labels: { color: '#94A3B8', usePointStyle: true } }, 
-                        tooltip: { backgroundColor: '#111827', titleColor: '#F8FAFC', bodyColor: '#cbd5e1', borderColor: '#1F2937', borderWidth: 1 } 
+                        tooltip: {
+                            backgroundColor: '#111827', titleColor: '#F8FAFC', bodyColor: '#cbd5e1', borderColor: '#334155', borderWidth: 1,
+                            callbacks: {
+                                afterBody: (items) => {
+                                    if (!items || !items.length) return '';
+                                    const i = items[0].dataIndex;
+                                    const req = Number(reqAgrupadoGlobalParaPlot[i] || 0);
+                                    const disp = Number(rosterAgrupadoGlobal[i] || 0);
+                                    const gap = disp - req;
+                                    return gap < 0 ? `Estado: Déficit de ${Math.abs(gap)} HC` : gap > 0 ? `Estado: Excedente de ${gap} HC` : 'Estado: Cobertura suficiente';
+                                }
+                            }
+                        } 
                     }, 
                     scales: { 
                         x: { grid: { display: false }, ticks: { color: '#64748B' } }, 
                         y: { 
                             type: 'linear', display: true, position: 'left',
-                            title: { display: true, text: 'Headcount', color: '#94A3B8', font: { size: 10 } },
+                            title: { display: true, text: 'Dotación (HC)', color: '#94A3B8', font: { size: 10 } },
                             grid: { color: '#1F2937', borderDash: [4, 4] }, 
                             ticks: { color: '#64748B' }, 
                             beginAtZero: true 
