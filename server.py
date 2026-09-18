@@ -77,6 +77,31 @@ def factor_cobertura_ambulancia(campana):
     regla = REGLA_DOBLE_COBERTURA_AMBULANCIA
     return 1.0 + regla['porcentaje_volumen'] * (regla['personas_por_atencion'] - 1)
 
+def normalizar_nombre_campana(campana):
+    return re.sub(r'\s+', ' ', str(campana or '').strip().lower())
+
+def normalizar_config_campanas(config):
+    if not isinstance(config, dict):
+        return {}
+    normalizada = {}
+    for key, value in config.items():
+        if not isinstance(value, dict):
+            continue
+        nombre = value.get('campaign') or value.get('campana') or key
+        norm = normalizar_nombre_campana(nombre)
+        if norm:
+            normalizada[norm] = value
+    return normalizada
+
+def objetivos_campana(campana, target_sl, target_time, campaign_settings=None):
+    settings = normalizar_config_campanas(campaign_settings)
+    cfg = settings.get(normalizar_nombre_campana(campana), {})
+    sl = clean_num(cfg.get('targetSl', cfg.get('target_sl', target_sl)), target_sl)
+    asa = clean_num(cfg.get('targetTime', cfg.get('target_time', target_time)), target_time)
+    sl = min(100.0, max(1.0, float(sl)))
+    asa = max(1.0, float(asa))
+    return sl, asa
+
 def forzar_cuadre_dashboard(df_final):
     if df_final.empty: return df_final
     
@@ -374,7 +399,7 @@ def procesar_hoja_roster(df_roster):
                                 roster_cov[(camp, dia_real, inv)] = roster_cov.get((camp, dia_real, inv), 0) + 1
     return roster_cov, roster_total_camp, roster_total_dia_camp
 
-def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45):
+def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_calls = xls_file.sheet_names[0]
     for s in xls_file.sheet_names:
@@ -478,6 +503,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
         blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
+        camp_target_sl, camp_target_time = objetivos_campana(camp, target_sl, target_time, campaign_settings)
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
@@ -522,7 +548,8 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
                 if calls_int <= 0: aht = 0.0
 
                 factor_cobertura = factor_cobertura_ambulancia(camp)
-                req_ftes = (calls_float * aht * factor_cobertura) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
+                a_erlang_raw = (calls_float * aht * factor_cobertura) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
+                req_ftes = calcular_agentes_requeridos_erlang_c(a_erlang_raw, aht, camp_target_time, camp_target_sl) if calls_float > 0 else 0
                 req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
                 
                 hc_roster = roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0)
@@ -537,6 +564,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
                     'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia,
                     'Factor_Cobertura_Ambulancia': factor_cobertura,
                     'Volumen_Doble_Cobertura': round(calls_float * REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'], 2) if es_ambulancia_servicios(camp) else 0.0,
+                    'Target_SL': camp_target_sl, 'Target_ASA': camp_target_time,
                     'Factor_Correccion': 1.0
                 })
 
@@ -550,7 +578,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
     except: pass
     return data_processed
 
-def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45):
+def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_chat = None
     for s in xls_file.sheet_names:
@@ -655,6 +683,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     for camp in campanas_unicas:
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
         blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
+        camp_target_sl, camp_target_time = objetivos_campana(camp, target_sl, target_time, campaign_settings)
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
@@ -698,7 +727,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
                 aht_efectivo = aht / max(1.0, concurrencia)
                 a_erlang_raw = (calls_float * aht_efectivo) / 1800.0 if (aht_efectivo > 0 and calls_float > 0) else 0.0
-                req_ftes = calcular_agentes_requeridos_erlang_c(a_erlang_raw, aht_efectivo, target_time, target_sl) if calls_float > 0 else 0
+                req_ftes = calcular_agentes_requeridos_erlang_c(a_erlang_raw, aht_efectivo, camp_target_time, camp_target_sl) if calls_float > 0 else 0
                 req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0.0
 
                 hc_roster = roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0)
@@ -709,7 +738,8 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
                     'Campaña': str(camp), 'Fecha': str_fecha, 'Mes': str_mes, 'Día_Semana': nombre_dia.capitalize(),
                     'Intervalo': inter, 'Llamadas': calls_int, 'AHT': format_aht_str(aht),
                     'AHT_Segundos': int(round(aht)), 'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
-                    'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia, 'Factor_Correccion': 1.0
+                    'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia,
+                    'Target_SL': camp_target_sl, 'Target_ASA': camp_target_time, 'Factor_Correccion': 1.0
                 })
 
     df_final = pd.DataFrame(data_processed)
@@ -721,6 +751,39 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
         with open(CACHE_FILE_CHAT, 'w', encoding='utf-8') as f: json.dump(data_processed, f)
     except: pass
     return data_processed
+
+@app.route('/api/campaigns', methods=['GET'])
+def get_campaigns():
+    mode = request.args.get('mode', 'llamadas').lower()
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        return jsonify([]), 200
+    try:
+        xls = pd.ExcelFile(excel_path, engine='openpyxl')
+        sheet = None
+        if mode == 'chat':
+            for sh in xls.sheet_names:
+                low = sh.lower()
+                if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ['plantilla', 'roster', 'platilla']):
+                    sheet = sh
+                    break
+        else:
+            sheet = xls.sheet_names[0]
+            for sh in xls.sheet_names:
+                low = sh.lower()
+                if 'llam' in low or 'hist' in low or 'datos' in low:
+                    sheet = sh
+                    break
+        if not sheet:
+            return jsonify([]), 200
+        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
+        col_camp = encontrar_columna(preview, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
+        if not col_camp:
+            return jsonify([]), 200
+        campanas = sorted({str(x).strip().title() for x in preview[col_camp].dropna().tolist() if str(x).strip() and str(x).strip().lower() != 'nan'})
+        return jsonify(campanas), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/status', methods=['GET'])
 def get_forecast_status():
@@ -765,6 +828,7 @@ def get_latest_forecast():
     if excel_path:
         try:
             sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
+            campaign_settings = {}
             if os.path.exists(CONFIG_FILE):
                 try:
                     with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -772,11 +836,15 @@ def get_latest_forecast():
                         sl, tt = float(cfg.get('targetSl', 80.0)), float(cfg.get('targetTime', 20.0))
                         merma_data = cfg.get('merma', 30.0)
                         merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
+                        dias = int(clean_num(cfg.get('dias'), dias))
+                        concurrencia = float(clean_num(cfg.get('concurrencia'), concurrencia))
+                        all_settings = cfg.get('campaignSettings', {})
+                        campaign_settings = all_settings.get(mode, {}) if isinstance(all_settings, dict) else {}
                 except: pass
             
             merma_pct = merma / 100.0
-            if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias)
-            else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias)
+            if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings)
+            else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
             gc.collect()
             return jsonify(data), 200
         except Exception as e:
@@ -790,12 +858,17 @@ def process_data():
     excel_path = buscar_archivo_excel()
     if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
     try:
+        try:
+            campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
+        except Exception:
+            campaign_settings = {}
         data = procesar_archivo_llamadas(
             excel_path, 
             float(clean_num(request.form.get('target_sl'), 80.0)), 
             float(clean_num(request.form.get('target_time'), 20.0)), 
             float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
-            int(clean_num(request.form.get('dias'), 45))
+            int(clean_num(request.form.get('dias'), 45)),
+            campaign_settings=campaign_settings
         )
         gc.collect()
         return jsonify(data)
@@ -808,13 +881,18 @@ def process_chat_data():
     excel_path = buscar_archivo_excel()
     if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
     try:
+        try:
+            campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
+        except Exception:
+            campaign_settings = {}
         data = procesar_archivo_chat(
             excel_path, 
             float(clean_num(request.form.get('target_sl'), 80.0)),
             float(clean_num(request.form.get('target_time'), 20.0)),
             float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
             float(clean_num(request.form.get('concurrencia'), 3.0)), 
-            int(clean_num(request.form.get('dias'), 45))
+            int(clean_num(request.form.get('dias'), 45)),
+            campaign_settings=campaign_settings
         )
         gc.collect()
         return jsonify(data)
