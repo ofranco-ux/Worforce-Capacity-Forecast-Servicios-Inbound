@@ -132,7 +132,9 @@
                         </h2>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-4">
+                    <details class="group bg-[#0B1121] border border-[#1F2937] rounded-xl p-3">
+                        <summary class="cursor-pointer text-[11px] font-bold uppercase tracking-wider text-slate-300">Ajustes avanzados · Nivel de servicio y concurrencia</summary>
+                        <div class="grid grid-cols-2 gap-4 mt-4">
                         <div class="flex flex-col group" id="contTargetSl">
                             <label class="text-[11px] text-slate-400 font-medium mb-1.5">Target SL (%)</label>
                             <input type="number" name="target_sl" id="targetSl" value="80" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentEmerald focus:outline-none" onchange="debouncedActualizarGrafica()">
@@ -146,7 +148,8 @@
                             <label class="text-[11px] text-slate-400 font-medium mb-1.5">Concurrencia (Chats por Agente)</label>
                             <input type="number" id="concurrencia" value="3" step="0.5" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentCyan focus:outline-none" onchange="debouncedActualizarGrafica()">
                         </div>
-                    </div>
+                        </div>
+                    </details>
 
                     <div class="grid grid-cols-2 gap-4">
                         <div class="flex flex-col group">
@@ -172,6 +175,11 @@
                     <button type="submit" id="btnProcesar" class="w-full bg-gradient-to-r from-[#3B82F6] to-[#22D3EE] hover:from-[#2563EB] hover:to-[#06B6D4] text-white font-extrabold py-4 px-4 rounded-[14px] text-[13px] transition-all shadow-[0_4px_15px_-3px_rgba(34,211,238,0.4)] hover:shadow-[0_8px_25px_-5px_rgba(34,211,238,0.6)] uppercase tracking-wider mt-4">
                         ▶ RUN PLAN
                     </button>
+                    <div id="runStatus" class="mt-3 p-3 rounded-xl bg-[#0B1121] border border-[#1F2937] text-[10px] text-slate-400 leading-relaxed">
+                        <div><span id="runStatusDot" class="text-slate-500">●</span> <span id="runStatusText">Listo para generar</span></div>
+                        <div id="sourceMeta" class="mt-1 font-mono text-[9px] text-slate-500">Archivo: — · Último dato: — · Actualización: —</div>
+                    </div>
+                    <div id="dashboardError" class="hidden mt-3 p-3 rounded-xl bg-[#FB7185]/10 border border-[#FB7185]/40 text-[11px] text-[#FB7185]"></div>
                 </form>
             </div>
 
@@ -241,41 +249,18 @@
             </div>
 
             <!-- CARDS KPI -->
-            <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-primary relative overflow-hidden flex flex-col justify-between">
-                    <div class="flex justify-between items-start relative z-10">
-                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Demanda (FCST)</p>
-                        <div class="p-1.5 bg-brand-primary/10 rounded-lg text-brand-primary border border-brand-primary/20 w-8 h-8 flex items-center justify-center">📞</div>
-                    </div>
-                    <p id="kpiCalls" class="text-3xl font-black font-mono-num text-white mt-2 relative z-10">0</p>
-                </div>
+            <div id="kpiCardsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-primary"><p class="text-[10px] text-slate-400 font-bold uppercase">Demanda total del periodo</p><p id="kpiCalls" class="text-3xl font-black font-mono-num text-white mt-2">0</p><p id="kpiCallsDaily" class="text-[10px] text-slate-500 mt-1">Promedio diario: 0</p></div>
+                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentCyan"><p class="text-[10px] text-slate-400 font-bold uppercase">Agentes necesarios por intervalo</p><p id="kpiIntervalReq" class="text-3xl font-black font-mono-num text-brand-accentCyan mt-2">0 HC</p><p class="text-[10px] text-slate-500 mt-1">Pico simultáneo del filtro</p></div>
+                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentViolet"><p class="text-[10px] text-slate-400 font-bold uppercase">Plantilla total requerida</p><p id="kpiHcRequerido" class="text-3xl font-black font-mono-num text-brand-accentViolet mt-2">0 HC</p><p class="text-[10px] text-slate-500 mt-1">Incluye jornada, descanso y merma</p></div>
+                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentEmerald"><p class="text-[10px] text-slate-400 font-bold uppercase">Plantilla actual</p><div class="flex items-center gap-3 mt-2"><p id="kpiHcRoster" class="text-3xl font-black font-mono-num text-brand-accentEmerald">0 HC</p><p id="kpiHcGap" class="text-[11px] font-bold px-2.5 py-1 rounded bg-[#1E293B]">0</p></div></div>
+                <div id="criticalGapCard" class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentRose"><p class="text-[10px] text-slate-400 font-bold uppercase">Mayor déficit por intervalo</p><p id="kpiWorstGap" class="text-3xl font-black font-mono-num text-brand-accentRose mt-2">—</p><p id="kpiWorstGapDetail" class="text-[10px] text-slate-500 mt-1">Sin déficit</p></div>
+                <div class="glass-panel p-5 rounded-xl border-t-2 border-t-brand-accentAmber"><p class="text-[10px] text-slate-400 font-bold uppercase">AHT promedio</p><p id="kpiAht" class="text-3xl font-black font-mono-num text-brand-accentAmber mt-2">00:00:00</p><p class="text-[10px] text-slate-500 mt-1">Tiempo medio de atención</p></div>
+            </div>
 
-                <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-accentCyan relative overflow-hidden flex flex-col justify-between">
-                    <div class="flex justify-between items-start relative z-10">
-                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">AHT Promedio</p>
-                        <div class="p-1.5 bg-brand-accentCyan/10 rounded-lg text-brand-accentCyan border border-brand-accentCyan/20 w-8 h-8 flex items-center justify-center">⏱</div>
-                    </div>
-                    <p id="kpiAht" class="text-3xl font-black font-mono-num text-brand-accentCyan mt-2 relative z-10">00:00:00</p>
-                </div>
-
-                <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-accentViolet relative overflow-hidden flex flex-col justify-between">
-                    <div class="flex justify-between items-start relative z-10">
-                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">HC Requerido</p>
-                        <div class="p-1.5 bg-brand-accentViolet/10 rounded-lg text-brand-accentViolet border border-brand-accentViolet/20 w-8 h-8 flex items-center justify-center">👥</div>
-                    </div>
-                    <p id="kpiHcRequerido" class="text-3xl font-black font-mono-num text-brand-accentViolet mt-2 relative z-10">0 HC</p>
-                </div>
-
-                <div class="glass-panel glass-panel-hover p-5 rounded-xl border-t-2 border-t-brand-accentEmerald relative overflow-hidden flex flex-col justify-between">
-                    <div class="flex justify-between items-start relative z-10">
-                        <p class="text-[11px] text-slate-400 font-bold uppercase tracking-wider">HC Actual</p>
-                        <div class="p-1.5 bg-brand-accentEmerald/10 rounded-lg text-brand-accentEmerald border border-brand-accentEmerald/20 w-8 h-8 flex items-center justify-center">🏢</div>
-                    </div>
-                    <div class="flex items-center gap-3 mt-2 relative z-10">
-                        <p id="kpiHcRoster" class="text-3xl font-black font-mono-num text-brand-accentEmerald">0 HC</p>
-                        <p id="kpiHcGap" class="text-[11px] font-bold px-2.5 py-1 rounded bg-[#1E293B] border border-[#334155] text-slate-300 font-mono-num shadow-inner">0</p>
-                    </div>
-                </div>
+            <div id="ambulanceRule" class="hidden glass-panel p-4 rounded-xl border border-brand-accentAmber/40 bg-brand-accentAmber/5">
+                <div class="flex justify-between gap-4 flex-wrap"><div><p class="text-xs font-extrabold text-brand-accentAmber">Regla Ambulancias</p><p class="text-[11px] text-slate-300 mt-1">30% de las atenciones requiere dos personas.</p></div><div class="text-right"><p class="text-[10px] text-slate-500 uppercase">Impacto adicional</p><p id="ambulanceImpact" class="font-mono font-bold text-brand-accentAmber">0.0 horas-persona</p></div></div>
+                <details class="mt-2 text-[10px] text-slate-400"><summary class="cursor-pointer">Ver parámetros</summary><p class="mt-2">Volumen con doble cobertura: 30% · Personas por atención: 2 · Factor de carga: 1.30.</p></details>
             </div>
 
             <!-- GRÁFICAS Y TABLAS -->
@@ -284,9 +269,10 @@
                     <h3 class="text-[15px] font-extrabold text-white flex items-center gap-2 tracking-wide">
                         <span class="text-brand-accentAmber drop-shadow-[0_0_5px_rgba(251,191,36,0.6)]">📊</span> Demand vs. Capacity
                     </h3>
+                    <div class="flex items-center gap-2"><label class="text-[10px] text-slate-400 flex items-center gap-2 cursor-pointer"><input id="onlyDeficits" type="checkbox" onchange="debouncedActualizarGrafica()"> Solo faltantes</label>
                     <button onclick="exportarCSV()" class="bg-[#1E293B] hover:bg-brand-accentAmber/20 text-slate-200 hover:text-brand-accentAmber border border-[#334155] hover:border-brand-accentAmber/50 text-xs py-2 px-4 rounded-lg transition-all duration-200 font-bold shadow-md">
                         📥 Export CSV
-                    </button>
+                    </button></div>
                 </div>
                 
                 <div class="h-64 mb-6 relative bg-[#0F172A] p-2 rounded-xl border border-[#1F2937] shadow-inner" id="contGapChart">
@@ -386,7 +372,11 @@
         let debounceTimer;
         let currentMode = 'wfm';
         let forecastMode = 'llamadas';
-        let isSidebarVisible = true; 
+        let isSidebarVisible = true;
+
+        function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
+        async function loadSourceMeta(){ try { const r=await fetch('/api/status?t='+Date.now()); const m=await r.json(); if(r.ok){ document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}`; } } catch(e){} }
+
 
         function getProp(row, keys, def = '') {
             for (let k of keys) {
@@ -577,6 +567,9 @@
             const btn = document.getElementById('btnProcesar');
             btn.disabled = true;
             btn.innerText = "⏳ RECALCULANDO...";
+            document.getElementById('dashboardError').classList.add('hidden');
+            setRunStatus('Leyendo histórico…', 'amber');
+            await loadSourceMeta();
             
             const formData = new FormData();
             
@@ -594,6 +587,7 @@
             if (forecastMode === 'chat') url = '/api/process_chat';
 
             try {
+                setRunStatus('Calculando campañas…', 'amber');
                 const response = await fetch(url, { method: 'POST', body: formData });
                 globalData = await response.json();
                 
@@ -601,11 +595,14 @@
                     inicializarFiltrosMultiples();
                     debouncedActualizarGrafica();
                     guardarEstadoParametros();
+                    setRunStatus('Listo', 'green');
+                    await loadSourceMeta();
                 } else {
-                    alert("Error en Servidor Python: " + (globalData.error || "Asegúrate de que 'historico.xlsx' esté cargado."));
+                    const msg = globalData.error || "Asegúrate de que 'historico.xlsx' esté cargado.";
+                    const box=document.getElementById('dashboardError'); box.innerText='Error: '+msg; box.classList.remove('hidden'); setRunStatus('Falló el cálculo', 'red');
                 }
             } catch (e) {
-                alert("Error de conexión con el Servidor: " + e.message);
+                const box=document.getElementById('dashboardError'); box.innerText='Error de conexión: '+e.message; box.classList.remove('hidden'); setRunStatus('Sin conexión', 'red');
             } finally {
                 btn.disabled = false;
                 btn.innerText = "▶ RUN PLAN";
@@ -616,6 +613,10 @@
             document.getElementById('kpiCalls').innerText = "0";
             document.getElementById('kpiAht').innerText = "00:00:00";
             document.getElementById('kpiHcRequerido').innerText = "0 HC";
+            document.getElementById('kpiIntervalReq').innerText = "0 HC";
+            document.getElementById('kpiCallsDaily').innerText = "Promedio diario: 0";
+            document.getElementById('kpiWorstGap').innerText = "—";
+            document.getElementById('kpiWorstGapDetail').innerText = "Sin déficit";
             document.getElementById('kpiHcRoster').innerText = "0 HC";
             document.getElementById('intervalTableBody').innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-500 font-medium">Sin datos. Presiona RUN PLAN.</td></tr>`;
             if(gapChartInstance) gapChartInstance.destroy();
@@ -932,6 +933,7 @@
             document.getElementById('kpiAht').innerText = formatAHT(totalCallsGlobal > 0 ? Math.round(totalHTGlobal / totalCallsGlobal) : 0);
 
             const numDias = fechasSet.size || 1;
+            document.getElementById('kpiCallsDaily').innerText = `Promedio diario: ${Math.round(totalCallsGlobal / numDias).toLocaleString()}`;
             const todosIntervalos = Object.keys(aggInter).sort();
 
             if (forecastMode === 'general') {
@@ -1098,7 +1100,14 @@
                 rosterAgrupadoGlobal.push(Math.round(invData.rosSum / numDias));
             }
 
-            const reqAgrupadoGlobalParaPlot = fteAgrupadoGlobal; 
+            const reqAgrupadoGlobalParaPlot = fteAgrupadoGlobal;
+            document.getElementById('kpiIntervalReq').innerText = (Math.max(0, ...reqAgrupadoGlobalParaPlot)).toLocaleString() + ' HC';
+            const selectedHasAmbulance = dfFiltered.some(r => forecastMode === 'llamadas' && esAmbulanciaServicios(getProp(r, ['Campaña','Campana'], '')));
+            const ambBox = document.getElementById('ambulanceRule');
+            if (selectedHasAmbulance) {
+                let extraSeconds = dfFiltered.filter(r => esAmbulanciaServicios(getProp(r,['Campaña','Campana'],''))).reduce((acc,r) => acc + (Number(getProp(r,['Llamadas'],0))||0)*(Number(getProp(r,['AHT_Segundos'],0))||0)*0.30, 0);
+                ambBox.classList.remove('hidden'); document.getElementById('ambulanceImpact').innerText = `${(extraSeconds/3600).toFixed(1)} horas-persona`;
+            } else ambBox.classList.add('hidden'); 
 
             let rosterPorCampana = {};
             globalData.forEach(r => {
@@ -1134,6 +1143,10 @@
                 <th class="py-3.5 px-4 text-center">Gap</th>
             `;
 
+            const gapsIntervalo = todosIntervalos.map((inter, idx) => ({inter, req:reqAgrupadoGlobalParaPlot[idx]||0, roster:rosterAgrupadoGlobal[idx]||0, gap:(rosterAgrupadoGlobal[idx]||0)-(reqAgrupadoGlobalParaPlot[idx]||0)}));
+            const worst = gapsIntervalo.filter(x=>x.gap<0).sort((a,b)=>a.gap-b.gap)[0];
+            if(worst){ document.getElementById('kpiWorstGap').innerText=`${Math.abs(worst.gap)} HC`; document.getElementById('kpiWorstGapDetail').innerText=`${worst.inter} · requiere ${worst.req}, disponibles ${worst.roster}`; } else { document.getElementById('kpiWorstGap').innerText='✓ Cubierto'; document.getElementById('kpiWorstGapDetail').innerText='No hay intervalos con faltante'; }
+            const onlyDeficits = document.getElementById('onlyDeficits')?.checked;
             const tbody = document.getElementById('intervalTableBody');
             tbody.innerHTML = '';
             todosIntervalos.forEach((inter, idx) => {
@@ -1141,10 +1154,12 @@
                 const rowReq = reqAgrupadoGlobalParaPlot[idx] || 0; 
                 const rowRoster = rosterAgrupadoGlobal[idx] || 0;
                 const gap = rowRoster - rowReq;
-                let gapHtml = gap > 0 ? `<span class="bg-[#34D399]/20 text-[#34D399] px-2 py-0.5 rounded-md font-bold">+${gap}</span>` : gap < 0 ? `<span class="bg-[#FB7185]/20 text-[#FB7185] px-2 py-0.5 rounded-md font-bold">${gap}</span>` : `<span class="text-slate-500 font-bold">0</span>`;
+                let gapHtml = gap > 0 ? `<span class="bg-[#FBBF24]/20 text-[#FBBF24] px-2 py-0.5 rounded-md font-bold">+${gap} excedente</span>` : gap < 0 ? `<span class="bg-[#FB7185]/20 text-[#FB7185] px-2 py-0.5 rounded-md font-bold">${Math.abs(gap)} faltan</span>` : `<span class="bg-[#34D399]/15 text-[#34D399] px-2 py-0.5 rounded-md font-bold">✓ cubierto</span>`;
+                if (onlyDeficits && gap >= 0) return;
+                const rowTone = gap < 0 ? 'bg-[#FB7185]/5 border-l-2 border-[#FB7185]' : gap > 0 ? 'bg-[#FBBF24]/5 border-l-2 border-[#FBBF24]' : 'border-l-2 border-[#34D399]';
 
                 tbody.innerHTML += `
-                    <tr class="hover:bg-[#1E293B] transition-colors">
+                    <tr class="${rowTone} hover:bg-[#1E293B] transition-colors">
                         <td class="py-2.5 px-4 font-bold text-slate-200 text-left">${inter}</td>
                         <td class="py-2.5 px-4 text-slate-300">${rowLlamadas.toLocaleString()}</td>
                         <td class="py-2.5 px-4 text-slate-300">${formatAHT(ahtAgrupadoGlobal[idx])}</td>
@@ -1192,6 +1207,11 @@
                             pointHoverRadius: 6,
                             yAxisID: 'y', 
                             order: 2 
+                        },
+                        {
+                            type: 'bar', label: 'Déficit HC',
+                            data: reqAgrupadoGlobalParaPlot.map((r,i)=>Math.max(0, r-(rosterAgrupadoGlobal[i]||0))),
+                            backgroundColor: 'rgba(251, 113, 133, 0.55)', borderColor: '#FB7185', borderWidth: 1, borderRadius: 4, yAxisID: 'y', order: 0
                         },
                         { 
                             type: 'bar',
@@ -1274,3 +1294,4 @@
     </script>
 </body>
 </html>
+
