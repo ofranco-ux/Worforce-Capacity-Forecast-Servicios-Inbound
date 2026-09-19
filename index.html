@@ -1819,6 +1819,195 @@
             }
         }
 
+
+        /* ================================================================
+           ASISTENTE WFM · SOPORTE OPERATIVO BASADO EN LA PROYECCIÓN ACTUAL
+           ================================================================ */
+        .wfm-assistant-launcher {
+            position:fixed;
+            right:20px;
+            bottom:20px;
+            z-index:90;
+            display:inline-flex;
+            align-items:center;
+            gap:10px;
+            min-height:48px;
+            padding:0 16px;
+            border:1px solid rgba(255,255,255,.18);
+            border-radius:16px;
+            background:linear-gradient(135deg,#173A56 0%,#214E6B 58%,#287C79 130%);
+            color:#F8FBFD;
+            box-shadow:0 20px 42px -28px rgba(17,46,70,.72), inset 0 1px 0 rgba(255,255,255,.08);
+            font-size:11px;
+            font-weight:800;
+            letter-spacing:.005em;
+            transition:.18s ease;
+        }
+        .wfm-assistant-launcher:hover { transform:translateY(-1px); filter:brightness(1.04); }
+        .wfm-assistant-launcher svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+        .wfm-assistant-launcher-badge {
+            width:7px; height:7px; border-radius:999px; background:#7ED9CC;
+            box-shadow:0 0 0 4px rgba(126,217,204,.11);
+        }
+
+        .wfm-assistant-panel {
+            position:fixed;
+            right:20px;
+            bottom:78px;
+            z-index:95;
+            width:min(410px, calc(100vw - 30px));
+            max-height:min(720px, calc(100vh - 118px));
+            display:flex;
+            flex-direction:column;
+            overflow:hidden;
+            border:1px solid #C9D6E3;
+            border-radius:20px;
+            background:linear-gradient(180deg,#F7FAFD 0%,#EEF3F7 100%);
+            box-shadow:0 30px 70px -38px rgba(28,52,76,.42), inset 0 1px 0 rgba(255,255,255,.95);
+        }
+        .wfm-assistant-panel.hidden { display:none !important; }
+        .wfm-assistant-head {
+            display:flex;
+            align-items:flex-start;
+            justify-content:space-between;
+            gap:12px;
+            padding:16px 17px 14px;
+            background:linear-gradient(135deg,#173A56 0%,#214E6B 72%,#25625F 135%);
+            color:#FFFFFF;
+        }
+        .wfm-assistant-head-main { display:flex; align-items:flex-start; gap:11px; min-width:0; }
+        .wfm-assistant-mark {
+            width:36px; height:36px; flex:0 0 auto; display:flex; align-items:center; justify-content:center;
+            border-radius:12px; border:1px solid rgba(255,255,255,.13); background:rgba(255,255,255,.08);
+        }
+        .wfm-assistant-mark svg { width:18px; height:18px; fill:none; stroke:#9DE5D8; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+        .wfm-assistant-title { font-size:13px; font-weight:850; letter-spacing:-.02em; }
+        .wfm-assistant-subtitle { margin-top:3px; color:#BCD0DF; font-size:9px; line-height:1.4; }
+        .wfm-assistant-close {
+            width:32px; height:32px; flex:0 0 auto; border-radius:10px;
+            display:flex; align-items:center; justify-content:center; color:#DCE8F1; background:rgba(255,255,255,.06);
+            border:1px solid rgba(255,255,255,.10);
+        }
+        .wfm-assistant-close:hover { background:rgba(255,255,255,.12); color:#FFFFFF; }
+        .wfm-assistant-close svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; }
+
+        .wfm-assistant-context {
+            display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+            padding:10px 14px;
+            background:#E8EFF5;
+            border-bottom:1px solid #D3DEE8;
+        }
+        .wfm-context-chip {
+            display:inline-flex; align-items:center; min-height:24px; padding:0 8px; border-radius:999px;
+            background:#F8FAFC; border:1px solid #D5E0EA; color:#536980;
+            font-size:8px; font-weight:800; letter-spacing:.04em; text-transform:uppercase;
+        }
+        .wfm-context-chip.is-mode { color:#315D79; border-color:#C4D7E3; background:#F4FAFC; }
+
+        .wfm-assistant-quick {
+            display:flex; gap:7px; overflow-x:auto;
+            padding:11px 13px 8px;
+            scrollbar-width:none;
+        }
+        .wfm-assistant-quick::-webkit-scrollbar { display:none; }
+        .wfm-quick-btn {
+            flex:0 0 auto; min-height:32px; padding:0 10px; border-radius:10px;
+            border:1px solid #D1DDE8; background:#F9FBFD; color:#465D74;
+            font-size:9px; font-weight:750; white-space:nowrap;
+            transition:.16s ease;
+        }
+        .wfm-quick-btn:hover { background:#EEF4F8; border-color:#B9CADA; color:#20384F; }
+
+        .wfm-assistant-messages {
+            min-height:230px;
+            overflow-y:auto;
+            padding:10px 13px 13px;
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+        }
+        .wfm-msg { display:flex; gap:8px; align-items:flex-start; }
+        .wfm-msg.user { justify-content:flex-end; }
+        .wfm-msg-bubble {
+            max-width:88%;
+            padding:10px 11px;
+            border-radius:14px;
+            font-size:10px;
+            line-height:1.55;
+            white-space:pre-wrap;
+        }
+        .wfm-msg.bot .wfm-msg-bubble {
+            color:#2A4057;
+            background:#FFFFFF;
+            border:1px solid #DCE5ED;
+            border-top-left-radius:5px;
+        }
+        .wfm-msg.user .wfm-msg-bubble {
+            color:#FFFFFF;
+            background:linear-gradient(135deg,#4968C7,#3C7E83);
+            border-top-right-radius:5px;
+        }
+        .wfm-msg-meta { margin-top:5px; color:#8494A7; font-size:8px; }
+        .wfm-assistant-cards {
+            display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-top:8px;
+        }
+        .wfm-assistant-card {
+            padding:9px 10px; border-radius:11px; border:1px solid #DCE4EC; background:#F7F9FC;
+        }
+        .wfm-assistant-card-label {
+            display:block; color:#74869B; font-size:7px; font-weight:850; letter-spacing:.09em; text-transform:uppercase;
+        }
+        .wfm-assistant-card-value {
+            display:block; margin-top:5px; color:#21394F; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:800;
+        }
+        .wfm-assistant-card-detail { display:block; margin-top:3px; color:#708196; font-size:8px; line-height:1.35; }
+        .wfm-assistant-actions { margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+        .wfm-assistant-action {
+            padding:8px 9px; border-radius:10px; background:#EEF4F7; border:1px solid #D5E1E9;
+            color:#355068; font-size:9px; line-height:1.45;
+        }
+        .wfm-assistant-action strong { color:#183950; }
+        .wfm-assistant-note {
+            margin-top:8px; padding:8px 9px; border-radius:10px;
+            background:rgba(183,120,22,.055); border:1px solid rgba(183,120,22,.16);
+            color:#7A5A22; font-size:8px; line-height:1.45;
+        }
+        .wfm-assistant-thinking {
+            display:inline-flex; align-items:center; gap:5px; color:#71849A;
+        }
+        .wfm-assistant-thinking i { width:5px; height:5px; border-radius:50%; background:#71849A; animation:wfmPulse 1.05s infinite alternate; }
+        .wfm-assistant-thinking i:nth-child(2){ animation-delay:.18s; }
+        .wfm-assistant-thinking i:nth-child(3){ animation-delay:.36s; }
+        @keyframes wfmPulse { from { opacity:.25; transform:translateY(1px); } to { opacity:1; transform:translateY(-1px); } }
+
+        .wfm-assistant-input-wrap {
+            padding:11px 13px 13px;
+            border-top:1px solid #D5E0E9;
+            background:#F1F5F8;
+        }
+        .wfm-assistant-input-row { display:flex; gap:8px; align-items:flex-end; }
+        .wfm-assistant-input {
+            flex:1; min-height:42px; max-height:92px; resize:none;
+            padding:11px 12px; border-radius:12px; border:1px solid #CDD9E4;
+            background:#FFFFFF; color:#24394F; font-size:10px; line-height:1.4; outline:none;
+        }
+        .wfm-assistant-input:focus { border-color:#859DD3; box-shadow:0 0 0 3px rgba(95,122,224,.09); }
+        .wfm-assistant-send {
+            width:42px; height:42px; flex:0 0 auto; border-radius:12px;
+            display:flex; align-items:center; justify-content:center;
+            background:linear-gradient(135deg,#4968C7,#347C80); color:#FFFFFF;
+            box-shadow:0 10px 22px -16px rgba(52,90,133,.5);
+        }
+        .wfm-assistant-send:disabled { opacity:.45; cursor:not-allowed; }
+        .wfm-assistant-send svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+        .wfm-assistant-input-help { margin-top:6px; color:#8292A4; font-size:8px; line-height:1.35; }
+
+        @media (max-width:640px) {
+            .wfm-assistant-launcher { right:12px; bottom:12px; }
+            .wfm-assistant-panel { right:10px; bottom:70px; width:calc(100vw - 20px); max-height:calc(100vh - 92px); }
+            .wfm-assistant-cards { grid-template-columns:1fr; }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -4150,7 +4339,346 @@
             a.download = `WFM_Reporte_Filtros_${new Date().toISOString().slice(0,10)}.csv`;
             a.click();
         }
-    </script>
+    
+        // ================================================================
+        // ASISTENTE WFM · CONTEXTO DEL FILTRO + RECOMENDACIONES DEL SERVIDOR
+        // ================================================================
+        let wfmAssistantBusy = false;
+
+        function toggleWfmAssistant(forceOpen = null) {
+            const panel = document.getElementById('wfmAssistantPanel');
+            const launcher = document.getElementById('wfmAssistantLauncher');
+            if (!panel || !launcher) return;
+            const open = forceOpen === null ? panel.classList.contains('hidden') : !!forceOpen;
+            panel.classList.toggle('hidden', !open);
+            launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (open) {
+                updateWfmAssistantContextChips();
+                setTimeout(() => document.getElementById('wfmAssistantInput')?.focus(), 80);
+            }
+        }
+
+        function wfmAssistantSafeDate(value) {
+            return String(value || '').split(' ')[0].split('T')[0];
+        }
+
+        function wfmAssistantFilteredRows() {
+            if (!Array.isArray(globalData)) return [];
+            return globalData.filter(item => {
+                const m = String(getProp(item, ['Mes'], ''));
+                const s = getWeekNumber(getProp(item, ['Fecha'], ''));
+                const c = String(getProp(item, ['Campaña', 'Campana'], 'General'));
+                const f = wfmAssistantSafeDate(getProp(item, ['Fecha'], ''));
+                const inv = String(getProp(item, ['Intervalo'], '00:00'));
+                return selectedMeses.has(m) &&
+                       selectedSemanas.has(s) &&
+                       selectedCampanas.has(c) &&
+                       selectedFechas.has(f) &&
+                       selectedIntervalos.has(inv);
+            });
+        }
+
+        function buildWfmAssistantContext() {
+            const rows = wfmAssistantFilteredRows();
+            const intervalMap = new Map();
+            const campaignMap = new Map();
+            const channelMap = new Map();
+            let totalVolume = 0;
+            let totalHandle = 0;
+
+            rows.forEach(r => {
+                const date = wfmAssistantSafeDate(getProp(r, ['Fecha'], ''));
+                const interval = String(getProp(r, ['Intervalo'], '00:00'));
+                const campaign = String(getProp(r, ['Campaña', 'Campana'], 'General'));
+                const channel = String(r.Canal || (forecastMode === 'chat' ? 'Chat' : 'Llamadas'));
+                const req = Number(getProp(r, ['Agentes_Requeridos'], 0)) || 0;
+                const actual = Number(getProp(r, ['HC_Actual_Roster'], 0)) || 0;
+                const volume = Number(getProp(r, ['Llamadas', 'Recibidas', 'Recibidos'], 0)) || 0;
+                const aht = Number(getProp(r, ['AHT_Segundos'], 0)) || 0;
+
+                totalVolume += volume;
+                totalHandle += volume * aht;
+
+                const intervalKey = `${date}|${interval}|${channel}`;
+                if (!intervalMap.has(intervalKey)) intervalMap.set(intervalKey, { date, interval, channel, required:0, actual:0, volume:0, handle:0 });
+                const slot = intervalMap.get(intervalKey);
+                slot.required += req;
+                slot.actual += actual;
+                slot.volume += volume;
+                slot.handle += volume * aht;
+
+                const campKey = `${campaign}|${channel}`;
+                if (!campaignMap.has(campKey)) campaignMap.set(campKey, { campaign, channel, requiredPeak:0, actualAtPeak:0, worstGap:0, worstDate:'', worstInterval:'', volume:0 });
+                const camp = campaignMap.get(campKey);
+                camp.volume += volume;
+                const gap = actual - req;
+                if (req > camp.requiredPeak) {
+                    camp.requiredPeak = req;
+                    camp.actualAtPeak = actual;
+                }
+                if (gap < camp.worstGap) {
+                    camp.worstGap = gap;
+                    camp.worstDate = date;
+                    camp.worstInterval = interval;
+                }
+
+                if (!channelMap.has(channel)) channelMap.set(channel, { channel, requiredPeak:0, actualAtPeak:0, worstGap:0, volume:0 });
+                const ch = channelMap.get(channel);
+                ch.volume += volume;
+                if (req > ch.requiredPeak) {
+                    ch.requiredPeak = req;
+                    ch.actualAtPeak = actual;
+                }
+                if (gap < ch.worstGap) ch.worstGap = gap;
+            });
+
+            const slots = Array.from(intervalMap.values()).map(x => {
+                x.gap = x.actual - x.required;
+                x.coverage = x.required > 0 ? Math.round((x.actual / x.required) * 100) : 100;
+                x.aht = x.volume > 0 ? Math.round(x.handle / x.volume) : 0;
+                delete x.handle;
+                return x;
+            });
+
+            const deficits = slots.filter(x => x.gap < 0).sort((a,b) => a.gap - b.gap).slice(0, 12);
+            const surpluses = slots.filter(x => x.gap > 0).sort((a,b) => b.gap - a.gap).slice(0, 12);
+            const worst = deficits[0] || null;
+            const avgCoverageSlots = slots.filter(x => x.required > 0);
+            const avgCoverage = avgCoverageSlots.length
+                ? Math.round(avgCoverageSlots.reduce((acc,x) => acc + Math.min(200, x.coverage), 0) / avgCoverageSlots.length)
+                : 100;
+
+            return {
+                mode: forecastMode,
+                filters: {
+                    months: Array.from(selectedMeses).slice(0, 20),
+                    weeks: Array.from(selectedSemanas).slice(0, 20),
+                    campaigns: Array.from(selectedCampanas).slice(0, 30),
+                    dates: Array.from(selectedFechas).slice(0, 31),
+                    intervals: Array.from(selectedIntervalos).slice(0, 48)
+                },
+                rowCount: rows.length,
+                totalVolume: Math.round(totalVolume),
+                weightedAht: totalVolume > 0 ? Math.round(totalHandle / totalVolume) : 0,
+                averageCoverage: avgCoverage,
+                worst,
+                deficits,
+                surpluses,
+                campaigns: Array.from(campaignMap.values()).sort((a,b) => a.worstGap - b.worstGap).slice(0, 12),
+                channels: Array.from(channelMap.values())
+            };
+        }
+
+        function updateWfmAssistantContextChips() {
+            const wrap = document.getElementById('wfmAssistantContext');
+            if (!wrap) return;
+            const ctx = buildWfmAssistantContext();
+            wrap.innerHTML = '';
+
+            const chip = (text, cls='') => {
+                const el = document.createElement('span');
+                el.className = `wfm-context-chip ${cls}`.trim();
+                el.textContent = text;
+                wrap.appendChild(el);
+            };
+
+            const modeLabel = forecastMode === 'general' ? 'Consolidado' : forecastMode === 'chat' ? 'Chat' : 'Llamadas';
+            chip(modeLabel, 'is-mode');
+            if (ctx.filters.dates.length === 1) chip(ctx.filters.dates[0]);
+            else if (ctx.filters.dates.length > 1) chip(`${ctx.filters.dates.length} fechas`);
+            if (ctx.filters.campaigns.length === 1) chip(ctx.filters.campaigns[0]);
+            else if (ctx.filters.campaigns.length > 1) chip(`${ctx.filters.campaigns.length} campañas`);
+            chip(ctx.worst ? `Peor gap ${ctx.worst.gap} HC` : 'Sin déficit');
+        }
+
+        function appendWfmAssistantMessage(role, text, payload = null) {
+            const container = document.getElementById('wfmAssistantMessages');
+            if (!container) return null;
+            const row = document.createElement('div');
+            row.className = `wfm-msg ${role}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'wfm-msg-bubble';
+            const content = document.createElement('div');
+            content.textContent = text;
+            bubble.appendChild(content);
+
+            if (payload && Array.isArray(payload.cards) && payload.cards.length) {
+                const cardsWrap = document.createElement('div');
+                cardsWrap.className = 'wfm-assistant-cards';
+                payload.cards.slice(0,4).forEach(card => {
+                    const cardEl = document.createElement('div');
+                    cardEl.className = 'wfm-assistant-card';
+                    const label = document.createElement('span');
+                    label.className = 'wfm-assistant-card-label';
+                    label.textContent = card.title || 'Dato';
+                    const value = document.createElement('span');
+                    value.className = 'wfm-assistant-card-value';
+                    value.textContent = card.value || '—';
+                    const detail = document.createElement('span');
+                    detail.className = 'wfm-assistant-card-detail';
+                    detail.textContent = card.detail || '';
+                    cardEl.append(label, value, detail);
+                    cardsWrap.appendChild(cardEl);
+                });
+                bubble.appendChild(cardsWrap);
+            }
+
+            if (payload && Array.isArray(payload.actions) && payload.actions.length) {
+                const actions = document.createElement('div');
+                actions.className = 'wfm-assistant-actions';
+                payload.actions.slice(0,5).forEach((action, idx) => {
+                    const el = document.createElement('div');
+                    el.className = 'wfm-assistant-action';
+                    const strong = document.createElement('strong');
+                    strong.textContent = `${idx + 1}. `;
+                    el.appendChild(strong);
+                    el.appendChild(document.createTextNode(action));
+                    actions.appendChild(el);
+                });
+                bubble.appendChild(actions);
+            }
+
+            if (payload && payload.note) {
+                const note = document.createElement('div');
+                note.className = 'wfm-assistant-note';
+                note.textContent = payload.note;
+                bubble.appendChild(note);
+            }
+
+            row.appendChild(bubble);
+            container.appendChild(row);
+            container.scrollTop = container.scrollHeight;
+            return row;
+        }
+
+        function appendWfmAssistantThinking() {
+            const container = document.getElementById('wfmAssistantMessages');
+            if (!container) return null;
+            const row = document.createElement('div');
+            row.className = 'wfm-msg bot';
+            row.innerHTML = '<div class="wfm-msg-bubble"><span class="wfm-assistant-thinking">Analizando proyección <i></i><i></i><i></i></span></div>';
+            container.appendChild(row);
+            container.scrollTop = container.scrollHeight;
+            return row;
+        }
+
+        function askWfmQuick(question) {
+            const input = document.getElementById('wfmAssistantInput');
+            if (input) input.value = question;
+            sendWfmAssistantQuestion();
+        }
+
+        async function sendWfmAssistantQuestion() {
+            if (wfmAssistantBusy) return;
+            const input = document.getElementById('wfmAssistantInput');
+            const send = document.getElementById('wfmAssistantSend');
+            if (!input || !send) return;
+
+            const question = String(input.value || '').trim();
+            if (!question) return;
+
+            const context = buildWfmAssistantContext();
+            if (!context.rowCount) {
+                appendWfmAssistantMessage('bot', 'No tengo datos dentro del filtro actual. Selecciona un periodo con información y vuelve a intentarlo.');
+                return;
+            }
+
+            appendWfmAssistantMessage('user', question);
+            input.value = '';
+            wfmAssistantBusy = true;
+            send.disabled = true;
+            const thinking = appendWfmAssistantThinking();
+
+            try {
+                const response = await fetch('/api/wfm_assistant', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({ question, context })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'No se pudo analizar la proyección.');
+                thinking?.remove();
+                appendWfmAssistantMessage('bot', data.reply || 'Análisis completado.', data);
+            } catch (error) {
+                thinking?.remove();
+                appendWfmAssistantMessage('bot', `No pude completar el análisis: ${error.message}`);
+            } finally {
+                wfmAssistantBusy = false;
+                send.disabled = false;
+                updateWfmAssistantContextChips();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('wfmAssistantInput');
+            if (input) {
+                input.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        sendWfmAssistantQuestion();
+                    }
+                });
+            }
+        });
+
+</script>
+
+    <!-- ASISTENTE WFM -->
+    <button id="wfmAssistantLauncher" type="button" class="wfm-assistant-launcher" onclick="toggleWfmAssistant(true)" aria-controls="wfmAssistantPanel" aria-expanded="false">
+        <span class="wfm-assistant-launcher-badge" aria-hidden="true"></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9h8M8 13h5"/><path d="M7 18.5 3.5 21V6.8A1.8 1.8 0 0 1 5.3 5h13.4a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H7Z"/></svg>
+        <span>Asistente WFM</span>
+    </button>
+
+    <section id="wfmAssistantPanel" class="wfm-assistant-panel hidden" aria-label="Asistente WFM">
+        <div class="wfm-assistant-head">
+            <div class="wfm-assistant-head-main">
+                <div class="wfm-assistant-mark">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9h8M8 13h5"/><path d="M7 18.5 3.5 21V6.8A1.8 1.8 0 0 1 5.3 5h13.4a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H7Z"/></svg>
+                </div>
+                <div>
+                    <p class="wfm-assistant-title">Asistente WFM</p>
+                    <p class="wfm-assistant-subtitle">Analiza la proyección y sugiere acciones operativas con el filtro actual.</p>
+                </div>
+            </div>
+            <button type="button" class="wfm-assistant-close" onclick="toggleWfmAssistant(false)" aria-label="Cerrar asistente">
+                <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg>
+            </button>
+        </div>
+
+        <div id="wfmAssistantContext" class="wfm-assistant-context">
+            <span class="wfm-context-chip is-mode">Llamadas</span>
+            <span class="wfm-context-chip">Sin análisis todavía</span>
+        </div>
+
+        <div class="wfm-assistant-quick">
+            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('¿Dónde tengo el mayor déficit?')">Mayor déficit</button>
+            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('Sugiere movimientos de horarios para mejorar la cobertura')">Sugerir movimientos</button>
+            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('¿Por qué necesito ese HC requerido?')">Explicar HC</button>
+            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('Dame un resumen operativo con prioridades')">Resumen operativo</button>
+        </div>
+
+        <div id="wfmAssistantMessages" class="wfm-assistant-messages" aria-live="polite">
+            <div class="wfm-msg bot">
+                <div class="wfm-msg-bubble">
+                    Hola. Puedo revisar déficit, cobertura, requerimiento y oportunidades de movimiento usando la proyección que estás viendo.
+                    <div class="wfm-msg-meta">Selecciona una pregunta rápida o escribe tu duda.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="wfm-assistant-input-wrap">
+            <div class="wfm-assistant-input-row">
+                <textarea id="wfmAssistantInput" class="wfm-assistant-input" rows="1" maxlength="500" placeholder="Ej. ¿Qué movimientos puedo hacer de 14:00 a 17:00?"></textarea>
+                <button id="wfmAssistantSend" type="button" class="wfm-assistant-send" onclick="sendWfmAssistantQuestion()" aria-label="Enviar pregunta">
+                    <svg viewBox="0 0 24 24"><path d="m4 12 16-7-5 14-3-5-8-2Z"/><path d="m12 14 8-9"/></svg>
+                </button>
+            </div>
+            <p class="wfm-assistant-input-help">Las recomendaciones no cambian horarios automáticamente. Deben validarse con jornada, descansos y operación.</p>
+        </div>
+    </section>
+
 </body>
 </html>
 
