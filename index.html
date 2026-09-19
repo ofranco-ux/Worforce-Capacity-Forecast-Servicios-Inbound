@@ -2205,17 +2205,17 @@
         .wfm-assistant-input { font-size:12px !important; min-height:44px !important; }
         .wfm-assistant-input::placeholder { color:#95A3B1; }
 
-        /* Nexo: mascota WFM original, discreta y corporativa */
+        /* Frank: mascota WFM original, discreta y corporativa */
         .wfm-mascot {
             position:relative; width:44px; height:44px; flex:0 0 44px;
             display:flex; align-items:center; justify-content:center;
-            animation:wfmNexoFloat 3.6s ease-in-out infinite;
+            animation:wfmFrankFloat 3.6s ease-in-out infinite;
         }
         .wfm-mascot-halo {
             position:absolute; inset:2px; border-radius:50%;
             border:1px solid rgba(157,229,216,.34);
             box-shadow:0 0 0 5px rgba(157,229,216,.055);
-            animation:wfmNexoHalo 4.2s ease-in-out infinite;
+            animation:wfmFrankHalo 4.2s ease-in-out infinite;
         }
         .wfm-mascot-face {
             position:relative; width:31px; height:27px; border-radius:10px 10px 12px 12px;
@@ -2235,7 +2235,7 @@
         .wfm-mascot-eye {
             position:absolute; top:9px; width:4px; height:5px; border-radius:3px;
             background:#B8F1E6; box-shadow:0 0 5px rgba(184,241,230,.45);
-            animation:wfmNexoBlink 5.2s infinite;
+            animation:wfmFrankBlink 5.2s infinite;
         }
         .wfm-mascot-eye.left { left:7px; }
         .wfm-mascot-eye.right { right:7px; }
@@ -2246,18 +2246,18 @@
         .wfm-mini-mascot { position:relative; width:19px; height:16px; display:block; border-radius:7px; background:#315B70; }
         .wfm-mini-mascot::before,.wfm-mini-mascot::after {
             content:''; position:absolute; top:6px; width:3px; height:3px; border-radius:50%; background:#A7E9DC;
-            animation:wfmNexoBlink 5.2s infinite;
+            animation:wfmFrankBlink 5.2s infinite;
         }
         .wfm-mini-mascot::before { left:4px; }
         .wfm-mini-mascot::after { right:4px; }
         .wfm-mini-mascot i { position:absolute; left:50%; top:-4px; width:1px; height:4px; background:#6DA79E; }
         .wfm-mini-mascot b { position:absolute; left:50%; bottom:3px; width:6px; height:2px; transform:translateX(-50%); border-bottom:1px solid #A7E9DC; border-radius:50%; }
-        .wfm-mini-mascot.is-thinking { animation:wfmNexoThink .65s ease-in-out infinite alternate; }
+        .wfm-mini-mascot.is-thinking { animation:wfmFrankThink .65s ease-in-out infinite alternate; }
 
-        @keyframes wfmNexoFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
-        @keyframes wfmNexoHalo { 0%,100%{transform:scale(1);opacity:.72} 50%{transform:scale(1.06);opacity:1} }
-        @keyframes wfmNexoBlink { 0%,45%,49%,100%{transform:scaleY(1)} 47%{transform:scaleY(.12)} }
-        @keyframes wfmNexoThink { from{transform:translateY(1px) rotate(-2deg)} to{transform:translateY(-1px) rotate(2deg)} }
+        @keyframes wfmFrankFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+        @keyframes wfmFrankHalo { 0%,100%{transform:scale(1);opacity:.72} 50%{transform:scale(1.06);opacity:1} }
+        @keyframes wfmFrankBlink { 0%,45%,49%,100%{transform:scaleY(1)} 47%{transform:scaleY(.12)} }
+        @keyframes wfmFrankThink { from{transform:translateY(1px) rotate(-2deg)} to{transform:translateY(-1px) rotate(2deg)} }
 
         @media (prefers-reduced-motion:reduce) {
             .wfm-mascot,.wfm-mascot-halo,.wfm-mascot-eye,.wfm-mini-mascot,.wfm-mini-mascot::before,.wfm-mini-mascot::after { animation:none !important; }
@@ -2473,7 +2473,7 @@
             font-weight:900; letter-spacing:.12em;
             text-transform:uppercase;
         }
-        .wfm-msg.bot .wfm-msg-bubble::before { content:'Nexo'; color:#71859A; }
+        .wfm-msg.bot .wfm-msg-bubble::before { content:'Frank'; color:#71859A; }
         .wfm-msg.user .wfm-msg-bubble::before { content:'Tú'; color:rgba(255,255,255,.68); }
         .wfm-msg-content {
             color:inherit;
@@ -2739,6 +2739,7 @@
         .wfm-log-status { font-size:7px; font-weight:900; text-transform:uppercase; }
         .wfm-log-status.accepted { color:#2C786E; }
         .wfm-log-status.rejected { color:#A85063; }
+        .wfm-log-status.applied { color:#1F6D63; }
 
         .wfm-chat-plan-link {
             display:inline-flex; align-items:center; min-height:29px; margin-top:9px; padding:0 9px;
@@ -2819,7 +2820,7 @@
             display:flex;
             align-items:center;
             justify-content:center;
-            animation:wfmNexoFloat 3.6s ease-in-out infinite;
+            animation:wfmFrankFloat 3.6s ease-in-out infinite;
         }
         .wfm-welcome-mascot .wfm-mascot-halo { inset:5px; }
         .wfm-welcome-mascot .wfm-mascot-face {
@@ -2903,7 +2904,7 @@
             line-height:1.5;
         }
 
-        /* Antes de iniciar una conversación, Nexo saluda primero.
+        /* Antes de iniciar una conversación, Frank saluda primero.
            El autopiloto puede seguir calculando en segundo plano, pero no invade la charla. */
         .wfm-assistant-panel.session-idle .wfm-assistant-context,
         .wfm-assistant-panel.session-idle .wfm-autopilot-insight,
@@ -2940,6 +2941,79 @@
             .wfm-welcome-shell { min-height:260px; padding:16px 12px 20px; }
             .wfm-welcome-card { padding:18px 14px 16px; }
         }
+
+
+        /* ================================================================
+           FRANK · FLUJO DE APROBACIÓN DE MOVIMIENTOS
+           ================================================================ */
+        .wfm-action-card.is-applied {
+            border-color:#B5D8CF;
+            background:linear-gradient(135deg,#F1F9F7,#F7FBFA);
+        }
+        .wfm-action-decision.pending {
+            background:#E8F2F0;
+            color:#34756E;
+        }
+        .wfm-action-decision.applied {
+            background:#D8EEE8;
+            color:#1F6D63;
+        }
+        .wfm-action-btn.apply {
+            border-color:#BBD8D2;
+            color:#236F66;
+            background:#EAF6F3;
+        }
+        .wfm-action-btn[disabled] {
+            opacity:.52;
+            cursor:not-allowed;
+            transform:none !important;
+        }
+        .wfm-action-state-copy {
+            margin-top:7px;
+            padding:7px 9px;
+            border-radius:9px;
+            background:#F2F6F8;
+            border:1px solid #DFE7ED;
+            color:#667C8E;
+            font-size:7.6px;
+            line-height:1.4;
+        }
+        .wfm-action-card.is-accepted .wfm-action-state-copy {
+            background:#EEF7F5;
+            border-color:#D1E5E0;
+            color:#47776F;
+        }
+        .wfm-action-card.is-applied .wfm-action-state-copy {
+            background:#E8F5F1;
+            border-color:#C8E2DB;
+            color:#2F7168;
+        }
+        .wfm-toast {
+            position:absolute;
+            left:50%;
+            bottom:72px;
+            z-index:120;
+            width:min(390px, calc(100% - 28px));
+            transform:translate(-50%, 12px);
+            opacity:0;
+            pointer-events:none;
+            padding:10px 12px;
+            border-radius:12px;
+            border:1px solid #C9D8E2;
+            background:#203F55;
+            color:#FFFFFF;
+            box-shadow:0 18px 38px -24px rgba(24,49,68,.55);
+            font-size:8.5px;
+            line-height:1.45;
+            font-weight:750;
+            transition:.2s ease;
+        }
+        .wfm-toast.is-visible {
+            opacity:1;
+            transform:translate(-50%,0);
+        }
+        .wfm-toast.is-success { background:#225F58; border-color:#347A72; }
+        .wfm-toast.is-error { background:#8A4052; border-color:#A95468; }
 
     </style>
 </head>
@@ -5386,7 +5460,7 @@
                 copy.textContent = 'Gracias. La conversación anterior quedó cerrada; el Plan y la Bitácora permanecen disponibles. Cuando quieras podemos comenzar desde cero con el contexto actual.';
                 startBtn.textContent = 'Iniciar nueva conversación';
             } else {
-                title.textContent = `${greeting}, soy Nexo.`;
+                title.textContent = `${greeting}, soy Frank.`;
                 copy.textContent = 'Antes de comenzar el análisis, quiero darte la bienvenida. Puedo ayudarte a entender la proyección, detectar riesgos y preparar movimientos de roster para el periodo seleccionado.';
                 startBtn.textContent = 'Iniciar conversación';
             }
@@ -5428,7 +5502,7 @@
                 input.disabled = !wfmConversationActive;
                 input.placeholder = wfmConversationActive
                     ? 'Escribe tu duda sobre la proyección o el roster…'
-                    : 'Inicia una conversación para escribirle a Nexo';
+                    : 'Inicia una conversación para escribirle a Frank';
             }
             if (send) send.disabled = !wfmConversationActive || wfmAssistantBusy;
         }
@@ -5460,7 +5534,7 @@
             const greeting = wfmConversationGreeting();
             appendWfmAssistantMessage(
                 'bot',
-                `${greeting}. Soy Nexo y ya estoy listo para ayudarte. Tomaré como referencia el alcance y los filtros que ves arriba. ¿Qué quieres revisar primero?`,
+                `${greeting}. Soy Frank y ya estoy listo para ayudarte. Tomaré como referencia el alcance y los filtros que ves arriba. ¿Qué quieres revisar primero?`,
                 { scopeLabel: context.scopeLabel, scopeDetail: context.scopeDetail }
             );
 
@@ -6099,9 +6173,26 @@
             if (view === 'log') renderWfmDecisionLog();
         }
 
+        function wfmMoveRecord(actionId) {
+            return wfmDecisionLog.find(x => x.actionId === actionId) || null;
+        }
+
         function wfmMoveStatus(actionId) {
-            const rec = wfmDecisionLog.find(x => x.actionId === actionId);
-            return rec?.decision || '';
+            const rec = wfmMoveRecord(actionId);
+            if (!rec) return '';
+            if (rec.decision === 'accepted' && rec.implementationStatus === 'applied') return 'applied';
+            return rec.decision || '';
+        }
+
+        function showWfmToast(message, tone = 'success') {
+            const toast = document.getElementById('wfmToast');
+            if (!toast) return;
+            toast.textContent = message;
+            toast.className = `wfm-toast is-${tone} is-visible`;
+            clearTimeout(showWfmToast._timer);
+            showWfmToast._timer = setTimeout(() => {
+                toast.classList.remove('is-visible');
+            }, 3200);
         }
 
         function buildWfmExecutiveSummary(context, payload) {
@@ -6197,7 +6288,7 @@
             htmlOut += `
                 <section class="wfm-v5-section">
                     <div class="wfm-v5-section-head">
-                        <div><div class="wfm-v5-section-title">Acciones de roster</div><div class="wfm-v5-section-copy">Solo ajustes de entrada/salida. Nexo no gestiona desconexiones de break o lunch.</div></div>
+                        <div><div class="wfm-v5-section-title">Acciones de roster</div><div class="wfm-v5-section-copy">Ajustes de entrada/salida. Puedes aprobar cada movimiento y después marcarlo como aplicado. Frank no gestiona break o lunch.</div></div>
                     </div>
                     <div class="wfm-actions-grid">`;
 
@@ -6205,22 +6296,48 @@
                 htmlOut += `<div class="wfm-plan-empty" style="min-height:120px"><div class="wfm-plan-empty-title">${wfmEsc(plan?.reason || (worst ? 'No encontré movimientos seguros con el roster disponible.' : 'No se requieren movimientos.'))}</div></div>`;
             } else {
                 htmlOut += moves.map(move => {
+                    const record = wfmMoveRecord(move.actionId);
                     const status = wfmMoveStatus(move.actionId);
                     const cls = status ? ` is-${status}` : '';
-                    const decisionBadge = status ? `<span class="wfm-action-decision ${status}">${status === 'accepted' ? 'Aprobada' : 'Descartada'}</span>` : '';
+
+                    let decisionBadge = '<span class="wfm-action-safety">Lista para decisión</span>';
+                    let stateCopy = 'Este movimiento aún no ha sido aprobado. Puedes simularlo, aprobarlo o descartarlo.';
+                    let controls = `
+                        <button type="button" class="wfm-action-btn" onclick="toggleWfmMoveSimulation('${wfmEsc(move.actionId)}')">Simular impacto</button>
+                        <button type="button" class="wfm-action-btn accept" onclick="decideWfmMove('${wfmEsc(move.actionId)}','accepted', this)">Aprobar movimiento</button>
+                        <button type="button" class="wfm-action-btn reject" onclick="decideWfmMove('${wfmEsc(move.actionId)}','rejected', this)">Descartar</button>`;
+
+                    if (status === 'accepted') {
+                        decisionBadge = '<span class="wfm-action-decision pending">Aprobada · pendiente</span>';
+                        stateCopy = 'Movimiento aprobado y registrado. Falta que Operaciones lo ejecute; aprobarlo aquí no modifica automáticamente el roster.';
+                        controls = `
+                            <button type="button" class="wfm-action-btn" onclick="toggleWfmMoveSimulation('${wfmEsc(move.actionId)}')">Ver simulación</button>
+                            <button type="button" class="wfm-action-btn apply" onclick="decideWfmMove('${wfmEsc(move.actionId)}','applied', this)">Marcar como aplicado</button>
+                            <button type="button" class="wfm-action-btn reject" onclick="decideWfmMove('${wfmEsc(move.actionId)}','rejected', this)">Cambiar a descartada</button>`;
+                    } else if (status === 'applied') {
+                        decisionBadge = '<span class="wfm-action-decision applied">Aplicada</span>';
+                        stateCopy = 'Movimiento aprobado y marcado como aplicado por Operaciones.';
+                        controls = `
+                            <button type="button" class="wfm-action-btn" onclick="toggleWfmMoveSimulation('${wfmEsc(move.actionId)}')">Ver impacto</button>
+                            <button type="button" class="wfm-action-btn apply" disabled>Movimiento aplicado</button>`;
+                    } else if (status === 'rejected') {
+                        decisionBadge = '<span class="wfm-action-decision rejected">Descartada</span>';
+                        stateCopy = 'La recomendación fue descartada. Puedes aprobarla después si cambia la decisión operativa.';
+                        controls = `
+                            <button type="button" class="wfm-action-btn" onclick="toggleWfmMoveSimulation('${wfmEsc(move.actionId)}')">Ver simulación</button>
+                            <button type="button" class="wfm-action-btn accept" onclick="decideWfmMove('${wfmEsc(move.actionId)}','accepted', this)">Aprobar ahora</button>`;
+                    }
+
                     return `
                         <article class="wfm-action-card${cls}" data-action-card="${wfmEsc(move.actionId)}">
                             <div class="wfm-action-top">
                                 <div><div class="wfm-action-agent">${wfmEsc(move.agent || 'Agente')}</div><div class="wfm-action-campaign">${wfmEsc(move.campaign || '')} · ${wfmEsc(move.date || '')} · ${wfmEsc(move.day || '')}</div></div>
-                                ${decisionBadge || '<span class="wfm-action-safety">Sin déficit nuevo</span>'}
+                                ${decisionBadge}
                             </div>
                             <div class="wfm-action-schedule"><span>${wfmEsc(move.currentSchedule || '—')}</span><span>→</span><strong>${wfmEsc(move.proposedSchedule || '—')}</strong><span>(${Number(move.deltaMinutes||0) > 0 ? '+' : ''}${Number(move.deltaMinutes||0)} min)</span></div>
                             <div class="wfm-action-impact">Impacto estimado: reduce ${Number(move.deficitReduction || 0).toFixed(0)} HC-intervalo de déficit.</div>
-                            <div class="wfm-action-controls">
-                                <button type="button" class="wfm-action-btn" onclick="toggleWfmMoveSimulation('${wfmEsc(move.actionId)}')">Simular impacto</button>
-                                <button type="button" class="wfm-action-btn accept" onclick="decideWfmMove('${wfmEsc(move.actionId)}','accepted')">Aprobar recomendación</button>
-                                <button type="button" class="wfm-action-btn reject" onclick="decideWfmMove('${wfmEsc(move.actionId)}','rejected')">Descartar</button>
-                            </div>
+                            <div class="wfm-action-state-copy">${stateCopy}</div>
+                            <div class="wfm-action-controls">${controls}</div>
                             <div id="wfmMoveSim_${wfmEsc(move.actionId)}" class="wfm-move-simulation hidden">
                                 ${(move.impactIntervals || []).length ? (move.impactIntervals || []).map(row => `
                                     <div class="wfm-sim-row"><span>${wfmEsc(row.date || '')} ${wfmEsc(row.interval || '')}</span><span>${wfmEsc(row.campaign || '')}</span><strong>${Number(row.beforeGap||0).toFixed(0)} → ${Number(row.afterGap||0).toFixed(0)} HC</strong></div>
@@ -6239,7 +6356,7 @@
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Roster disponible</div><div class="wfm-quality-value">${quality.rosterAvailable === false ? 'No confirmado' : `${Number(quality.rosterAgents || 0)} agentes`}</div></div>
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'historico.xlsx')}</div></div>
                     </div>
-                    <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Nexo no inventará ese dato.</div>
+                    <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Frank no inventará ese dato.</div>
                 </section>`;
 
             container.innerHTML = htmlOut;
@@ -6249,9 +6366,21 @@
             document.getElementById(`wfmMoveSim_${actionId}`)?.classList.toggle('hidden');
         }
 
-        async function decideWfmMove(actionId, decision) {
+        async function decideWfmMove(actionId, decision, buttonEl = null) {
             const move = wfmPlanMovesById[actionId];
             if (!move) return;
+
+            const labels = {
+                accepted:'Aprobando…',
+                rejected:'Registrando…',
+                applied:'Marcando aplicada…'
+            };
+            const originalText = buttonEl?.textContent || '';
+            if (buttonEl) {
+                buttonEl.disabled = true;
+                buttonEl.textContent = labels[decision] || 'Guardando…';
+            }
+
             try {
                 const context = buildWfmAssistantContext();
                 const response = await fetch('/api/wfm_action_decision', {
@@ -6268,11 +6397,23 @@
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'No se pudo registrar la decisión.');
+
                 await loadWfmDecisionLog();
                 renderWfmPlanWorkspace(wfmCurrentPlanPayload);
+
+                if (decision === 'accepted') {
+                    showWfmToast('Movimiento aprobado y registrado. Quedó pendiente de aplicación por Operaciones.', 'success');
+                } else if (decision === 'applied') {
+                    showWfmToast('Movimiento marcado como aplicado y registrado en la bitácora.', 'success');
+                } else {
+                    showWfmToast('Movimiento descartado. La decisión quedó registrada en la bitácora.', 'success');
+                }
             } catch (error) {
-                appendWfmAssistantMessage('bot', `No pude registrar la decisión: ${error.message}`);
-                showWfmAssistantView('chat');
+                if (buttonEl) {
+                    buttonEl.disabled = false;
+                    buttonEl.textContent = originalText;
+                }
+                showWfmToast(`No pude registrar la decisión: ${error.message}`, 'error');
             }
         }
 
@@ -6299,10 +6440,10 @@
 
             let out = `
                 <div class="wfm-log-kpis">
-                    <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Resueltas</div><div class="wfm-log-kpi-value">${Number(stats.resolved||0)}</div></div>
                     <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Aprobadas</div><div class="wfm-log-kpi-value">${Number(stats.accepted||0)}</div></div>
+                    <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Pendientes</div><div class="wfm-log-kpi-value">${Number(stats.pendingApplication||0)}</div></div>
+                    <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Aplicadas</div><div class="wfm-log-kpi-value">${Number(stats.applied||0)}</div></div>
                     <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Autonomía Ops*</div><div class="wfm-log-kpi-value">${Number(stats.opsAutonomy||0)}%</div></div>
-                    <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Impacto aceptado</div><div class="wfm-log-kpi-value">${Number(stats.acceptedEstimatedDeficitReduction||0).toFixed(0)}</div></div>
                 </div>
                 <section class="wfm-v5-section" style="margin-top:0">
                     <div class="wfm-v5-section-head"><div><div class="wfm-v5-section-title">Bitácora de decisiones</div><div class="wfm-v5-section-copy">*Autonomía Ops = porcentaje de decisiones registradas desde modo Operaciones sobre las recomendaciones resueltas.</div></div></div>
@@ -6313,10 +6454,12 @@
             } else {
                 out += rows.map(r => {
                     const m = r.move || {};
-                    const status = r.decision || '';
+                    const applied = r.implementationStatus === 'applied';
+                    const status = applied ? 'applied' : (r.decision || '');
+                    const statusLabel = applied ? 'Aplicada' : r.decision === 'accepted' ? 'Aprobada · pendiente' : 'Descartada';
                     return `
                         <div class="wfm-log-row">
-                            <div class="wfm-log-row-top"><div><div class="wfm-log-title">${wfmEsc(m.agent || 'Acción')} · ${wfmEsc(m.campaign || '')}</div><div class="wfm-log-meta">${wfmEsc(m.date || '')} · ${wfmEsc(m.currentSchedule || '')} → ${wfmEsc(m.proposedSchedule || '')} · ${wfmEsc(r.scopeLabel || '')}</div></div><span class="wfm-log-status ${wfmEsc(status)}">${status === 'accepted' ? 'Aprobada' : 'Descartada'}</span></div>
+                            <div class="wfm-log-row-top"><div><div class="wfm-log-title">${wfmEsc(m.agent || 'Acción')} · ${wfmEsc(m.campaign || '')}</div><div class="wfm-log-meta">${wfmEsc(m.date || '')} · ${wfmEsc(m.currentSchedule || '')} → ${wfmEsc(m.proposedSchedule || '')} · ${wfmEsc(r.scopeLabel || '')}</div></div><span class="wfm-log-status ${wfmEsc(status)}">${statusLabel}</span></div>
                             <div class="wfm-log-meta">Registrada ${wfmEsc(r.updatedAt || '')} · modo ${wfmEsc(r.actorMode || 'wfm')} · impacto estimado ${Number(m.deficitReduction||0).toFixed(0)} HC-intervalo</div>
                         </div>`;
                 }).join('');
@@ -6732,7 +6875,7 @@
                     </span>
                 </div>
                 <div>
-                    <p class="wfm-assistant-title">Nexo · WFM Copilot</p>
+                    <p class="wfm-assistant-title">Frank · WFM Copilot</p>
                     <p class="wfm-assistant-subtitle">Tu copiloto para entender la proyección y convertirla en acciones claras.</p>
                 </div>
             </div>
@@ -6763,7 +6906,7 @@
             <p id="wfmScopeHint" class="wfm-scope-hint">Analiza los días seleccionados completos. El filtro de intervalo no limita la recomendación.</p>
         </div>
 
-        <div class="wfm-workspace-tabs" role="tablist" aria-label="Nexo workspace">
+        <div class="wfm-workspace-tabs" role="tablist" aria-label="Frank workspace">
             <button id="wfmViewChatBtn" type="button" class="wfm-workspace-tab is-active" role="tab" aria-selected="true" onclick="showWfmAssistantView('chat')">Chat</button>
             <button id="wfmViewPlanBtn" type="button" class="wfm-workspace-tab" role="tab" aria-selected="false" onclick="showWfmAssistantView('plan')">Plan <span id="wfmPlanCount" class="wfm-workspace-tab-count">0</span></button>
             <button id="wfmViewLogBtn" type="button" class="wfm-workspace-tab" role="tab" aria-selected="false" onclick="showWfmAssistantView('log')">Bitácora <span id="wfmLogCount" class="wfm-workspace-tab-count">0</span></button>
@@ -6804,7 +6947,7 @@
                             <b class="wfm-mascot-mouth"></b>
                         </span>
                     </div>
-                    <div id="wfmWelcomeTitle" class="wfm-welcome-title">Hola, soy Nexo.</div>
+                    <div id="wfmWelcomeTitle" class="wfm-welcome-title">Hola, soy Frank.</div>
                     <div id="wfmWelcomeCopy" class="wfm-welcome-copy">Antes de analizar la operación, quiero darte la bienvenida. Cuando quieras, iniciamos una conversación sobre el periodo que tengas seleccionado.</div>
                     <div id="wfmWelcomeContext" class="wfm-welcome-context"></div>
                     <div class="wfm-welcome-actions">
@@ -6817,7 +6960,7 @@
         <div id="wfmAssistantPlanView" class="wfm-workspace-view wfm-plan-workspace hidden" role="tabpanel">
             <div class="wfm-plan-empty">
                 <div class="wfm-plan-empty-title">Plan de acción listo cuando exista presión de capacidad</div>
-                <div class="wfm-plan-empty-copy">Nexo mostrará riesgos, movimientos de roster, simulación antes/después y controles de aprobación. No administra desconexiones de break o lunch.</div>
+                <div class="wfm-plan-empty-copy">Frank mostrará riesgos, movimientos de roster, simulación antes/después y controles de aprobación. No administra desconexiones de break o lunch.</div>
             </div>
         </div>
 
@@ -6835,8 +6978,9 @@
                     <svg viewBox="0 0 24 24"><path d="m4 12 16-7-5 14-3-5-8-2Z"/><path d="m12 14 8-9"/></svg>
                 </button>
             </div>
-            <p class="wfm-assistant-input-help">Recomendaciones de planeación. Nexo no gestiona break/lunch; valida jornada, skills y restricciones antes de aplicar.</p>
+            <p class="wfm-assistant-input-help">Recomendaciones de planeación. Frank no gestiona break/lunch; valida jornada, skills y restricciones antes de aplicar.</p>
         </div>
+        <div id="wfmToast" class="wfm-toast" role="status" aria-live="polite"></div>
     </section>
 
 </body>
