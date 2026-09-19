@@ -2100,6 +2100,177 @@
         }
         .wfm-autopilot-action.hidden { display:none !important; }
 
+
+        /* ================================================================
+           WFM COPILOT V4 · CHAT PROFESIONAL + NEXO + ALCANCE DE ANÁLISIS
+           ================================================================ */
+        .wfm-assistant-panel {
+            width:min(488px, calc(100vw - 32px)) !important;
+            max-height:min(790px, calc(100vh - 112px)) !important;
+            border-radius:22px !important;
+        }
+        .wfm-assistant-head { padding:15px 16px 14px !important; align-items:center !important; }
+        .wfm-assistant-head-main { align-items:center !important; gap:12px !important; }
+        .wfm-assistant-head-main > div:last-child { min-width:0; }
+        .wfm-assistant-title { font-size:14px !important; }
+        .wfm-assistant-subtitle { max-width:330px; font-size:9px !important; color:#C6D8E5 !important; }
+        .wfm-assistant-context { padding:9px 14px !important; gap:6px !important; }
+        .wfm-context-chip { max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .wfm-context-chip.is-scope { background:#E3F1EE; border-color:#C7DFD9; color:#2C7068; }
+        .wfm-context-chip.is-period { background:#EEF1F9; border-color:#D5DBEC; color:#5367A6; }
+
+        .wfm-scope-wrap {
+            padding:10px 13px 0;
+            background:#F5F8FA;
+        }
+        .wfm-scope-head {
+            display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:7px;
+        }
+        .wfm-scope-label {
+            color:#52697F; font-size:8px; font-weight:900; text-transform:uppercase; letter-spacing:.10em;
+        }
+        .wfm-scope-help { color:#8B9AAA; font-size:8px; text-align:right; }
+        .wfm-scope-switch {
+            display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px;
+            padding:4px; border-radius:12px; border:1px solid #D5E0E8; background:#EAF0F4;
+        }
+        .wfm-scope-btn {
+            min-height:34px; border-radius:9px; color:#63778A; background:transparent;
+            font-size:9px; font-weight:850; transition:.16s ease;
+        }
+        .wfm-scope-btn:hover { background:rgba(255,255,255,.65); color:#2F4A60; }
+        .wfm-scope-btn.is-active {
+            background:#FFFFFF; color:#24465C; border:1px solid #D3DFE8;
+            box-shadow:0 7px 16px -14px rgba(25,52,73,.35), inset 0 1px 0 rgba(255,255,255,.9);
+        }
+        .wfm-scope-hint {
+            min-height:29px; padding:7px 2px 8px; color:#7A8B9D; font-size:8px; line-height:1.4;
+        }
+
+        .wfm-assistant-quick {
+            display:grid !important;
+            grid-template-columns:repeat(2,minmax(0,1fr));
+            gap:7px !important;
+            overflow:visible !important;
+            padding:10px 13px 8px !important;
+        }
+        .wfm-quick-btn {
+            min-width:0 !important; width:100%; white-space:normal !important;
+            min-height:38px !important; padding:7px 10px !important; line-height:1.25;
+            text-align:left;
+        }
+
+        .wfm-assistant-messages {
+            min-height:210px !important;
+            padding:11px 13px 14px !important;
+            gap:12px !important;
+            overscroll-behavior:contain;
+        }
+        .wfm-msg { min-width:0; }
+        .wfm-msg.bot { align-items:flex-start; }
+        .wfm-msg-bubble {
+            min-width:0;
+            max-width:calc(100% - 42px) !important;
+            overflow-wrap:anywhere;
+            word-break:normal;
+            white-space:normal !important;
+            font-size:10.5px !important;
+            line-height:1.58 !important;
+        }
+        .wfm-msg.user .wfm-msg-bubble { max-width:88% !important; }
+        .wfm-msg-content { white-space:pre-wrap; }
+        .wfm-msg-scope-meta {
+            margin-top:8px; padding-top:7px; border-top:1px solid #EDF1F5;
+            color:#8998A8; font-size:7.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase;
+        }
+        .wfm-msg-avatar {
+            width:30px; height:30px; flex:0 0 30px; display:flex; align-items:center; justify-content:center;
+            border-radius:10px; border:1px solid #D4E0E8; background:linear-gradient(145deg,#EEF5F6,#E7EEF5);
+        }
+
+        .wfm-assistant-cards { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+        .wfm-assistant-card, .wfm-assistant-action, .wfm-plan-move { min-width:0; overflow-wrap:anywhere; }
+        .wfm-assistant-action { font-size:9px !important; }
+        .wfm-plan-head-copy, .wfm-plan-move-top > div { min-width:0; }
+        .wfm-plan-schedule { overflow-wrap:anywhere; }
+        .wfm-plan-impact-row { grid-template-columns:92px minmax(0,1fr) auto !important; }
+        .wfm-plan-impact-row > * { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+        .wfm-assistant-input-wrap {
+            position:sticky; bottom:0; z-index:2;
+            padding:10px 13px 12px !important;
+            background:rgba(241,245,248,.98) !important;
+            backdrop-filter:blur(8px);
+        }
+        .wfm-assistant-input { font-size:12px !important; min-height:44px !important; }
+        .wfm-assistant-input::placeholder { color:#95A3B1; }
+
+        /* Nexo: mascota WFM original, discreta y corporativa */
+        .wfm-mascot {
+            position:relative; width:44px; height:44px; flex:0 0 44px;
+            display:flex; align-items:center; justify-content:center;
+            animation:wfmNexoFloat 3.6s ease-in-out infinite;
+        }
+        .wfm-mascot-halo {
+            position:absolute; inset:2px; border-radius:50%;
+            border:1px solid rgba(157,229,216,.34);
+            box-shadow:0 0 0 5px rgba(157,229,216,.055);
+            animation:wfmNexoHalo 4.2s ease-in-out infinite;
+        }
+        .wfm-mascot-face {
+            position:relative; width:31px; height:27px; border-radius:10px 10px 12px 12px;
+            border:1px solid rgba(255,255,255,.22);
+            background:linear-gradient(145deg,rgba(255,255,255,.16),rgba(255,255,255,.055));
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
+        }
+        .wfm-mascot-face::before {
+            content:''; position:absolute; left:50%; top:-5px; width:1px; height:5px;
+            background:#9DE5D8; transform:translateX(-50%);
+        }
+        .wfm-mascot-face::after {
+            content:''; position:absolute; left:50%; top:-8px; width:4px; height:4px; border-radius:50%;
+            background:#9DE5D8; transform:translateX(-50%);
+            box-shadow:0 0 8px rgba(157,229,216,.6);
+        }
+        .wfm-mascot-eye {
+            position:absolute; top:9px; width:4px; height:5px; border-radius:3px;
+            background:#B8F1E6; box-shadow:0 0 5px rgba(184,241,230,.45);
+            animation:wfmNexoBlink 5.2s infinite;
+        }
+        .wfm-mascot-eye.left { left:7px; }
+        .wfm-mascot-eye.right { right:7px; }
+        .wfm-mascot-mouth {
+            position:absolute; left:50%; bottom:6px; width:9px; height:3px; transform:translateX(-50%);
+            border-bottom:1.5px solid #9DE5D8; border-radius:0 0 8px 8px;
+        }
+        .wfm-mini-mascot { position:relative; width:19px; height:16px; display:block; border-radius:7px; background:#315B70; }
+        .wfm-mini-mascot::before,.wfm-mini-mascot::after {
+            content:''; position:absolute; top:6px; width:3px; height:3px; border-radius:50%; background:#A7E9DC;
+            animation:wfmNexoBlink 5.2s infinite;
+        }
+        .wfm-mini-mascot::before { left:4px; }
+        .wfm-mini-mascot::after { right:4px; }
+        .wfm-mini-mascot i { position:absolute; left:50%; top:-4px; width:1px; height:4px; background:#6DA79E; }
+        .wfm-mini-mascot b { position:absolute; left:50%; bottom:3px; width:6px; height:2px; transform:translateX(-50%); border-bottom:1px solid #A7E9DC; border-radius:50%; }
+        .wfm-mini-mascot.is-thinking { animation:wfmNexoThink .65s ease-in-out infinite alternate; }
+
+        @keyframes wfmNexoFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+        @keyframes wfmNexoHalo { 0%,100%{transform:scale(1);opacity:.72} 50%{transform:scale(1.06);opacity:1} }
+        @keyframes wfmNexoBlink { 0%,45%,49%,100%{transform:scaleY(1)} 47%{transform:scaleY(.12)} }
+        @keyframes wfmNexoThink { from{transform:translateY(1px) rotate(-2deg)} to{transform:translateY(-1px) rotate(2deg)} }
+
+        @media (prefers-reduced-motion:reduce) {
+            .wfm-mascot,.wfm-mascot-halo,.wfm-mascot-eye,.wfm-mini-mascot,.wfm-mini-mascot::before,.wfm-mini-mascot::after { animation:none !important; }
+        }
+        @media (max-width:640px) {
+            .wfm-assistant-panel { width:calc(100vw - 16px) !important; right:8px !important; }
+            .wfm-assistant-quick { grid-template-columns:1fr 1fr !important; }
+            .wfm-assistant-cards { grid-template-columns:1fr !important; }
+            .wfm-msg-bubble { max-width:calc(100% - 38px) !important; }
+            .wfm-plan-impact-row { grid-template-columns:78px minmax(0,1fr) !important; }
+            .wfm-plan-impact-row strong { grid-column:2; }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -4450,6 +4621,7 @@
         let wfmAutopilotLastSignature = '';
         let wfmAutopilotPayload = null;
         let wfmAutopilotRenderedSignature = '';
+        let wfmAnalysisScope = 'day'; // day | week | month
 
 
         function wfmAssistantContextKey() {
@@ -4459,6 +4631,7 @@
             return [
                 wfmDataVersion,
                 forecastMode,
+                wfmAnalysisScope,
                 compactSet(selectedMeses),
                 compactSet(selectedSemanas),
                 compactSet(selectedCampanas),
@@ -4499,11 +4672,14 @@
             launcher.classList.add(`is-${state}`);
             badge.classList.add(`is-${state}`);
 
+            const scopeShort = context?.scopeLabel || 'Diario';
             if (context?.worst) {
                 const gap = Math.abs(Math.round(Number(context.worst.gap || 0)));
-                textEl.textContent = state === 'critical' ? `WFM · faltan ${gap} HC` : `WFM · revisar ${gap} HC`;
+                textEl.textContent = state === 'critical'
+                    ? `${scopeShort} · faltan ${gap} HC`
+                    : `${scopeShort} · revisar ${gap} HC`;
             } else {
-                textEl.textContent = 'WFM · cobertura estable';
+                textEl.textContent = `${scopeShort} · cobertura estable`;
             }
         }
 
@@ -4516,6 +4692,9 @@
             launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
             if (open) {
                 updateWfmAssistantContextChips();
+                const meta = wfmAssistantScopeMeta();
+                const scopeHint = document.getElementById('wfmScopeHint');
+                if (scopeHint) scopeHint.textContent = meta.description;
                 setTimeout(() => document.getElementById('wfmAssistantInput')?.focus(), 80);
             }
         }
@@ -4524,19 +4703,76 @@
             return String(value || '').split(' ')[0].split('T')[0];
         }
 
+        function wfmAssistantScopeMeta() {
+            const months = Array.from(selectedMeses);
+            const weeks = Array.from(selectedSemanas);
+            const dates = Array.from(selectedFechas);
+
+            if (wfmAnalysisScope === 'month') {
+                return {
+                    key:'month',
+                    label:'Mensual',
+                    detail: months.length === 1 ? months[0] : `${months.length} meses`,
+                    description:'Analiza el mes seleccionado completo. Los filtros de semana, fecha e intervalo no limitan la recomendación.'
+                };
+            }
+            if (wfmAnalysisScope === 'week') {
+                return {
+                    key:'week',
+                    label:'Semanal',
+                    detail: weeks.length === 1 ? `Semana ${weeks[0]}` : `${weeks.length} semanas`,
+                    description:'Analiza las semanas seleccionadas completas. Los filtros de fecha e intervalo no limitan la recomendación.'
+                };
+            }
+            return {
+                key:'day',
+                label:'Diario',
+                detail: dates.length === 1 ? dates[0] : `${dates.length} días`,
+                description:'Analiza los días seleccionados completos. El filtro de intervalo no limita la recomendación.'
+            };
+        }
+
+        function setWfmAnalysisScope(scope) {
+            if (!['month','week','day'].includes(scope)) return;
+            if (wfmAnalysisScope === scope) return;
+            wfmAnalysisScope = scope;
+
+            document.querySelectorAll('[data-wfm-scope]').forEach(btn => {
+                const active = btn.dataset.wfmScope === scope;
+                btn.classList.toggle('is-active', active);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+
+            const meta = wfmAssistantScopeMeta();
+            const scopeHint = document.getElementById('wfmScopeHint');
+            if (scopeHint) scopeHint.textContent = meta.description;
+
+            invalidateWfmAssistantContext();
+            wfmAutopilotLastSignature = '';
+            wfmAutopilotPayload = null;
+            wfmAutopilotRenderedSignature = '';
+            updateWfmAssistantContextChips();
+            scheduleWfmAutopilot();
+        }
+
         function wfmAssistantFilteredRows() {
             if (!Array.isArray(globalData)) return [];
+
             return globalData.filter(item => {
-                const m = String(getProp(item, ['Mes'], ''));
-                const s = getWeekNumber(getProp(item, ['Fecha'], ''));
-                const c = String(getProp(item, ['Campaña', 'Campana'], 'General'));
-                const f = wfmAssistantSafeDate(getProp(item, ['Fecha'], ''));
-                const inv = String(getProp(item, ['Intervalo'], '00:00'));
-                return selectedMeses.has(m) &&
-                       selectedSemanas.has(s) &&
-                       selectedCampanas.has(c) &&
-                       selectedFechas.has(f) &&
-                       selectedIntervalos.has(inv);
+                const month = String(getProp(item, ['Mes'], ''));
+                const week = getWeekNumber(getProp(item, ['Fecha'], ''));
+                const campaign = String(getProp(item, ['Campaña', 'Campana'], 'General'));
+                const date = wfmAssistantSafeDate(getProp(item, ['Fecha'], ''));
+
+                if (!selectedMeses.has(month) || !selectedCampanas.has(campaign)) return false;
+
+                // El asistente solo trabaja en tres granularidades profesionales:
+                // mensual, semanal o diaria. Nunca usa el filtro de intervalo
+                // para recortar el análisis de recomendaciones.
+                if (wfmAnalysisScope === 'month') return true;
+                if (!selectedSemanas.has(week)) return false;
+                if (wfmAnalysisScope === 'week') return true;
+                return selectedFechas.has(date);
             });
         }
 
@@ -4614,23 +4850,28 @@
                 ? Math.round(avgCoverageSlots.reduce((acc,x) => acc + Math.min(200, x.coverage), 0) / avgCoverageSlots.length)
                 : 100;
 
-            // Para optimizar horarios usamos el día completo de las fechas más presionadas,
-            // aunque el usuario tenga filtrado un intervalo específico. Esto evita proponer un
-            // movimiento que arregle un hueco pero cree otro fuera de la franja visible.
-            const pressureDates = [...new Set(deficits.map(x => x.date).filter(Boolean))].slice(0, 4);
-            const fallbackDates = Array.from(selectedFechas).slice(0, 2);
-            const optimizationDates = pressureDates.length ? pressureDates : fallbackDates;
+            // Alcance de recomendaciones:
+            // Día: días seleccionados completos.
+            // Semana: semanas seleccionadas completas.
+            // Mes: meses seleccionados completos.
+            // Para mantener la optimización ágil, en semana/mes se priorizan
+            // las fechas con mayor presión, pero las métricas del análisis sí
+            // corresponden a todo el periodo.
+            const allScopeDates = [...new Set(rows.map(r => wfmAssistantSafeDate(getProp(r, ['Fecha'], ''))).filter(Boolean))].sort();
+            const pressureDates = [...new Set(deficits.map(x => x.date).filter(Boolean))];
+            const optimizationLimit = wfmAnalysisScope === 'month' ? 10 : wfmAnalysisScope === 'week' ? 7 : 7;
+            const optimizationDates = (wfmAnalysisScope === 'day'
+                ? allScopeDates
+                : [...pressureDates, ...allScopeDates].filter((v, i, arr) => arr.indexOf(v) === i)
+            ).slice(0, optimizationLimit);
             const optimizationMap = new Map();
 
-            (Array.isArray(globalData) ? globalData : []).forEach(r => {
-                const m = String(getProp(r, ['Mes'], ''));
-                const s = getWeekNumber(getProp(r, ['Fecha'], ''));
+            rows.forEach(r => {
                 const campaign = String(getProp(r, ['Campaña', 'Campana'], 'General'));
                 const date = wfmAssistantSafeDate(getProp(r, ['Fecha'], ''));
                 const interval = String(getProp(r, ['Intervalo'], '00:00'));
                 const channel = String(r.Canal || (forecastMode === 'chat' ? 'Chat' : 'Llamadas'));
 
-                if (!selectedMeses.has(m) || !selectedSemanas.has(s) || !selectedCampanas.has(campaign) || !selectedFechas.has(date)) return;
                 if (optimizationDates.length && !optimizationDates.includes(date)) return;
                 if (forecastMode !== 'general') {
                     const expected = forecastMode === 'chat' ? 'chat' : 'llamadas';
@@ -4648,8 +4889,16 @@
                 slot.actual = Math.max(slot.actual, actual);
             });
 
+            const scopeMeta = wfmAssistantScopeMeta();
+            const totalDeficitHCIntervals = slots.reduce((sum, x) => sum + Math.max(0, -Number(x.gap || 0)), 0);
             const result = {
                 mode: forecastMode,
+                analysisScope: wfmAnalysisScope,
+                scopeLabel: scopeMeta.label,
+                scopeDetail: scopeMeta.detail,
+                scopeDescription: scopeMeta.description,
+                scopeDates: allScopeDates,
+                totalDeficitHCIntervals: Math.round(totalDeficitHCIntervals),
                 contextSignature: contextKey,
                 filters: {
                     months: Array.from(selectedMeses).slice(0, 20),
@@ -4688,9 +4937,9 @@
             };
 
             const modeLabel = forecastMode === 'general' ? 'Consolidado' : forecastMode === 'chat' ? 'Chat' : 'Llamadas';
+            chip(ctx.scopeLabel || 'Diario', 'is-scope');
+            chip(ctx.scopeDetail || '', 'is-period');
             chip(modeLabel, 'is-mode');
-            if (ctx.filters.dates.length === 1) chip(ctx.filters.dates[0]);
-            else if (ctx.filters.dates.length > 1) chip(`${ctx.filters.dates.length} fechas`);
             if (ctx.filters.campaigns.length === 1) chip(ctx.filters.campaigns[0]);
             else if (ctx.filters.campaigns.length > 1) chip(`${ctx.filters.campaigns.length} campañas`);
             chip(ctx.worst ? `Peor gap ${ctx.worst.gap} HC` : 'Sin déficit');
@@ -4711,7 +4960,10 @@
             const action = document.getElementById('wfmAutopilotAction');
             const status = document.getElementById('wfmAutopilotStatus');
 
-            if (status) status.textContent = severity === 'critical' ? 'CRÍTICO' : severity === 'warning' ? 'ATENCIÓN' : 'ESTABLE';
+            if (status) {
+                const statusText = severity === 'critical' ? 'CRÍTICO' : severity === 'warning' ? 'ATENCIÓN' : 'ESTABLE';
+                status.textContent = `${ctx.scopeLabel || 'ANÁLISIS'} · ${statusText}`;
+            }
             if (title) {
                 title.textContent = payload?.headline || (ctx.worst
                     ? `${ctx.worst.channel} · ${ctx.worst.interval} · ${ctx.worst.gap} HC`
@@ -4911,11 +5163,29 @@
             const row = document.createElement('div');
             row.className = `wfm-msg ${role}`;
 
+            if (role === 'bot') {
+                const avatar = document.createElement('div');
+                avatar.className = 'wfm-msg-avatar';
+                avatar.setAttribute('aria-hidden', 'true');
+                avatar.innerHTML = '<span class="wfm-mini-mascot"><i></i><b></b></span>';
+                row.appendChild(avatar);
+            }
+
             const bubble = document.createElement('div');
             bubble.className = 'wfm-msg-bubble';
             const content = document.createElement('div');
+            content.className = 'wfm-msg-content';
             content.textContent = text;
             bubble.appendChild(content);
+
+            if (role === 'bot' && payload) {
+                const meta = document.createElement('div');
+                meta.className = 'wfm-msg-scope-meta';
+                const scopeLabel = payload.scopeLabel || buildWfmAssistantContext().scopeLabel;
+                const scopeDetail = payload.scopeDetail || buildWfmAssistantContext().scopeDetail;
+                meta.textContent = `${scopeLabel || 'Análisis'} · ${scopeDetail || 'periodo seleccionado'}`;
+                bubble.appendChild(meta);
+            }
 
             if (payload && Array.isArray(payload.cards) && payload.cards.length) {
                 const cardsWrap = document.createElement('div');
@@ -4976,7 +5246,7 @@
             if (!container) return null;
             const row = document.createElement('div');
             row.className = 'wfm-msg bot';
-            row.innerHTML = '<div class="wfm-msg-bubble"><span class="wfm-assistant-thinking">Analizando proyección <i></i><i></i><i></i></span></div>';
+            row.innerHTML = '<div class="wfm-msg-avatar" aria-hidden="true"><span class="wfm-mini-mascot is-thinking"><i></i><b></b></span></div><div class="wfm-msg-bubble"><span class="wfm-assistant-thinking">Analizando el periodo <i></i><i></i><i></i></span></div>';
             container.appendChild(row);
             container.scrollTop = container.scrollHeight;
             return row;
@@ -5090,6 +5360,15 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('[data-wfm-scope]').forEach(btn => {
+                const active = btn.dataset.wfmScope === wfmAnalysisScope;
+                btn.classList.toggle('is-active', active);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+            const initialScopeMeta = wfmAssistantScopeMeta();
+            const initialScopeHint = document.getElementById('wfmScopeHint');
+            if (initialScopeHint) initialScopeHint.textContent = initialScopeMeta.description;
+
             const input = document.getElementById('wfmAssistantInput');
             if (input) {
                 input.addEventListener('keydown', (event) => {
@@ -5113,17 +5392,35 @@
     <section id="wfmAssistantPanel" class="wfm-assistant-panel hidden" aria-label="Asistente WFM">
         <div class="wfm-assistant-head">
             <div class="wfm-assistant-head-main">
-                <div class="wfm-assistant-mark">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9h8M8 13h5"/><path d="M7 18.5 3.5 21V6.8A1.8 1.8 0 0 1 5.3 5h13.4a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H7Z"/></svg>
+                <div class="wfm-mascot" aria-hidden="true">
+                    <span class="wfm-mascot-halo"></span>
+                    <span class="wfm-mascot-face">
+                        <i class="wfm-mascot-eye left"></i>
+                        <i class="wfm-mascot-eye right"></i>
+                        <b class="wfm-mascot-mouth"></b>
+                    </span>
                 </div>
                 <div>
-                    <p class="wfm-assistant-title">Asistente WFM</p>
-                    <p class="wfm-assistant-subtitle">Autopiloto operativo: detecta riesgo, analiza roster y prepara movimientos sin esperar una pregunta.</p>
+                    <p class="wfm-assistant-title">Nexo · WFM Copilot</p>
+                    <p class="wfm-assistant-subtitle">Autopiloto operativo para capacidad, cobertura y movimientos de roster.</p>
                 </div>
             </div>
             <button type="button" class="wfm-assistant-close" onclick="toggleWfmAssistant(false)" aria-label="Cerrar asistente">
                 <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg>
             </button>
+        </div>
+
+        <div class="wfm-scope-wrap">
+            <div class="wfm-scope-head">
+                <span class="wfm-scope-label">Alcance de recomendaciones</span>
+                <span class="wfm-scope-help">Solo Mes · Semana · Día</span>
+            </div>
+            <div class="wfm-scope-switch" role="group" aria-label="Alcance del análisis WFM">
+                <button type="button" class="wfm-scope-btn" data-wfm-scope="month" aria-pressed="false" onclick="setWfmAnalysisScope('month')">Mes</button>
+                <button type="button" class="wfm-scope-btn" data-wfm-scope="week" aria-pressed="false" onclick="setWfmAnalysisScope('week')">Semana</button>
+                <button type="button" class="wfm-scope-btn is-active" data-wfm-scope="day" aria-pressed="true" onclick="setWfmAnalysisScope('day')">Día</button>
+            </div>
+            <p id="wfmScopeHint" class="wfm-scope-hint">Analiza los días seleccionados completos. El filtro de intervalo no limita la recomendación.</p>
         </div>
 
         <div id="wfmAssistantContext" class="wfm-assistant-context">
@@ -5144,8 +5441,8 @@
         </div>
 
         <div class="wfm-assistant-quick">
-            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('¿Dónde tengo el mayor déficit?')">Mayor déficit</button>
-            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('Optimiza mis horarios y dime qué personas son candidatas para mejorar la cobertura')">Optimizar horarios</button>
+            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('¿Dónde tengo el mayor déficit?')">Riesgo principal</button>
+            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('Optimiza mis horarios y dime qué personas son candidatas para mejorar la cobertura')">Optimizar roster</button>
             <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('¿Por qué necesito ese HC requerido?')">Explicar HC</button>
             <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('Dame un resumen operativo con prioridades')">Resumen operativo</button>
         </div>
@@ -5153,23 +5450,24 @@
         <div id="wfmAssistantMessages" class="wfm-assistant-messages" aria-live="polite">
             <div class="wfm-msg bot">
                 <div class="wfm-msg-bubble">
-                    Hola. Puedo revisar déficit, cobertura, requerimiento y oportunidades de movimiento usando la proyección que estás viendo.
-                    <div class="wfm-msg-meta">Selecciona una pregunta rápida o escribe tu duda.</div>
+                    Soy Nexo. Analizo el periodo completo que elijas —mes, semana o día— y convierto la proyección en acciones operativas.
+                    <div class="wfm-msg-meta">No uso el filtro de intervalo para recortar las recomendaciones.</div>
                 </div>
             </div>
         </div>
 
         <div class="wfm-assistant-input-wrap">
             <div class="wfm-assistant-input-row">
-                <textarea id="wfmAssistantInput" class="wfm-assistant-input" rows="1" maxlength="500" placeholder="Ej. ¿Qué movimientos puedo hacer de 14:00 a 17:00?"></textarea>
+                <textarea id="wfmAssistantInput" class="wfm-assistant-input" rows="1" maxlength="500" placeholder="Ej. ¿Qué movimientos recomiendas para este periodo?"></textarea>
                 <button id="wfmAssistantSend" type="button" class="wfm-assistant-send" onclick="sendWfmAssistantQuestion()" aria-label="Enviar pregunta">
                     <svg viewBox="0 0 24 24"><path d="m4 12 16-7-5 14-3-5-8-2Z"/><path d="m12 14 8-9"/></svg>
                 </button>
             </div>
-            <p class="wfm-assistant-input-help">Las simulaciones no modifican el roster. Valida jornada, breaks/comidas, skills y restricciones antes de aplicar.</p>
+            <p class="wfm-assistant-input-help">Nexo recomienda y simula; no modifica el roster. Valida jornada, descansos, skills y restricciones antes de aplicar.</p>
         </div>
     </section>
 
 </body>
 </html>
+
 
