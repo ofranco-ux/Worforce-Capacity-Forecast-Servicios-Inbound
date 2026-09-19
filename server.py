@@ -1658,6 +1658,9 @@ def wfm_assistant():
             return jsonify({'error': 'Escribe una pregunta para el asistente.'}), 400
 
         q = _assistant_norm(question)
+        analysis_scope = str(context.get('analysisScope') or 'day').lower()
+        scope_label = str(context.get('scopeLabel') or {'month':'Mensual','week':'Semanal','day':'Diario'}.get(analysis_scope, 'Diario'))
+        scope_detail = str(context.get('scopeDetail') or 'periodo seleccionado')
         deficits = context.get('deficits') or []
         surpluses = context.get('surpluses') or []
         worst = context.get('worst') or None
@@ -1699,6 +1702,9 @@ def wfm_assistant():
 
             return jsonify({
                 'autonomous': True,
+                'analysisScope': analysis_scope,
+                'scopeLabel': scope_label,
+                'scopeDetail': scope_detail,
                 'severity': severity,
                 'headline': headline,
                 'reply': reply,
@@ -1713,7 +1719,14 @@ def wfm_assistant():
             reply = metric_answer
             if worst:
                 reply += f" En tu filtro actual, el punto más presionado está en {worst.get('date','')} a las {worst.get('interval','')}, con cobertura de {int(round(float(worst.get('coverage',0))))}%."
-            return jsonify({'reply': reply, 'cards': cards, 'actions': [], 'note': note}), 200
+            return jsonify({
+                'reply': reply,
+                'scopeLabel': scope_label,
+                'scopeDetail': scope_detail,
+                'cards': cards,
+                'actions': [],
+                'note': note
+            }), 200
 
         movement_terms = ['mover', 'movimiento', 'movimientos', 'horario', 'horarios', 'break', 'comida', 'turno', 'reacomodar', 'redistribuir', 'ajuste']
         deficit_terms = ['déficit', 'deficit', 'faltante', 'falta', 'riesgo', 'cobertura', 'crítico', 'critico']
@@ -1761,6 +1774,8 @@ def wfm_assistant():
             )
             return jsonify({
                 'reply': reply,
+                'scopeLabel': scope_label,
+                'scopeDetail': scope_detail,
                 'cards': cards,
                 'actions': actions,
                 'schedule_plan': schedule_plan,
@@ -1824,7 +1839,14 @@ def wfm_assistant():
                     'AHT, merma, SL, ASA, concurrencia o prioridades operativas.'
                 )
 
-        return jsonify({'reply': reply, 'cards': cards, 'actions': actions, 'note': note}), 200
+        return jsonify({
+            'reply': reply,
+            'scopeLabel': scope_label,
+            'scopeDetail': scope_detail,
+            'cards': cards,
+            'actions': actions,
+            'note': note
+        }), 200
     except Exception as e:
         return jsonify({'error': f'No se pudo ejecutar el asistente WFM: {str(e)}'}), 500
 
