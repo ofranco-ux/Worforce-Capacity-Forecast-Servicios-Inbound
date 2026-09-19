@@ -5,6 +5,8 @@ import gc
 import re
 import json
 import threading
+import hashlib
+import time
 from functools import lru_cache
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_from_directory, make_response
@@ -34,6 +36,10 @@ _FORECAST_MEMORY_CACHE = {'llamadas': None, 'chat': None}
 _FORECAST_CACHE_GENERATION = {'llamadas': 0, 'chat': 0}
 _FORECAST_CACHE_LOCK = threading.RLock()
 _EXCEL_INFO_CACHE = {}
+_ASSISTANT_PLAN_CACHE = {}
+_ASSISTANT_PLAN_CACHE_LOCK = threading.RLock()
+_ASSISTANT_PLAN_CACHE_MAX = 64
+_ASSISTANT_PLAN_CACHE_TTL = 600
 
 def _cache_path(mode):
     return CACHE_FILE_CHAT if str(mode).lower() == 'chat' else CACHE_FILE_LLAMADAS
@@ -1315,6 +1321,117 @@ def _assistant_improved_intervals(before, after, limit=10):
     improvements.sort(key=lambda x: (-x['improvement'], x['date'], x['interval']))
     return improvements[:limit]
 
+
+def _assistant_context_signature(context, excel_path, max_moves):
+    client_sig = str(context.get('contextSignature') or '').strip()
+    excel_sig = _excel_signature(excel_path)
+    if client_sig:
+        base = f"{client_sig}|{excel_sig}|{int(max_moves)}"
+        return hashlib.sha1(base.encode('utf-8')).hexdigest()
+
+    slots = context.get('optimizationSlots') or context.get('campaignSlots') or []
+    compact = []
+    for row in slots:
+        compact.append((
+            str(row.get('date', ''))[:10],
+            str(row.get('interval', '')),
+            normalizar_nombre_campana(row.get('campaign', '')),
+            _assistant_norm_channel(row.get('channel', '')),
+            round(float(row.get('required', 0) or 0), 2),
+            round(float(row.get('actual', 0) or 0), 2)
+        ))
+    compact.sort()
+    payload = {
+        'mode': context.get('mode'),
+        'worst': context.get('worst'),
+        'slots': compact,
+        'excel': excel_sig,
+        'moves': int(max_moves)
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha1(raw.encode('utf-8')).hexdigest()
+
+def _assistant_plan_cache_get(key):
+    now = time.time()
+    with _ASSISTANT_PLAN_CACHE_LOCK:
+        item = _ASSISTANT_PLAN_CACHE.get(key)
+        if not item:
+            return None
+        created, value = item
+        if now - created > _ASSISTANT_PLAN_CACHE_TTL:
+            _ASSISTANT_PLAN_CACHE.pop(key, None)
+            return None
+        return value
+
+def _assistant_plan_cache_set(key, value):
+    now = time.time()
+    with _ASSISTANT_PLAN_CACHE_LOCK:
+        _ASSISTANT_PLAN_CACHE[key] = (now, value)
+        if len(_ASSISTANT_PLAN_CACHE) > _ASSISTANT_PLAN_CACHE_MAX:
+            oldest = sorted(_ASSISTANT_PLAN_CACHE.items(), key=lambda kv: kv[1][0])
+            for stale_key, _ in oldest[:max(1, len(oldest) - _ASSISTANT_PLAN_CACHE_MAX)]:
+                _ASSISTANT_PLAN_CACHE.pop(stale_key, None)
+    return value
+
+def _assistant_candidate_effect(state, cand, current_metrics):
+    old_set = set(cand['oldIntervals'])
+    new_set = set(cand['newIntervals'])
+    lost = old_set - new_set
+    gained = new_set - old_set
+
+    deficit_before = 0.0
+    deficit_after = 0.0
+    worst_relief = 0.0
+    touched = False
+
+    for interval, delta in [(x, -1.0) for x in lost] + [(x, 1.0) for x in gained]:
+        key = (cand['date'], cand['campaignNorm'], cand['channelNorm'], interval)
+        row = state.get(key)
+        if not row:
+            continue
+        touched = True
+        req = float(row['required'])
+        actual = float(row['actual'])
+        before_gap = actual - req
+        after_actual = max(0.0, actual + delta)
+        after_gap = after_actual - req
+
+        # Never create a brand-new deficit in a previously covered interval.
+        if before_gap >= 0 and after_gap < 0:
+            return None
+
+        deficit_before += max(0.0, -before_gap)
+        deficit_after += max(0.0, -after_gap)
+
+        if before_gap <= float(current_metrics.get('worst_gap', 0)) + 1e-9 and after_gap > before_gap:
+            worst_relief = max(worst_relief, after_gap - before_gap)
+
+    if not touched:
+        return None
+
+    reduction = deficit_before - deficit_after
+    if reduction <= 0:
+        return None
+
+    score = reduction * 100.0 + worst_relief * 12.0 - (abs(cand['deltaMinutes']) / 30.0)
+    return {
+        'score': score,
+        'reduction': reduction,
+        'worst_relief': worst_relief
+    }
+
+def _assistant_apply_shift_inplace(state, cand):
+    old_set = set(cand['oldIntervals'])
+    new_set = set(cand['newIntervals'])
+    for interval in old_set - new_set:
+        key = (cand['date'], cand['campaignNorm'], cand['channelNorm'], interval)
+        if key in state:
+            state[key]['actual'] = max(0.0, float(state[key]['actual']) - 1.0)
+    for interval in new_set - old_set:
+        key = (cand['date'], cand['campaignNorm'], cand['channelNorm'], interval)
+        if key in state:
+            state[key]['actual'] = float(state[key]['actual']) + 1.0
+
 def _assistant_optimize_roster(context, max_moves=6):
     slots = context.get('optimizationSlots') or context.get('campaignSlots') or []
     if not isinstance(slots, list) or not slots:
@@ -1328,24 +1445,41 @@ def _assistant_optimize_roster(context, max_moves=6):
     if not excel_path:
         return {'available': False, 'reason': 'No se encontró el Excel fuente del roster.', 'moves': []}
 
+    cache_key = _assistant_context_signature(context, excel_path, max_moves)
+    cached_plan = _assistant_plan_cache_get(cache_key)
+    if cached_plan is not None:
+        return cached_plan
+
     roster = _assistant_roster_detail(excel_path)
     if not roster.get('available'):
-        return {'available': False, 'reason': roster.get('reason') or 'Roster no disponible.', 'moves': []}
+        return _assistant_plan_cache_set(cache_key, {
+            'available': False,
+            'reason': roster.get('reason') or 'Roster no disponible.',
+            'moves': [],
+            'cached': False
+        })
 
     baseline = _assistant_optimizer_state(slots)
     if not baseline:
-        return {'available': False, 'reason': 'No fue posible construir la cobertura base.', 'moves': []}
+        return _assistant_plan_cache_set(cache_key, {
+            'available': False,
+            'reason': 'No fue posible construir la cobertura base.',
+            'moves': [],
+            'cached': False
+        })
 
     baseline_metrics = _assistant_state_metrics(baseline)
     if baseline_metrics['total_deficit'] <= 0:
-        return {
+        return _assistant_plan_cache_set(cache_key, {
             'available': True,
             'reason': 'La selección no tiene déficit que requiera movimientos.',
             'baseline': baseline_metrics,
             'after': baseline_metrics,
             'moves': [],
-            'impactIntervals': []
-        }
+            'impactIntervals': [],
+            'candidateCount': 0,
+            'cached': False
+        })
 
     active_campaigns = {key[1] for key in baseline.keys()}
     active_dates = sorted({key[0] for key in baseline.keys()})
@@ -1355,6 +1489,15 @@ def _assistant_optimize_roster(context, max_moves=6):
     if not target_channel:
         mode = _assistant_norm(context.get('mode', ''))
         target_channel = 'chat' if mode == 'chat' else ('llamadas' if mode == 'llamadas' else (channels[0] if len(channels) == 1 else ''))
+
+    # Index channels once instead of scanning the whole state for every agent/date.
+    state_channels_by_campaign_date = {}
+    baseline_deficit_keys = set()
+    for key, row in baseline.items():
+        date, campaign_norm, channel_norm, interval = key
+        state_channels_by_campaign_date.setdefault((date, campaign_norm), set()).add(channel_norm)
+        if float(row['actual']) - float(row['required']) < 0:
+            baseline_deficit_keys.add(key)
 
     candidate_instances = []
     for roster_agent in roster.get('agents', []):
@@ -1372,8 +1515,7 @@ def _assistant_optimize_roster(context, max_moves=6):
             if not sched:
                 continue
 
-            # Resolve channel for this campaign/date from actual state.
-            state_channels = sorted({k[2] for k in baseline if k[0] == date and k[1] == campaign_norm})
+            state_channels = sorted(state_channels_by_campaign_date.get((date, campaign_norm), set()))
             if target_channel and target_channel in state_channels:
                 channel_norm = target_channel
             elif roster_channel and roster_channel in state_channels:
@@ -1381,7 +1523,6 @@ def _assistant_optimize_roster(context, max_moves=6):
             elif len(state_channels) == 1:
                 channel_norm = state_channels[0]
             else:
-                # In consolidated mode, optimize the most pressured channel only.
                 channel_norm = target_channel or (state_channels[0] if state_channels else '')
             if not channel_norm:
                 continue
@@ -1392,7 +1533,6 @@ def _assistant_optimize_roster(context, max_moves=6):
                 continue
 
             for delta in (-90, -60, -30, 30, 60, 90):
-                # Keep the shift start on the same calendar day. Overnight end is allowed.
                 new_start_abs = start + delta
                 end_abs = end if end > start else end + (24 * 60)
                 new_end_abs = end_abs + delta
@@ -1406,9 +1546,14 @@ def _assistant_optimize_roster(context, max_moves=6):
                 new_intervals = _assistant_span_intervals(new_start, new_end)
                 if not new_intervals:
                     continue
-
-                # Do not propose coverage outside the configured service window.
                 if any(not esta_en_ventana_servicio(roster_agent.get('campaign', ''), interval) for interval in new_intervals):
+                    continue
+
+                old_set, new_set = set(old_intervals), set(new_intervals)
+                gained = new_set - old_set
+
+                # Major pruning: only evaluate moves that add coverage to a known deficit.
+                if not any((date, campaign_norm, channel_norm, inv) in baseline_deficit_keys for inv in gained):
                     continue
 
                 candidate_instances.append({
@@ -1419,10 +1564,6 @@ def _assistant_optimize_roster(context, max_moves=6):
                     'channel': channel_norm.title(),
                     'date': date,
                     'day': day_name,
-                    'start': start,
-                    'end': end,
-                    'newStart': new_start,
-                    'newEnd': new_end,
                     'currentSchedule': _assistant_schedule_text(start, end),
                     'proposedSchedule': _assistant_schedule_text(new_start, new_end),
                     'deltaMinutes': delta,
@@ -1431,14 +1572,17 @@ def _assistant_optimize_roster(context, max_moves=6):
                 })
 
     if not candidate_instances:
-        return {
+        return _assistant_plan_cache_set(cache_key, {
             'available': False,
-            'reason': 'El roster tiene horarios, pero no encontré candidatos compatibles con las campañas/fechas seleccionadas.',
+            'reason': 'El roster tiene horarios, pero no encontré movimientos compatibles que agreguen cobertura a las franjas con déficit.',
             'baseline': baseline_metrics,
-            'moves': []
-        }
+            'moves': [],
+            'candidateCount': 0,
+            'cached': False
+        })
 
-    current = baseline
+    # Mutable copy only once. Candidate evaluation no longer copies the full state.
+    current = {k: {'required': float(v['required']), 'actual': float(v['actual'])} for k, v in baseline.items()}
     selected = []
     used_agent_dates = set()
 
@@ -1451,44 +1595,21 @@ def _assistant_optimize_roster(context, max_moves=6):
             if identity in used_agent_dates:
                 continue
 
-            trial = _assistant_apply_shift_to_state(
-                current,
-                cand['date'],
-                cand['campaignNorm'],
-                cand['channelNorm'],
-                cand['oldIntervals'],
-                cand['newIntervals']
-            )
-            if _assistant_new_deficits_created(current, trial) > 0:
+            effect = _assistant_candidate_effect(current, cand, current_metrics)
+            if not effect:
                 continue
 
-            trial_metrics = _assistant_state_metrics(trial)
-            reduction = current_metrics['total_deficit'] - trial_metrics['total_deficit']
-            worst_improvement = trial_metrics['worst_gap'] - current_metrics['worst_gap']
-
-            if reduction <= 0:
-                continue
-
-            # Prefer more deficit removed, then worst-gap relief, then smaller schedule moves.
-            score = reduction * 100.0 + max(0.0, worst_improvement) * 12.0 - (abs(cand['deltaMinutes']) / 30.0)
-            if best is None or score > best['score']:
-                best = {
-                    'score': score,
-                    'candidate': cand,
-                    'trial': trial,
-                    'metrics': trial_metrics,
-                    'reduction': reduction,
-                    'worstImprovement': worst_improvement
-                }
+            if best is None or effect['score'] > best['effect']['score']:
+                best = {'candidate': cand, 'effect': effect}
 
         if best is None:
             break
 
         cand = best['candidate']
+        before_metrics = current_metrics
+        _assistant_apply_shift_inplace(current, cand)
+        after_metrics = _assistant_state_metrics(current)
         used_agent_dates.add((cand['agent'], cand['date']))
-        before_metrics = _assistant_state_metrics(current)
-        current = best['trial']
-        after_metrics = best['metrics']
 
         selected.append({
             'agent': cand['agent'],
@@ -1499,7 +1620,7 @@ def _assistant_optimize_roster(context, max_moves=6):
             'currentSchedule': cand['currentSchedule'],
             'proposedSchedule': cand['proposedSchedule'],
             'deltaMinutes': cand['deltaMinutes'],
-            'deficitReduction': round(best['reduction'], 1),
+            'deficitReduction': round(before_metrics['total_deficit'] - after_metrics['total_deficit'], 1),
             'worstGapBefore': before_metrics['worst_gap'],
             'worstGapAfter': after_metrics['worst_gap']
         })
@@ -1510,7 +1631,7 @@ def _assistant_optimize_roster(context, max_moves=6):
     after_metrics = _assistant_state_metrics(current)
     impact = _assistant_improved_intervals(baseline, current, limit=12)
 
-    return {
+    result = {
         'available': True,
         'sheet': roster.get('sheet'),
         'baseline': baseline_metrics,
@@ -1519,19 +1640,22 @@ def _assistant_optimize_roster(context, max_moves=6):
         'impactIntervals': impact,
         'candidateCount': len(candidate_instances),
         'scopeDates': active_dates[:8],
-        'reason': '' if selected else 'No encontré movimientos de ±30/60/90 min que reduzcan déficit sin crear otro faltante dentro del alcance analizado.'
+        'reason': '' if selected else 'No encontré movimientos de ±30/60/90 min que reduzcan déficit sin crear otro faltante dentro del alcance analizado.',
+        'cached': False
     }
+    return _assistant_plan_cache_set(cache_key, result)
 
 @app.route('/api/wfm_assistant', methods=['POST'])
 def wfm_assistant():
     try:
         payload = request.get_json(force=True, silent=False) or {}
+        intent = _assistant_norm(payload.get('intent', 'chat'))
         question = str(payload.get('question', '')).strip()[:500]
         context = payload.get('context') or {}
-        if not question:
-            return jsonify({'error': 'Escribe una pregunta para el asistente.'}), 400
         if not isinstance(context, dict) or int(context.get('rowCount', 0) or 0) <= 0:
             return jsonify({'error': 'No hay contexto de forecast disponible para analizar.'}), 400
+        if intent != 'auto' and not question:
+            return jsonify({'error': 'Escribe una pregunta para el asistente.'}), 400
 
         q = _assistant_norm(question)
         deficits = context.get('deficits') or []
@@ -1541,6 +1665,48 @@ def wfm_assistant():
         cards = _assistant_cards(context)
         actions = []
         note = 'Las sugerencias son de planeación. Antes de aplicar cambios valida jornada, descansos, skills, ausentismo y restricciones laborales.'
+
+        if intent == 'auto':
+            severity = 'ok'
+            headline = 'Cobertura estable'
+            schedule_plan = None
+            if worst:
+                gap = float(worst.get('gap', 0) or 0)
+                coverage = float(worst.get('coverage', 100) or 100)
+                severity = 'critical' if gap <= -5 or coverage < 85 else 'warning'
+                headline = f"{worst.get('channel','Operación')} · {int(round(gap))} HC · {int(round(coverage))}%"
+                # Autonomous optimization runs only when there is material pressure.
+                if gap <= -2 or coverage < 95:
+                    schedule_plan = _assistant_optimize_roster(context, max_moves=4)
+
+                reply = (
+                    f"Detecté presión de capacidad el {worst.get('date','')} a las {worst.get('interval','')}: "
+                    f"{int(round(float(worst.get('actual',0))))} HC actuales vs "
+                    f"{int(round(float(worst.get('required',0))))} requeridos."
+                )
+                if schedule_plan and schedule_plan.get('moves'):
+                    before = schedule_plan.get('baseline', {})
+                    after = schedule_plan.get('after', {})
+                    reply += (
+                        f" El copiloto encontró {len(schedule_plan['moves'])} movimientos candidatos que podrían reducir "
+                        f"el déficit HC-intervalo de {before.get('total_deficit',0):g} a {after.get('total_deficit',0):g}."
+                    )
+            else:
+                reply = (
+                    f"No detecto déficit en la selección actual. La cobertura promedio es "
+                    f"{int(round(float(context.get('averageCoverage',100))))}%."
+                )
+
+            return jsonify({
+                'autonomous': True,
+                'severity': severity,
+                'headline': headline,
+                'reply': reply,
+                'cards': cards,
+                'actions': [],
+                'schedule_plan': schedule_plan,
+                'note': note
+            }), 200
 
         metric_answer = _assistant_explain_metric(question)
         if metric_answer:
