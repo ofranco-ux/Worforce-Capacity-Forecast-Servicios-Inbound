@@ -2008,6 +2008,55 @@
             .wfm-assistant-cards { grid-template-columns:1fr; }
         }
 
+
+        .wfm-plan {
+            margin-top:10px; overflow:hidden; border-radius:13px;
+            border:1px solid #C9D9E5; background:#F8FBFD;
+        }
+        .wfm-plan-head {
+            display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+            padding:10px 11px; background:linear-gradient(135deg,#EAF2F7,#EFF6F5);
+            border-bottom:1px solid #D5E1E9;
+        }
+        .wfm-plan-title { color:#1E3B52; font-size:9px; font-weight:850; text-transform:uppercase; letter-spacing:.08em; }
+        .wfm-plan-subtitle { margin-top:3px; color:#6B7E91; font-size:8px; line-height:1.35; }
+        .wfm-plan-badge {
+            flex:0 0 auto; min-height:23px; padding:0 8px; border-radius:999px;
+            display:inline-flex; align-items:center; background:#DCEFE9; color:#287A6F;
+            font-size:8px; font-weight:850;
+        }
+        .wfm-plan-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; padding:9px; }
+        .wfm-plan-metric { padding:8px; border-radius:10px; background:#FFFFFF; border:1px solid #DCE5ED; min-width:0; }
+        .wfm-plan-metric-label { display:block; color:#8090A2; font-size:7px; font-weight:850; text-transform:uppercase; letter-spacing:.07em; }
+        .wfm-plan-metric-value { display:block; margin-top:4px; color:#1F3B52; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:850; }
+        .wfm-plan-list { display:flex; flex-direction:column; gap:6px; padding:0 9px 9px; }
+        .wfm-plan-move { padding:9px 10px; border-radius:10px; border:1px solid #DCE5ED; background:#FFFFFF; }
+        .wfm-plan-move-top { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+        .wfm-plan-agent { color:#243E55; font-size:9px; font-weight:850; }
+        .wfm-plan-campaign { margin-top:2px; color:#7B8D9F; font-size:8px; }
+        .wfm-plan-delta {
+            flex:0 0 auto; min-height:22px; padding:0 7px; border-radius:999px;
+            display:inline-flex; align-items:center; background:#EEF2FB; color:#526CC3; font-family:'JetBrains Mono',monospace; font-size:8px; font-weight:850;
+        }
+        .wfm-plan-schedule {
+            margin-top:7px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+            color:#52687C; font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:750;
+        }
+        .wfm-plan-arrow { color:#92A2B2; }
+        .wfm-plan-impact { margin-top:5px; color:#568078; font-size:8px; font-weight:750; }
+        .wfm-plan-sim-btn {
+            width:calc(100% - 18px); margin:0 9px 9px; min-height:32px; border-radius:10px;
+            border:1px solid #C9D8E3; background:#EDF4F7; color:#35546A; font-size:8px; font-weight:850;
+        }
+        .wfm-plan-simulation { margin:0 9px 9px; padding:8px 9px; border-radius:10px; background:#FFFFFF; border:1px solid #DCE5ED; }
+        .wfm-plan-impact-row {
+            display:grid; grid-template-columns:70px minmax(0,1fr) auto; gap:7px; align-items:center;
+            padding:5px 0; border-bottom:1px solid #EEF2F5; color:#64788D; font-size:8px;
+        }
+        .wfm-plan-impact-row:last-child { border-bottom:0; }
+        .wfm-plan-impact-row strong { color:#29445A; font-family:'JetBrains Mono',monospace; }
+        @media (max-width:640px) { .wfm-plan-metrics { grid-template-columns:1fr; } }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -4448,6 +4497,40 @@
                 ? Math.round(avgCoverageSlots.reduce((acc,x) => acc + Math.min(200, x.coverage), 0) / avgCoverageSlots.length)
                 : 100;
 
+            // Para optimizar horarios usamos el día completo de las fechas más presionadas,
+            // aunque el usuario tenga filtrado un intervalo específico. Esto evita proponer un
+            // movimiento que arregle un hueco pero cree otro fuera de la franja visible.
+            const pressureDates = [...new Set(deficits.map(x => x.date).filter(Boolean))].slice(0, 4);
+            const fallbackDates = Array.from(selectedFechas).slice(0, 2);
+            const optimizationDates = pressureDates.length ? pressureDates : fallbackDates;
+            const optimizationMap = new Map();
+
+            (Array.isArray(globalData) ? globalData : []).forEach(r => {
+                const m = String(getProp(r, ['Mes'], ''));
+                const s = getWeekNumber(getProp(r, ['Fecha'], ''));
+                const campaign = String(getProp(r, ['Campaña', 'Campana'], 'General'));
+                const date = wfmAssistantSafeDate(getProp(r, ['Fecha'], ''));
+                const interval = String(getProp(r, ['Intervalo'], '00:00'));
+                const channel = String(r.Canal || (forecastMode === 'chat' ? 'Chat' : 'Llamadas'));
+
+                if (!selectedMeses.has(m) || !selectedSemanas.has(s) || !selectedCampanas.has(campaign) || !selectedFechas.has(date)) return;
+                if (optimizationDates.length && !optimizationDates.includes(date)) return;
+                if (forecastMode !== 'general') {
+                    const expected = forecastMode === 'chat' ? 'chat' : 'llamadas';
+                    if (String(channel).toLowerCase() !== expected) return;
+                }
+
+                const req = Number(getProp(r, ['Agentes_Requeridos'], 0)) || 0;
+                const actual = Number(getProp(r, ['HC_Actual_Roster'], 0)) || 0;
+                const key = `${date}|${campaign}|${channel}|${interval}`;
+                if (!optimizationMap.has(key)) {
+                    optimizationMap.set(key, { date, interval, campaign, channel, required:0, actual });
+                }
+                const slot = optimizationMap.get(key);
+                slot.required += req;
+                slot.actual = Math.max(slot.actual, actual);
+            });
+
             return {
                 mode: forecastMode,
                 filters: {
@@ -4465,7 +4548,9 @@
                 deficits,
                 surpluses,
                 campaigns: Array.from(campaignMap.values()).sort((a,b) => a.worstGap - b.worstGap).slice(0, 12),
-                channels: Array.from(channelMap.values())
+                channels: Array.from(channelMap.values()),
+                optimizationSlots: Array.from(optimizationMap.values()).slice(0, 5000),
+                optimizationDates
             };
         }
 
@@ -4489,6 +4574,132 @@
             if (ctx.filters.campaigns.length === 1) chip(ctx.filters.campaigns[0]);
             else if (ctx.filters.campaigns.length > 1) chip(`${ctx.filters.campaigns.length} campañas`);
             chip(ctx.worst ? `Peor gap ${ctx.worst.gap} HC` : 'Sin déficit');
+        }
+
+
+        function renderWfmSchedulePlan(plan) {
+            if (!plan || !plan.available) return null;
+            const moves = Array.isArray(plan.moves) ? plan.moves : [];
+            const before = plan.baseline || {};
+            const after = plan.after || before;
+
+            const wrap = document.createElement('div');
+            wrap.className = 'wfm-plan';
+
+            const head = document.createElement('div');
+            head.className = 'wfm-plan-head';
+            const headCopy = document.createElement('div');
+            const title = document.createElement('div');
+            title.className = 'wfm-plan-title';
+            title.textContent = 'Optimización de horarios';
+            const subtitle = document.createElement('div');
+            subtitle.className = 'wfm-plan-subtitle';
+            subtitle.textContent = moves.length
+                ? 'Candidatos concretos del roster · movimientos de ±30/60/90 min'
+                : (plan.reason || 'No se requiere movimiento.');
+            headCopy.append(title, subtitle);
+            const badge = document.createElement('span');
+            badge.className = 'wfm-plan-badge';
+            badge.textContent = `${moves.length} movimiento${moves.length === 1 ? '' : 's'}`;
+            head.append(headCopy, badge);
+            wrap.appendChild(head);
+
+            const metrics = document.createElement('div');
+            metrics.className = 'wfm-plan-metrics';
+            [
+                ['Déficit HC-intervalo', `${Number(before.total_deficit || 0).toFixed(0)} → ${Number(after.total_deficit || 0).toFixed(0)}`],
+                ['Peor brecha', `${Number(before.worst_gap || 0).toFixed(0)} → ${Number(after.worst_gap || 0).toFixed(0)} HC`],
+                ['Franjas con déficit', `${Number(before.deficit_slots || 0)} → ${Number(after.deficit_slots || 0)}`]
+            ].forEach(([labelText, valueText]) => {
+                const m = document.createElement('div');
+                m.className = 'wfm-plan-metric';
+                const l = document.createElement('span');
+                l.className = 'wfm-plan-metric-label';
+                l.textContent = labelText;
+                const v = document.createElement('span');
+                v.className = 'wfm-plan-metric-value';
+                v.textContent = valueText;
+                m.append(l, v);
+                metrics.appendChild(m);
+            });
+            wrap.appendChild(metrics);
+
+            if (moves.length) {
+                const list = document.createElement('div');
+                list.className = 'wfm-plan-list';
+                moves.forEach(move => {
+                    const item = document.createElement('div');
+                    item.className = 'wfm-plan-move';
+
+                    const top = document.createElement('div');
+                    top.className = 'wfm-plan-move-top';
+                    const who = document.createElement('div');
+                    const agent = document.createElement('div');
+                    agent.className = 'wfm-plan-agent';
+                    agent.textContent = move.agent || 'Agente';
+                    const campaign = document.createElement('div');
+                    campaign.className = 'wfm-plan-campaign';
+                    campaign.textContent = `${move.campaign || 'Campaña'} · ${move.date || ''} · ${move.day || ''}`;
+                    who.append(agent, campaign);
+
+                    const delta = document.createElement('span');
+                    delta.className = 'wfm-plan-delta';
+                    const d = Number(move.deltaMinutes || 0);
+                    delta.textContent = `${d > 0 ? '+' : ''}${d} min`;
+                    top.append(who, delta);
+
+                    const schedule = document.createElement('div');
+                    schedule.className = 'wfm-plan-schedule';
+                    const oldS = document.createElement('span');
+                    oldS.textContent = move.currentSchedule || '—';
+                    const arrow = document.createElement('span');
+                    arrow.className = 'wfm-plan-arrow';
+                    arrow.textContent = '→';
+                    const newS = document.createElement('strong');
+                    newS.textContent = move.proposedSchedule || '—';
+                    schedule.append(oldS, arrow, newS);
+
+                    const impact = document.createElement('div');
+                    impact.className = 'wfm-plan-impact';
+                    impact.textContent = `Reduce ${Number(move.deficitReduction || 0).toFixed(0)} HC-intervalo de déficit.`;
+
+                    item.append(top, schedule, impact);
+                    list.appendChild(item);
+                });
+                wrap.appendChild(list);
+            }
+
+            const impactRows = Array.isArray(plan.impactIntervals) ? plan.impactIntervals : [];
+            if (impactRows.length) {
+                const simBtn = document.createElement('button');
+                simBtn.type = 'button';
+                simBtn.className = 'wfm-plan-sim-btn';
+                simBtn.textContent = 'Ver simulación por intervalo';
+
+                const sim = document.createElement('div');
+                sim.className = 'wfm-plan-simulation hidden';
+
+                impactRows.slice(0,8).forEach(row => {
+                    const r = document.createElement('div');
+                    r.className = 'wfm-plan-impact-row';
+                    const when = document.createElement('span');
+                    when.textContent = `${row.date || ''} ${row.interval || ''}`;
+                    const camp = document.createElement('span');
+                    camp.textContent = row.campaign || '';
+                    const gap = document.createElement('strong');
+                    gap.textContent = `${Number(row.beforeGap || 0).toFixed(0)} → ${Number(row.afterGap || 0).toFixed(0)} HC`;
+                    r.append(when, camp, gap);
+                    sim.appendChild(r);
+                });
+
+                simBtn.addEventListener('click', () => {
+                    const opening = sim.classList.contains('hidden');
+                    sim.classList.toggle('hidden', !opening);
+                    simBtn.textContent = opening ? 'Ocultar simulación' : 'Ver simulación por intervalo';
+                });
+                wrap.append(simBtn, sim);
+            }
+            return wrap;
         }
 
         function appendWfmAssistantMessage(role, text, payload = null) {
@@ -4537,6 +4748,11 @@
                     actions.appendChild(el);
                 });
                 bubble.appendChild(actions);
+            }
+
+            if (payload && payload.schedule_plan) {
+                const planEl = renderWfmSchedulePlan(payload.schedule_plan);
+                if (planEl) bubble.appendChild(planEl);
             }
 
             if (payload && payload.note) {
@@ -4639,7 +4855,7 @@
                 </div>
                 <div>
                     <p class="wfm-assistant-title">Asistente WFM</p>
-                    <p class="wfm-assistant-subtitle">Analiza la proyección y sugiere acciones operativas con el filtro actual.</p>
+                    <p class="wfm-assistant-subtitle">Analiza cobertura, roster y movimientos de horario sobre la proyección actual.</p>
                 </div>
             </div>
             <button type="button" class="wfm-assistant-close" onclick="toggleWfmAssistant(false)" aria-label="Cerrar asistente">
@@ -4654,7 +4870,7 @@
 
         <div class="wfm-assistant-quick">
             <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('¿Dónde tengo el mayor déficit?')">Mayor déficit</button>
-            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('Sugiere movimientos de horarios para mejorar la cobertura')">Sugerir movimientos</button>
+            <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('Optimiza mis horarios y dime qué personas son candidatas para mejorar la cobertura')">Optimizar horarios</button>
             <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('¿Por qué necesito ese HC requerido?')">Explicar HC</button>
             <button type="button" class="wfm-quick-btn" onclick="askWfmQuick('Dame un resumen operativo con prioridades')">Resumen operativo</button>
         </div>
@@ -4675,7 +4891,7 @@
                     <svg viewBox="0 0 24 24"><path d="m4 12 16-7-5 14-3-5-8-2Z"/><path d="m12 14 8-9"/></svg>
                 </button>
             </div>
-            <p class="wfm-assistant-input-help">Las recomendaciones no cambian horarios automáticamente. Deben validarse con jornada, descansos y operación.</p>
+            <p class="wfm-assistant-input-help">Las simulaciones no modifican el roster. Valida jornada, breaks/comidas, skills y restricciones antes de aplicar.</p>
         </div>
     </section>
 
