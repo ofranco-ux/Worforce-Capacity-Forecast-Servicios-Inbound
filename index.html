@@ -1771,6 +1771,54 @@
         body.light-theme .status-success { background:#DDEDEA !important; color:#287E76 !important; }
         body.light-theme #ambulanceRule { background:#F1EBDC !important; border-color:#DDCFAE !important; }
 
+
+        /* FIX · control de visibilidad del panel de configuración */
+        .sidebar-restore-btn {
+            position: fixed !important;
+            left: 14px !important;
+            top: 122px !important;
+            z-index: 80 !important;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 9px;
+            min-height: 42px;
+            padding: 0 15px;
+            border-radius: 14px;
+            border: 1px solid #C8D5E3;
+            background: linear-gradient(180deg,#F8FBFD,#EAF0F5);
+            color: #20384F;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .01em;
+            box-shadow: 0 18px 34px -26px rgba(31,52,75,.38), inset 0 1px 0 rgba(255,255,255,.95);
+            transition: .18s ease;
+        }
+        .sidebar-restore-btn.hidden { display: none !important; }
+        .sidebar-restore-btn:hover {
+            background: linear-gradient(180deg,#EEF4F9,#E1EAF2);
+            border-color: #B7C7D7;
+            color: #102B43;
+            transform: translateY(-1px);
+        }
+        .sidebar-restore-btn svg {
+            width: 14px;
+            height: 14px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        @media (max-width: 1023px) {
+            .sidebar-restore-btn {
+                left: 12px !important;
+                right: 12px !important;
+                top: auto !important;
+                bottom: 14px !important;
+            }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -1926,6 +1974,12 @@
                 </div>
             </div>
         </aside>
+
+
+        <button id="sidebarRestoreFloating" type="button" onclick="toggleSidebar()" class="sidebar-restore-btn hidden" title="Mostrar configuración">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+            <span>Mostrar configuración</span>
+        </button>
 
         <!-- DASHBOARD PRINCIPAL -->
         <main id="dashboardMain" class="col-span-12 lg:col-span-9 space-y-5 transition-all duration-300 min-w-0">
@@ -2851,6 +2905,25 @@
             fetchLatestData(mode);
         }
 
+
+        function updateForecastMenuUI() {
+            const inlineBtn = document.getElementById('btnSidebarToggleInline');
+            const inlineLabel = document.getElementById('sidebarInlineToggleLabel');
+            const restoreBtn = document.getElementById('sidebarRestoreFloating');
+            const isOps = currentMode === 'ops' || currentMode === 'operaciones';
+
+            if (inlineBtn) {
+                inlineBtn.classList.toggle('hidden', !isSidebarVisible || isOps);
+                inlineBtn.setAttribute('aria-hidden', (!isSidebarVisible || isOps) ? 'true' : 'false');
+            }
+            if (inlineLabel) inlineLabel.innerText = 'Ocultar';
+
+            if (restoreBtn) {
+                restoreBtn.classList.toggle('hidden', isSidebarVisible || isOps);
+                restoreBtn.setAttribute('aria-hidden', (isSidebarVisible || isOps) ? 'true' : 'false');
+            }
+        }
+
         function switchMode(mode) {
             currentMode = mode;
             const aside = document.getElementById('panelControl');
@@ -3248,10 +3321,10 @@
         }
 
         window.addEventListener('DOMContentLoaded', async () => {
-            updateForecastMenuUI();
             const urlParams = new URLSearchParams(window.location.search);
             const mode = urlParams.get('mode') || urlParams.get('role') || 'wfm';
             switchMode(mode);
+            updateForecastMenuUI();
 
             try {
                 const response = await fetch('/api/config?t=' + new Date().getTime());
@@ -4076,4 +4149,5 @@
     </script>
 </body>
 </html>
+
 
