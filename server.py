@@ -1009,5 +1009,222 @@ def process_chat_data():
         gc.collect()
         return jsonify({'error': str(e)}), 500
 
+
+# =====================================================================
+# ASISTENTE WFM · MOTOR DETERMINÍSTICO SOBRE EL CONTEXTO DEL DASHBOARD
+# =====================================================================
+def _assistant_norm(text):
+    return re.sub(r'\s+', ' ', str(text or '').strip().lower())
+
+def _assistant_minutes(hhmm):
+    try:
+        h, m = str(hhmm).split(':')[:2]
+        return int(h) * 60 + int(m)
+    except Exception:
+        return 0
+
+def _assistant_hhmm_minutes(minutes):
+    minutes = int(minutes) % (24 * 60)
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+def _assistant_movement_actions(deficits, surpluses, limit=4):
+    actions = []
+    used = set()
+
+    for d in deficits:
+        missing = abs(int(round(float(d.get('gap', 0)))))
+        if missing <= 0:
+            continue
+
+        d_date = str(d.get('date', ''))
+        d_channel = str(d.get('channel', ''))
+        d_min = _assistant_minutes(d.get('interval', '00:00'))
+
+        candidates = []
+        for idx, s in enumerate(surpluses):
+            if idx in used:
+                continue
+            if str(s.get('date', '')) != d_date or str(s.get('channel', '')) != d_channel:
+                continue
+            extra = int(round(float(s.get('gap', 0))))
+            if extra <= 0:
+                continue
+            s_min = _assistant_minutes(s.get('interval', '00:00'))
+            distance = abs(s_min - d_min)
+            if distance <= 240:
+                candidates.append((distance, idx, s, extra))
+
+        candidates.sort(key=lambda x: (x[0], -x[3]))
+        if not candidates:
+            continue
+
+        _, idx, source, extra = candidates[0]
+        move = min(missing, extra)
+        if move <= 0:
+            continue
+        used.add(idx)
+
+        source_time = source.get('interval', '—')
+        target_time = d.get('interval', '—')
+        channel = d_channel or 'canal'
+        actions.append(
+            f"Revisar hasta {move} HC de {channel} alrededor de {source_time} para reforzar {target_time} "
+            f"({d_date}). Priorizar ajuste de entrada/salida, break o comida antes de mover plantilla entre campañas."
+        )
+        if len(actions) >= limit:
+            break
+
+    return actions
+
+def _assistant_cards(context):
+    worst = context.get('worst') or {}
+    cards = []
+    if worst:
+        cards.append({
+            'title': 'Mayor déficit',
+            'value': f"{abs(int(round(float(worst.get('gap', 0)))))} HC",
+            'detail': f"{worst.get('date','')} · {worst.get('interval','')} · {worst.get('channel','')}"
+        })
+        cards.append({
+            'title': 'Cobertura crítica',
+            'value': f"{int(round(float(worst.get('coverage', 0))))}%",
+            'detail': f"{int(round(float(worst.get('actual', 0))))} actual vs {int(round(float(worst.get('required', 0))))} requerido"
+        })
+    cards.append({
+        'title': 'Cobertura promedio',
+        'value': f"{int(round(float(context.get('averageCoverage', 100))))}%",
+        'detail': 'Promedio de intervalos con requerimiento'
+    })
+    cards.append({
+        'title': 'Demanda filtrada',
+        'value': f"{int(round(float(context.get('totalVolume', 0)))):,}",
+        'detail': 'Volumen de la selección actual'
+    })
+    return cards[:4]
+
+def _assistant_explain_metric(question):
+    q = _assistant_norm(question)
+    glossary = [
+        (['shrinkage', 'merma'], 'Shrinkage o merma representa el porcentaje de tiempo pagado que no está disponible para atender demanda, por ejemplo descansos, capacitación, incidencias o actividades no productivas. A mayor merma, mayor HC requerido.'),
+        (['aht', 'tmo', 'tiempo medio'], 'AHT/TMO es el tiempo promedio de manejo por interacción. Si aumenta el AHT con el mismo volumen, aumenta la carga y normalmente también el HC requerido.'),
+        (['asa'], 'ASA objetivo es el tiempo medio de espera que se busca mantener. Un ASA más exigente normalmente requiere más capacidad.'),
+        (['nivel de servicio', 'sl ', 'service level'], 'El Nivel de Servicio define el porcentaje objetivo de interacciones que deben atenderse dentro del tiempo objetivo. Una meta más alta suele incrementar el HC requerido.'),
+        (['erlang'], 'Erlang C convierte volumen, AHT y objetivo de servicio en agentes simultáneos requeridos para llamadas. El dashboard después ajusta ese requerimiento por merma para llegar al HC necesario.'),
+        (['concurrencia'], 'En Chat, la concurrencia indica cuántas conversaciones puede manejar un agente simultáneamente. Una mayor concurrencia reduce la carga efectiva por conversación, aunque debe mantenerse dentro de límites operativos realistas.')
+    ]
+    for keys, answer in glossary:
+        if any(k in q for k in keys):
+            return answer
+    return None
+
+@app.route('/api/wfm_assistant', methods=['POST'])
+def wfm_assistant():
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        question = str(payload.get('question', '')).strip()[:500]
+        context = payload.get('context') or {}
+        if not question:
+            return jsonify({'error': 'Escribe una pregunta para el asistente.'}), 400
+        if not isinstance(context, dict) or int(context.get('rowCount', 0) or 0) <= 0:
+            return jsonify({'error': 'No hay contexto de forecast disponible para analizar.'}), 400
+
+        q = _assistant_norm(question)
+        deficits = context.get('deficits') or []
+        surpluses = context.get('surpluses') or []
+        worst = context.get('worst') or None
+        campaigns = context.get('campaigns') or []
+        cards = _assistant_cards(context)
+        actions = []
+        note = 'Las sugerencias son de planeación. Antes de aplicar cambios valida jornada, descansos, skills, ausentismo y restricciones laborales.'
+
+        metric_answer = _assistant_explain_metric(question)
+        if metric_answer:
+            reply = metric_answer
+            if worst:
+                reply += f" En tu filtro actual, el punto más presionado está en {worst.get('date','')} a las {worst.get('interval','')}, con cobertura de {int(round(float(worst.get('coverage',0))))}%."
+            return jsonify({'reply': reply, 'cards': cards, 'actions': [], 'note': note}), 200
+
+        movement_terms = ['mover', 'movimiento', 'movimientos', 'horario', 'horarios', 'break', 'comida', 'turno', 'reacomodar', 'redistribuir', 'ajuste']
+        deficit_terms = ['déficit', 'deficit', 'faltante', 'falta', 'riesgo', 'cobertura', 'crítico', 'critico']
+        why_terms = ['por qué', 'porque', 'requerido', 'necesito', 'necesidad', 'hc requerido']
+        summary_terms = ['resumen', 'prioridad', 'prioridades', 'acciones', 'qué debo hacer', 'que debo hacer']
+
+        if any(t in q for t in movement_terms):
+            actions = _assistant_movement_actions(deficits, surpluses)
+            if worst:
+                missing = abs(int(round(float(worst.get('gap', 0)))))
+                reply = (
+                    f"El principal hueco está en {worst.get('channel','la operación')} el {worst.get('date','')} "
+                    f"a las {worst.get('interval','')}: faltan {missing} HC y la cobertura es "
+                    f"{int(round(float(worst.get('coverage',0))))}%."
+                )
+            else:
+                reply = 'No detecto déficit en la selección actual.'
+            if actions:
+                reply += ' Encontré capacidad cercana que vale la pena revisar antes de agregar HC.'
+            else:
+                reply += ' No encontré un excedente cercano suficiente para compensarlo; conviene revisar extensiones, cambios de entrada o capacidad adicional.'
+        elif any(t in q for t in deficit_terms):
+            if worst:
+                missing = abs(int(round(float(worst.get('gap', 0)))))
+                reply = (
+                    f"El mayor déficit del filtro está en {worst.get('channel','la operación')} el {worst.get('date','')} "
+                    f"a las {worst.get('interval','')}: se requieren {int(round(float(worst.get('required',0))))} HC, "
+                    f"hay {int(round(float(worst.get('actual',0))))} HC y faltan {missing} HC "
+                    f"({int(round(float(worst.get('coverage',0))))}% de cobertura)."
+                )
+                actions = [
+                    f"Prioriza la franja {worst.get('interval','')} antes de mover recursos a intervalos con cobertura superior a 100%."
+                ]
+            else:
+                reply = 'No detecto intervalos con déficit dentro del filtro actual; la cobertura observada es suficiente para el requerimiento calculado.'
+        elif any(t in q for t in why_terms):
+            if worst:
+                reply = (
+                    f"El HC requerido responde principalmente al volumen proyectado, AHT, objetivo de servicio y merma. "
+                    f"En el punto crítico ({worst.get('date','')} {worst.get('interval','')}), el forecast pide "
+                    f"{int(round(float(worst.get('required',0))))} HC para absorber la carga estimada; el roster aporta "
+                    f"{int(round(float(worst.get('actual',0))))} HC."
+                )
+            else:
+                reply = (
+                    'El HC requerido se calcula a partir de demanda, AHT, objetivos de servicio y merma. '
+                    'En Chat también influye la concurrencia. En tu selección actual no veo una brecha negativa.'
+                )
+        elif any(t in q for t in summary_terms):
+            if worst:
+                reply = (
+                    f"Prioridad operativa: proteger {worst.get('channel','la operación')} el {worst.get('date','')} "
+                    f"a las {worst.get('interval','')}. La cobertura crítica es "
+                    f"{int(round(float(worst.get('coverage',0))))}% y faltan {abs(int(round(float(worst.get('gap',0)))))} HC."
+                )
+                actions = _assistant_movement_actions(deficits, surpluses)
+                if not actions:
+                    actions = ['Revisar entradas, salidas, breaks, comidas y disponibilidad adicional alrededor de la franja crítica.']
+            else:
+                reply = (
+                    f"La selección actual no presenta déficit. La cobertura promedio es "
+                    f"{int(round(float(context.get('averageCoverage',100))))}%."
+                )
+        else:
+            if worst:
+                top_campaign = campaigns[0] if campaigns else None
+                reply = (
+                    f"En el filtro actual, el principal punto de atención es {worst.get('date','')} a las "
+                    f"{worst.get('interval','')}, con {int(round(float(worst.get('coverage',0))))}% de cobertura."
+                )
+                if top_campaign and float(top_campaign.get('worstGap', 0) or 0) < 0:
+                    reply += f" La campaña con mayor presión detectada es {top_campaign.get('campaign','—')}."
+                reply += ' Puedes preguntarme por déficit, movimientos de horarios, HC requerido, AHT, merma, SL, ASA o concurrencia.'
+            else:
+                reply = (
+                    'La selección actual se ve cubierta. Puedes preguntarme por movimientos de horarios, explicación del HC, '
+                    'AHT, merma, SL, ASA, concurrencia o prioridades operativas.'
+                )
+
+        return jsonify({'reply': reply, 'cards': cards, 'actions': actions, 'note': note}), 200
+    except Exception as e:
+        return jsonify({'error': f'No se pudo ejecutar el asistente WFM: {str(e)}'}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
