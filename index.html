@@ -2759,7 +2759,7 @@
                     const reqX = x.getPixelForValue(reqVal);
 
                     // Marcador vertical del HC requerido.
-                    ctx.strokeStyle = '#8FA3FF';
+                    ctx.strokeStyle = '#667BE2';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
                     ctx.moveTo(reqX, y - 18);
@@ -2767,7 +2767,7 @@
                     ctx.stroke();
 
                     ctx.font = '800 9px Plus Jakarta Sans';
-                    ctx.fillStyle = '#9EAEFF';
+                    ctx.fillStyle = '#586DCE';
                     ctx.textAlign = 'center';
                     ctx.fillText(`REQ ${reqVal}`, reqX, y - 26);
 
@@ -2777,7 +2777,7 @@
                             ? `${coverage}% · +${gap} HC`
                             : `${coverage}% · OK`;
                     ctx.font = '800 10px Plus Jakarta Sans';
-                    ctx.fillStyle = gap < 0 ? '#FF91A4' : gap > 0 ? '#F3C76D' : '#82D9CD';
+                    ctx.fillStyle = gap < 0 ? '#D94F6D' : gap > 0 ? '#A86B12' : '#257E73';
                     ctx.textAlign = 'right';
                     ctx.fillText(statusText, chartArea.right + 130, y);
                 });
@@ -3713,7 +3713,7 @@
                             animation: false,
                             indexAxis: 'y',
                             interaction: { mode: 'nearest', intersect: true },
-                            layout: { padding: { top: 28, right: 150, bottom: 12, left: 10 } },
+                            layout: { padding: { top: 28, right: 150, bottom: 12, left: 22 } },
                             plugins: {
                                 consolidatedChartExecutivePlugin: { enabled: true, reqData: generalReqData, dispData: generalDispData },
                                 legend: { display: false },
@@ -3747,13 +3747,17 @@
                                     suggestedMax: Math.ceil(Math.max(...generalReqData, ...generalDispData, 1) * 1.18),
                                     grid: { color: 'rgba(148,163,184,.085)', drawBorder: false, tickLength: 0 },
                                     border: { display: false },
-                                    ticks: { color: '#697A90', precision: 0, padding: 8, font: { size: 10, weight: '600' } },
-                                    title: { display: true, text: 'Headcount (HC)', color: '#596B82', font: { size: 10, weight: '800' } }
+                                    ticks: { color: '#536A82', precision: 0, padding: 8, font: { size: 10, weight: '700' } },
+                                    title: { display: true, text: 'Headcount (HC)', color: '#40566E', font: { size: 11, weight: '800' } }
                                 },
                                 y: {
                                     grid: { display: false, drawBorder: false },
                                     border: { display: false },
-                                    ticks: { color: '#E0E8F2', padding: 12, font: { size: 12, weight: '800' } }
+                                    ticks: {
+                                        color: '#263D55',
+                                        padding: 16,
+                                        font: { size: 14, weight: '800', family: 'Plus Jakarta Sans' }
+                                    }
                                 }
                             }
                         }
@@ -4149,5 +4153,4 @@
     </script>
 </body>
 </html>
-
 
