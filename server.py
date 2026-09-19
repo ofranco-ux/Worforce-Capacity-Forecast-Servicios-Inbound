@@ -28,6 +28,8 @@ CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
 CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
 EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
+WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
+_WFM_ACTION_LOG_LOCK = threading.RLock()
 
 # Caché en memoria para evitar volver a leer/parsear JSON grandes cada vez que
 # el usuario cambia entre Llamadas, Chat y Consolidado. El disco queda como
@@ -1075,7 +1077,7 @@ def _assistant_movement_actions(deficits, surpluses, limit=4):
         channel = d_channel or 'canal'
         actions.append(
             f"Revisar hasta {move} HC de {channel} alrededor de {source_time} para reforzar {target_time} "
-            f"({d_date}). Priorizar ajuste de entrada/salida, break o comida antes de mover plantilla entre campañas."
+            f"({d_date}). Priorizar ajustes de entrada y salida antes de mover plantilla entre campañas."
         )
         if len(actions) >= limit:
             break
@@ -1083,29 +1085,37 @@ def _assistant_movement_actions(deficits, surpluses, limit=4):
     return actions
 
 def _assistant_cards(context):
+    period = context.get('periodCapacity') or {}
     worst = context.get('worst') or {}
     cards = []
+
+    required = int(round(float(period.get('required', 0) or 0)))
+    actual = int(round(float(period.get('actual', 0) or 0)))
+    gap = int(round(float(period.get('gap', actual - required) or 0)))
+    coverage = int(round(float(period.get('coverage', 100) or 100)))
+
+    cards.append({
+        'title': 'HC requerido',
+        'value': f"{required} HC",
+        'detail': str(context.get('scopeLabel') or 'Periodo')
+    })
+    cards.append({
+        'title': 'HC actual',
+        'value': f"{actual} HC",
+        'detail': f"Cobertura {coverage}%"
+    })
+    cards.append({
+        'title': 'Brecha de plantilla',
+        'value': f"{gap} HC",
+        'detail': 'Actual - requerido'
+    })
+
     if worst:
         cards.append({
-            'title': 'Mayor déficit',
+            'title': 'Intervalo más crítico',
             'value': f"{abs(int(round(float(worst.get('gap', 0)))))} HC",
-            'detail': f"{worst.get('date','')} · {worst.get('interval','')} · {worst.get('channel','')}"
+            'detail': f"{worst.get('date','')} · {worst.get('interval','')}"
         })
-        cards.append({
-            'title': 'Cobertura crítica',
-            'value': f"{int(round(float(worst.get('coverage', 0))))}%",
-            'detail': f"{int(round(float(worst.get('actual', 0))))} actual vs {int(round(float(worst.get('required', 0))))} requerido"
-        })
-    cards.append({
-        'title': 'Cobertura promedio',
-        'value': f"{int(round(float(context.get('averageCoverage', 100))))}%",
-        'detail': 'Promedio de intervalos con requerimiento'
-    })
-    cards.append({
-        'title': 'Demanda filtrada',
-        'value': f"{int(round(float(context.get('totalVolume', 0)))):,}",
-        'detail': 'Volumen de la selección actual'
-    })
     return cards[:4]
 
 def _assistant_explain_metric(question):
@@ -1607,11 +1617,42 @@ def _assistant_optimize_roster(context, max_moves=6):
 
         cand = best['candidate']
         before_metrics = current_metrics
+
+        touched_intervals = set(cand['oldIntervals']) | set(cand['newIntervals'])
+        touched_before = {}
+        for interval in touched_intervals:
+            key = (cand['date'], cand['campaignNorm'], cand['channelNorm'], interval)
+            if key in current:
+                touched_before[key] = {
+                    'required': float(current[key]['required']),
+                    'actual': float(current[key]['actual'])
+                }
+
         _assistant_apply_shift_inplace(current, cand)
         after_metrics = _assistant_state_metrics(current)
         used_agent_dates.add((cand['agent'], cand['date']))
 
+        touched_after = {}
+        for key in touched_before:
+            if key in current:
+                touched_after[key] = {
+                    'required': float(current[key]['required']),
+                    'actual': float(current[key]['actual'])
+                }
+
+        move_impact = _assistant_improved_intervals(touched_before, touched_after, limit=8)
+        action_raw = '|'.join([
+            cache_key,
+            str(cand['agent']),
+            str(cand['campaign']),
+            str(cand['date']),
+            str(cand['currentSchedule']),
+            str(cand['proposedSchedule'])
+        ])
+        action_id = hashlib.sha1(action_raw.encode('utf-8')).hexdigest()[:18]
+
         selected.append({
+            'actionId': action_id,
             'agent': cand['agent'],
             'campaign': cand['campaign'],
             'channel': cand['channel'],
@@ -1622,7 +1663,9 @@ def _assistant_optimize_roster(context, max_moves=6):
             'deltaMinutes': cand['deltaMinutes'],
             'deficitReduction': round(before_metrics['total_deficit'] - after_metrics['total_deficit'], 1),
             'worstGapBefore': before_metrics['worst_gap'],
-            'worstGapAfter': after_metrics['worst_gap']
+            'worstGapAfter': after_metrics['worst_gap'],
+            'impactIntervals': move_impact,
+            'guardrail': 'Sin déficit nuevo dentro del alcance analizado'
         })
 
         if after_metrics['total_deficit'] <= 0:
@@ -1645,6 +1688,134 @@ def _assistant_optimize_roster(context, max_moves=6):
     }
     return _assistant_plan_cache_set(cache_key, result)
 
+
+def _assistant_data_quality(context):
+    excel_path = buscar_archivo_excel()
+    info = {
+        'forecastRows': int(context.get('rowCount', 0) or 0),
+        'optimizationSlots': len(context.get('optimizationSlots') or []),
+        'rosterAvailable': False,
+        'rosterAgents': 0,
+        'sourceFile': '',
+        'sourceModified': ''
+    }
+    if not excel_path:
+        return info
+    try:
+        roster = _assistant_roster_detail(excel_path)
+        info['rosterAvailable'] = bool(roster.get('available'))
+        info['rosterAgents'] = len(roster.get('agents') or [])
+        info['sourceFile'] = os.path.basename(excel_path)
+        st = os.stat(excel_path)
+        info['sourceModified'] = datetime.fromtimestamp(st.st_mtime).isoformat(timespec='minutes')
+    except Exception:
+        pass
+    return info
+
+def _wfm_action_log_read():
+    with _WFM_ACTION_LOG_LOCK:
+        if not os.path.exists(WFM_ACTION_LOG_FILE):
+            return []
+        try:
+            with open(WFM_ACTION_LOG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+def _wfm_action_log_write(records):
+    with _WFM_ACTION_LOG_LOCK:
+        tmp = WFM_ACTION_LOG_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, WFM_ACTION_LOG_FILE)
+
+def _wfm_action_stats(records):
+    total = len(records)
+    accepted = sum(1 for r in records if r.get('decision') == 'accepted')
+    rejected = sum(1 for r in records if r.get('decision') == 'rejected')
+    ops_resolved = sum(1 for r in records if _assistant_norm(r.get('actorMode')) in ('ops', 'operaciones'))
+    accepted_reduction = sum(
+        float((r.get('move') or {}).get('deficitReduction', 0) or 0)
+        for r in records if r.get('decision') == 'accepted'
+    )
+    return {
+        'resolved': total,
+        'accepted': accepted,
+        'rejected': rejected,
+        'opsResolved': ops_resolved,
+        'opsAutonomy': round((ops_resolved / total) * 100) if total else 0,
+        'acceptedEstimatedDeficitReduction': round(accepted_reduction, 1)
+    }
+
+@app.route('/api/wfm_action_decisions', methods=['GET'])
+def wfm_action_decisions():
+    records = _wfm_action_log_read()
+    records = sorted(records, key=lambda r: str(r.get('updatedAt', '')), reverse=True)
+    try:
+        limit = max(1, min(int(request.args.get('limit', 100)), 500))
+    except Exception:
+        limit = 100
+    return jsonify({
+        'records': records[:limit],
+        'stats': _wfm_action_stats(records)
+    }), 200
+
+@app.route('/api/wfm_action_decision', methods=['POST'])
+def wfm_action_decision():
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        action_id = str(payload.get('actionId') or '').strip()[:80]
+        decision = _assistant_norm(payload.get('decision'))
+        if not action_id or decision not in ('accepted', 'rejected'):
+            return jsonify({'error': 'Decisión inválida.'}), 400
+
+        move = payload.get('move') or {}
+        actor_mode = str(payload.get('actorMode') or 'wfm')[:40]
+        scope_label = str(payload.get('scopeLabel') or '')[:80]
+        scope_detail = str(payload.get('scopeDetail') or '')[:120]
+        now = datetime.now().isoformat(timespec='seconds')
+
+        records = _wfm_action_log_read()
+        existing = next((r for r in records if r.get('actionId') == action_id), None)
+        if existing:
+            history = existing.setdefault('history', [])
+            history.append({
+                'decision': existing.get('decision'),
+                'updatedAt': existing.get('updatedAt')
+            })
+            existing.update({
+                'decision': decision,
+                'actorMode': actor_mode,
+                'scopeLabel': scope_label,
+                'scopeDetail': scope_detail,
+                'move': move,
+                'updatedAt': now
+            })
+            record = existing
+        else:
+            record = {
+                'actionId': action_id,
+                'decision': decision,
+                'actorMode': actor_mode,
+                'scopeLabel': scope_label,
+                'scopeDetail': scope_detail,
+                'move': move,
+                'createdAt': now,
+                'updatedAt': now,
+                'history': []
+            }
+            records.append(record)
+
+        _wfm_action_log_write(records)
+        return jsonify({
+            'ok': True,
+            'record': record,
+            'stats': _wfm_action_stats(records)
+        }), 200
+    except Exception as e:
+        return jsonify({'error': f'No se pudo registrar la decisión: {str(e)}'}), 500
+
 @app.route('/api/wfm_assistant', methods=['POST'])
 def wfm_assistant():
     try:
@@ -1666,38 +1837,46 @@ def wfm_assistant():
         worst = context.get('worst') or None
         campaigns = context.get('campaigns') or []
         cards = _assistant_cards(context)
+        period = context.get('periodCapacity') or {}
+        period_required = int(round(float(period.get('required', 0) or 0)))
+        period_actual = int(round(float(period.get('actual', 0) or 0)))
+        period_gap = int(round(float(period.get('gap', period_actual - period_required) or 0)))
+        period_coverage = int(round(float(period.get('coverage', 100) or 100)))
         actions = []
         note = 'Las sugerencias son de planeación. Antes de aplicar cambios valida jornada, descansos, skills, ausentismo y restricciones laborales.'
 
         if intent == 'auto':
             severity = 'ok'
-            headline = 'Cobertura estable'
             schedule_plan = None
-            if worst:
-                gap = float(worst.get('gap', 0) or 0)
-                coverage = float(worst.get('coverage', 100) or 100)
-                severity = 'critical' if gap <= -5 or coverage < 85 else 'warning'
-                headline = f"{worst.get('channel','Operación')} · {int(round(gap))} HC · {int(round(coverage))}%"
-                # Autonomous optimization runs only when there is material pressure.
-                if gap <= -2 or coverage < 95:
+            channel_label = 'Consolidado' if _assistant_norm(context.get('mode')) == 'general' else ('Chat' if _assistant_norm(context.get('mode')) == 'chat' else 'Llamadas')
+
+            if period_gap < 0:
+                severity = 'critical' if period_gap <= -5 or period_coverage < 85 else 'warning'
+                headline = f"{channel_label} · {period_gap} HC · {period_coverage}%"
+                if period_gap <= -2 or period_coverage < 95:
                     schedule_plan = _assistant_optimize_roster(context, max_moves=4)
 
                 reply = (
-                    f"Detecté presión de capacidad el {worst.get('date','')} a las {worst.get('interval','')}: "
-                    f"{int(round(float(worst.get('actual',0))))} HC actuales vs "
-                    f"{int(round(float(worst.get('required',0))))} requeridos."
+                    f"En el periodo {scope_detail} se requieren {period_required} HC y hay {period_actual} HC; "
+                    f"la brecha de plantilla es de {abs(period_gap)} HC y la cobertura es {period_coverage}%."
                 )
+                if worst:
+                    reply += (
+                        f" El intervalo más presionado es {worst.get('date','')} a las {worst.get('interval','')} "
+                        f"con una brecha operativa de {int(round(float(worst.get('gap',0))))} HC."
+                    )
                 if schedule_plan and schedule_plan.get('moves'):
                     before = schedule_plan.get('baseline', {})
                     after = schedule_plan.get('after', {})
                     reply += (
-                        f" El copiloto encontró {len(schedule_plan['moves'])} movimientos candidatos que podrían reducir "
-                        f"el déficit HC-intervalo de {before.get('total_deficit',0):g} a {after.get('total_deficit',0):g}."
+                        f" Encontré {len(schedule_plan['moves'])} movimientos candidatos; en la simulación por intervalos "
+                        f"la exposición baja de {before.get('total_deficit',0):g} a {after.get('total_deficit',0):g} HC-intervalo."
                     )
             else:
+                headline = f"{channel_label} · cobertura estable"
                 reply = (
-                    f"No detecto déficit en la selección actual. La cobertura promedio es "
-                    f"{int(round(float(context.get('averageCoverage',100))))}%."
+                    f"El periodo {scope_detail} está cubierto: {period_actual} HC actuales vs "
+                    f"{period_required} requeridos ({period_coverage}% de cobertura)."
                 )
 
             return jsonify({
@@ -1711,14 +1890,18 @@ def wfm_assistant():
                 'cards': cards,
                 'actions': [],
                 'schedule_plan': schedule_plan,
+                'data_quality': _assistant_data_quality(context),
                 'note': note
             }), 200
 
         metric_answer = _assistant_explain_metric(question)
         if metric_answer:
-            reply = metric_answer
+            reply = (
+                f"{metric_answer} Para el periodo {scope_detail}: {period_required} HC requeridos, "
+                f"{period_actual} HC actuales y una brecha de {period_gap} HC."
+            )
             if worst:
-                reply += f" En tu filtro actual, el punto más presionado está en {worst.get('date','')} a las {worst.get('interval','')}, con cobertura de {int(round(float(worst.get('coverage',0))))}%."
+                reply += f" El intervalo más presionado está en {worst.get('date','')} a las {worst.get('interval','')}."
             return jsonify({
                 'reply': reply,
                 'scopeLabel': scope_label,
@@ -1728,22 +1911,25 @@ def wfm_assistant():
                 'note': note
             }), 200
 
-        movement_terms = ['mover', 'movimiento', 'movimientos', 'horario', 'horarios', 'break', 'comida', 'turno', 'reacomodar', 'redistribuir', 'ajuste']
+        movement_terms = ['mover', 'movimiento', 'movimientos', 'horario', 'horarios', 'turno', 'reacomodar', 'redistribuir', 'ajuste', 'optimiza', 'optimizar']
         deficit_terms = ['déficit', 'deficit', 'faltante', 'falta', 'riesgo', 'cobertura', 'crítico', 'critico']
         why_terms = ['por qué', 'porque', 'requerido', 'necesito', 'necesidad', 'hc requerido']
         summary_terms = ['resumen', 'prioridad', 'prioridades', 'acciones', 'qué debo hacer', 'que debo hacer']
 
         if any(t in q for t in movement_terms):
             schedule_plan = _assistant_optimize_roster(context, max_moves=6)
-            if worst:
-                missing = abs(int(round(float(worst.get('gap', 0)))))
+            if period_gap < 0:
                 reply = (
-                    f"El principal hueco está en {worst.get('channel','la operación')} el {worst.get('date','')} "
-                    f"a las {worst.get('interval','')}: faltan {missing} HC y la cobertura es "
-                    f"{int(round(float(worst.get('coverage',0))))}%."
+                    f"Para el periodo {scope_detail} la brecha de plantilla es de {abs(period_gap)} HC: "
+                    f"{period_actual} actuales vs {period_required} requeridos ({period_coverage}% de cobertura)."
                 )
+                if worst:
+                    reply += f" La franja más presionada es {worst.get('date','')} a las {worst.get('interval','')}."
             else:
-                reply = 'No detecto déficit en la selección actual.'
+                reply = (
+                    f"El periodo {scope_detail} está cubierto con {period_actual} HC actuales vs "
+                    f"{period_required} requeridos."
+                )
 
             if schedule_plan.get('moves'):
                 actions = [
@@ -1770,7 +1956,7 @@ def wfm_assistant():
 
             note = (
                 'Simulación de planeación: los cambios no se aplican automáticamente. '
-                'Valida jornada, breaks/comidas, skills, transporte, restricciones laborales y cualquier excepción individual.'
+                'Valida jornada, skills, transporte, restricciones laborales y cualquier excepción individual.'
             )
             return jsonify({
                 'reply': reply,
@@ -1779,64 +1965,61 @@ def wfm_assistant():
                 'cards': cards,
                 'actions': actions,
                 'schedule_plan': schedule_plan,
+                'data_quality': _assistant_data_quality(context),
                 'note': note
             }), 200
         elif any(t in q for t in deficit_terms):
-            if worst:
-                missing = abs(int(round(float(worst.get('gap', 0)))))
+            if period_gap < 0:
                 reply = (
-                    f"El mayor déficit del filtro está en {worst.get('channel','la operación')} el {worst.get('date','')} "
-                    f"a las {worst.get('interval','')}: se requieren {int(round(float(worst.get('required',0))))} HC, "
-                    f"hay {int(round(float(worst.get('actual',0))))} HC y faltan {missing} HC "
-                    f"({int(round(float(worst.get('coverage',0))))}% de cobertura)."
+                    f"Para el periodo {scope_detail} se requieren {period_required} HC y hay {period_actual} HC. "
+                    f"Faltan {abs(period_gap)} HC y la cobertura de plantilla es {period_coverage}%."
                 )
-                actions = [
-                    f"Prioriza la franja {worst.get('interval','')} antes de mover recursos a intervalos con cobertura superior a 100%."
-                ]
+                if worst:
+                    reply += (
+                        f" El intervalo más presionado es {worst.get('date','')} a las {worst.get('interval','')}, "
+                        f"donde la brecha operativa es {int(round(float(worst.get('gap',0))))} HC."
+                    )
+                actions = ['Abrir Plan para revisar candidatos de entrada/salida y simular su impacto.']
             else:
-                reply = 'No detecto intervalos con déficit dentro del filtro actual; la cobertura observada es suficiente para el requerimiento calculado.'
+                reply = (
+                    f"El periodo {scope_detail} no presenta déficit de plantilla: {period_actual} HC actuales vs "
+                    f"{period_required} requeridos ({period_coverage}% de cobertura)."
+                )
         elif any(t in q for t in why_terms):
+            reply = (
+                f"Para el periodo {scope_detail}, la necesidad de plantilla es {period_required} HC y el roster actual es "
+                f"{period_actual} HC, por lo que la brecha es {period_gap} HC. El HC requerido se obtiene de la carga "
+                f"proyectada y después se convierte a plantilla considerando jornada, descanso y merma."
+            )
             if worst:
-                reply = (
-                    f"El HC requerido responde principalmente al volumen proyectado, AHT, objetivo de servicio y merma. "
-                    f"En el punto crítico ({worst.get('date','')} {worst.get('interval','')}), el forecast pide "
-                    f"{int(round(float(worst.get('required',0))))} HC para absorber la carga estimada; el roster aporta "
-                    f"{int(round(float(worst.get('actual',0))))} HC."
-                )
-            else:
-                reply = (
-                    'El HC requerido se calcula a partir de demanda, AHT, objetivos de servicio y merma. '
-                    'En Chat también influye la concurrencia. En tu selección actual no veo una brecha negativa.'
-                )
+                reply += f" La franja más exigente está en {worst.get('date','')} a las {worst.get('interval','')}."
         elif any(t in q for t in summary_terms):
-            if worst:
+            if period_gap < 0:
                 reply = (
-                    f"Prioridad operativa: proteger {worst.get('channel','la operación')} el {worst.get('date','')} "
-                    f"a las {worst.get('interval','')}. La cobertura crítica es "
-                    f"{int(round(float(worst.get('coverage',0))))}% y faltan {abs(int(round(float(worst.get('gap',0)))))} HC."
+                    f"Resumen del periodo {scope_detail}: {period_required} HC requeridos, {period_actual} HC actuales, "
+                    f"brecha de {abs(period_gap)} HC y cobertura de {period_coverage}%."
                 )
-                actions = _assistant_movement_actions(deficits, surpluses)
-                if not actions:
-                    actions = ['Revisar entradas, salidas, breaks, comidas y disponibilidad adicional alrededor de la franja crítica.']
+                if worst:
+                    reply += f" Prioridad intraperiodo: {worst.get('date','')} {worst.get('interval','')}."
+                actions = ['Revisar el Plan de acción y validar los movimientos de roster con mayor impacto.']
             else:
                 reply = (
-                    f"La selección actual no presenta déficit. La cobertura promedio es "
-                    f"{int(round(float(context.get('averageCoverage',100))))}%."
+                    f"El periodo {scope_detail} está cubierto: {period_actual} HC actuales vs "
+                    f"{period_required} requeridos ({period_coverage}% de cobertura)."
                 )
         else:
-            if worst:
-                top_campaign = campaigns[0] if campaigns else None
+            if period_gap < 0:
                 reply = (
-                    f"En el filtro actual, el principal punto de atención es {worst.get('date','')} a las "
-                    f"{worst.get('interval','')}, con {int(round(float(worst.get('coverage',0))))}% de cobertura."
+                    f"El periodo {scope_detail} tiene una brecha de plantilla de {abs(period_gap)} HC: "
+                    f"{period_actual} actuales vs {period_required} requeridos ({period_coverage}% de cobertura)."
                 )
-                if top_campaign and float(top_campaign.get('worstGap', 0) or 0) < 0:
-                    reply += f" La campaña con mayor presión detectada es {top_campaign.get('campaign','—')}."
+                if worst:
+                    reply += f" El punto más presionado está en {worst.get('date','')} a las {worst.get('interval','')}."
                 reply += ' Puedes preguntarme por déficit, movimientos de horarios, HC requerido, AHT, merma, SL, ASA o concurrencia.'
             else:
                 reply = (
-                    'La selección actual se ve cubierta. Puedes preguntarme por movimientos de horarios, explicación del HC, '
-                    'AHT, merma, SL, ASA, concurrencia o prioridades operativas.'
+                    f"El periodo {scope_detail} está cubierto con {period_actual} HC actuales vs "
+                    f"{period_required} requeridos. Puedes preguntarme por proyección, roster o prioridades operativas."
                 )
 
         return jsonify({
@@ -1852,3 +2035,4 @@ def wfm_assistant():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+
