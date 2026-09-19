@@ -1117,6 +1117,411 @@ def _assistant_explain_metric(question):
             return answer
     return None
 
+
+def _assistant_roster_detail(excel_path):
+    """Extract person-level schedules from the same roster sheet used by the forecast."""
+    cached = _cache_excel_info_get(excel_path, 'assistant_roster_detail:v2')
+    if cached is not None:
+        return cached
+
+    result = {'available': False, 'sheet': None, 'agents': [], 'reason': ''}
+    try:
+        xls = pd.ExcelFile(excel_path, engine='openpyxl')
+        roster_sheet = None
+        for sh in xls.sheet_names:
+            low = sh.lower()
+            if 'roster' in low or 'plantilla' in low or 'platilla' in low or 'horario' in low:
+                roster_sheet = sh
+                break
+        if not roster_sheet:
+            result['reason'] = 'No se encontró una hoja de roster/plantilla.'
+            return _cache_excel_info_set(excel_path, 'assistant_roster_detail:v2', result)
+
+        df_roster = pd.read_excel(xls, sheet_name=roster_sheet, engine='openpyxl')
+        col_camp = encontrar_columna(df_roster, ['campaña', 'campana', 'skill', 'servicio'])
+        col_agent = encontrar_columna(df_roster, ['agente', 'nombre', 'asesor', 'ejecutivo', 'id'])
+        col_channel = encontrar_columna(df_roster, ['canal', 'channel'])
+
+        if not col_camp:
+            result['reason'] = 'La hoja de roster no contiene una columna de campaña/skill.'
+            return _cache_excel_info_set(excel_path, 'assistant_roster_detail:v2', result)
+
+        dias_map = {
+            'lunes': 'Lunes', 'martes': 'Martes', 'miércoles': 'Miércoles', 'miercoles': 'Miércoles',
+            'jueves': 'Jueves', 'viernes': 'Viernes', 'sábado': 'Sábado', 'sabado': 'Sábado',
+            'domingo': 'Domingo'
+        }
+        day_columns = {}
+        for col in df_roster.columns:
+            key = str(col).strip().lower()
+            if key in dias_map:
+                day_columns[dias_map[key]] = col
+
+        agents = []
+        for row_idx, row in df_roster.iterrows():
+            campaign = str(row.get(col_camp, '')).strip()
+            if not campaign or campaign.lower() == 'nan':
+                continue
+
+            agent = str(row.get(col_agent, '')).strip() if col_agent else ''
+            if not agent or agent.lower() == 'nan':
+                agent = f'Agente {row_idx + 1}'
+
+            channel = ''
+            if col_channel:
+                channel = str(row.get(col_channel, '')).strip()
+                if channel.lower() == 'nan':
+                    channel = ''
+
+            schedules = {}
+            for day_name, col in day_columns.items():
+                raw = str(row.get(col, '')).strip().upper()
+                if not raw or raw == 'NAN' or raw == 'DD-DD' or '-' not in raw:
+                    continue
+                parts = raw.split('-', 1)
+                if len(parts) != 2:
+                    continue
+                start = parse_time_str(parts[0].strip())
+                end = parse_time_str(parts[1].strip())
+                if start is None or end is None:
+                    continue
+                schedules[day_name] = {
+                    'raw': raw,
+                    'start': int(start),
+                    'end': int(end)
+                }
+
+            if schedules:
+                agents.append({
+                    'agent': agent,
+                    'campaign': str(campaign).title(),
+                    'channel': channel.title() if channel else '',
+                    'schedules': schedules
+                })
+
+        result = {
+            'available': bool(agents),
+            'sheet': roster_sheet,
+            'agents': agents,
+            'reason': '' if agents else 'No se encontraron horarios válidos por persona en el roster.'
+        }
+    except Exception as e:
+        result['reason'] = f'No se pudo leer el roster: {str(e)}'
+
+    return _cache_excel_info_set(excel_path, 'assistant_roster_detail:v2', result)
+
+def _assistant_span_intervals(start_min, end_min):
+    start_min = int(start_min) % (24 * 60)
+    end_min = int(end_min) % (24 * 60)
+    return generar_intervalos_cobertura(start_min, end_min)
+
+def _assistant_schedule_text(start_min, end_min):
+    return f"{_assistant_hhmm_minutes(start_min)}-{_assistant_hhmm_minutes(end_min)}"
+
+def _assistant_day_name(date_text):
+    try:
+        dt = datetime.strptime(str(date_text)[:10], '%Y-%m-%d')
+        return ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][dt.weekday()]
+    except Exception:
+        return ''
+
+def _assistant_norm_channel(value):
+    v = _assistant_norm(value)
+    if 'chat' in v or 'mensaje' in v:
+        return 'chat'
+    if 'llam' in v or 'call' in v:
+        return 'llamadas'
+    return v
+
+def _assistant_optimizer_state(slots):
+    state = {}
+    for row in slots:
+        try:
+            date = str(row.get('date', ''))[:10]
+            interval = str(row.get('interval', '00:00'))
+            campaign = normalizar_nombre_campana(row.get('campaign', ''))
+            channel = _assistant_norm_channel(row.get('channel', ''))
+            required = float(row.get('required', 0) or 0)
+            actual = float(row.get('actual', 0) or 0)
+        except Exception:
+            continue
+        if not date or not campaign or not interval:
+            continue
+        key = (date, campaign, channel, interval)
+        if key not in state:
+            state[key] = {'required': 0.0, 'actual': actual}
+        state[key]['required'] += required
+        # HC actual is a roster snapshot for the campaign/interval, so use max
+        # rather than summing duplicates from repeated source rows.
+        state[key]['actual'] = max(state[key]['actual'], actual)
+    return state
+
+def _assistant_state_metrics(state):
+    total_deficit = 0.0
+    worst_gap = 0.0
+    deficit_slots = 0
+    for row in state.values():
+        gap = float(row['actual']) - float(row['required'])
+        if gap < 0:
+            total_deficit += -gap
+            deficit_slots += 1
+            worst_gap = min(worst_gap, gap)
+    return {
+        'total_deficit': round(total_deficit, 2),
+        'worst_gap': round(worst_gap, 2),
+        'deficit_slots': deficit_slots
+    }
+
+def _assistant_apply_shift_to_state(state, date, campaign_norm, channel_norm, old_intervals, new_intervals):
+    updated = {k: {'required': v['required'], 'actual': v['actual']} for k, v in state.items()}
+    old_set, new_set = set(old_intervals), set(new_intervals)
+    for interval in old_set - new_set:
+        key = (date, campaign_norm, channel_norm, interval)
+        if key in updated:
+            updated[key]['actual'] = max(0.0, updated[key]['actual'] - 1.0)
+    for interval in new_set - old_set:
+        key = (date, campaign_norm, channel_norm, interval)
+        if key in updated:
+            updated[key]['actual'] += 1.0
+    return updated
+
+def _assistant_new_deficits_created(before, after):
+    created = 0
+    for key, b in before.items():
+        a = after.get(key, b)
+        before_gap = float(b['actual']) - float(b['required'])
+        after_gap = float(a['actual']) - float(a['required'])
+        if before_gap >= 0 and after_gap < 0:
+            created += 1
+    return created
+
+def _assistant_improved_intervals(before, after, limit=10):
+    improvements = []
+    for key, b in before.items():
+        a = after.get(key, b)
+        b_def = max(0.0, float(b['required']) - float(b['actual']))
+        a_def = max(0.0, float(a['required']) - float(a['actual']))
+        if a_def + 1e-9 < b_def:
+            date, campaign, channel, interval = key
+            improvements.append({
+                'date': date,
+                'campaign': campaign.title(),
+                'channel': channel.title(),
+                'interval': interval,
+                'beforeGap': round(float(b['actual']) - float(b['required']), 1),
+                'afterGap': round(float(a['actual']) - float(a['required']), 1),
+                'improvement': round(b_def - a_def, 1)
+            })
+    improvements.sort(key=lambda x: (-x['improvement'], x['date'], x['interval']))
+    return improvements[:limit]
+
+def _assistant_optimize_roster(context, max_moves=6):
+    slots = context.get('optimizationSlots') or context.get('campaignSlots') or []
+    if not isinstance(slots, list) or not slots:
+        return {
+            'available': False,
+            'reason': 'No se recibió el detalle por campaña e intervalo necesario para optimizar horarios.',
+            'moves': []
+        }
+
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        return {'available': False, 'reason': 'No se encontró el Excel fuente del roster.', 'moves': []}
+
+    roster = _assistant_roster_detail(excel_path)
+    if not roster.get('available'):
+        return {'available': False, 'reason': roster.get('reason') or 'Roster no disponible.', 'moves': []}
+
+    baseline = _assistant_optimizer_state(slots)
+    if not baseline:
+        return {'available': False, 'reason': 'No fue posible construir la cobertura base.', 'moves': []}
+
+    baseline_metrics = _assistant_state_metrics(baseline)
+    if baseline_metrics['total_deficit'] <= 0:
+        return {
+            'available': True,
+            'reason': 'La selección no tiene déficit que requiera movimientos.',
+            'baseline': baseline_metrics,
+            'after': baseline_metrics,
+            'moves': [],
+            'impactIntervals': []
+        }
+
+    active_campaigns = {key[1] for key in baseline.keys()}
+    active_dates = sorted({key[0] for key in baseline.keys()})
+    channels = sorted({key[2] for key in baseline.keys() if key[2]})
+    worst = context.get('worst') or {}
+    target_channel = _assistant_norm_channel(worst.get('channel', ''))
+    if not target_channel:
+        mode = _assistant_norm(context.get('mode', ''))
+        target_channel = 'chat' if mode == 'chat' else ('llamadas' if mode == 'llamadas' else (channels[0] if len(channels) == 1 else ''))
+
+    candidate_instances = []
+    for roster_agent in roster.get('agents', []):
+        campaign_norm = normalizar_nombre_campana(roster_agent.get('campaign', ''))
+        if campaign_norm not in active_campaigns:
+            continue
+
+        roster_channel = _assistant_norm_channel(roster_agent.get('channel', ''))
+        if roster_channel and target_channel and roster_channel != target_channel:
+            continue
+
+        for date in active_dates:
+            day_name = _assistant_day_name(date)
+            sched = (roster_agent.get('schedules') or {}).get(day_name)
+            if not sched:
+                continue
+
+            # Resolve channel for this campaign/date from actual state.
+            state_channels = sorted({k[2] for k in baseline if k[0] == date and k[1] == campaign_norm})
+            if target_channel and target_channel in state_channels:
+                channel_norm = target_channel
+            elif roster_channel and roster_channel in state_channels:
+                channel_norm = roster_channel
+            elif len(state_channels) == 1:
+                channel_norm = state_channels[0]
+            else:
+                # In consolidated mode, optimize the most pressured channel only.
+                channel_norm = target_channel or (state_channels[0] if state_channels else '')
+            if not channel_norm:
+                continue
+
+            start, end = int(sched['start']), int(sched['end'])
+            old_intervals = _assistant_span_intervals(start, end)
+            if not old_intervals:
+                continue
+
+            for delta in (-90, -60, -30, 30, 60, 90):
+                # Keep the shift start on the same calendar day. Overnight end is allowed.
+                new_start_abs = start + delta
+                end_abs = end if end > start else end + (24 * 60)
+                new_end_abs = end_abs + delta
+                if new_start_abs < 0 or new_start_abs >= 24 * 60:
+                    continue
+                if new_end_abs <= new_start_abs or new_end_abs > 2 * 24 * 60:
+                    continue
+
+                new_start = new_start_abs % (24 * 60)
+                new_end = new_end_abs % (24 * 60)
+                new_intervals = _assistant_span_intervals(new_start, new_end)
+                if not new_intervals:
+                    continue
+
+                # Do not propose coverage outside the configured service window.
+                if any(not esta_en_ventana_servicio(roster_agent.get('campaign', ''), interval) for interval in new_intervals):
+                    continue
+
+                candidate_instances.append({
+                    'agent': roster_agent.get('agent', 'Agente'),
+                    'campaign': roster_agent.get('campaign', ''),
+                    'campaignNorm': campaign_norm,
+                    'channelNorm': channel_norm,
+                    'channel': channel_norm.title(),
+                    'date': date,
+                    'day': day_name,
+                    'start': start,
+                    'end': end,
+                    'newStart': new_start,
+                    'newEnd': new_end,
+                    'currentSchedule': _assistant_schedule_text(start, end),
+                    'proposedSchedule': _assistant_schedule_text(new_start, new_end),
+                    'deltaMinutes': delta,
+                    'oldIntervals': old_intervals,
+                    'newIntervals': new_intervals
+                })
+
+    if not candidate_instances:
+        return {
+            'available': False,
+            'reason': 'El roster tiene horarios, pero no encontré candidatos compatibles con las campañas/fechas seleccionadas.',
+            'baseline': baseline_metrics,
+            'moves': []
+        }
+
+    current = baseline
+    selected = []
+    used_agent_dates = set()
+
+    for _ in range(max(1, min(int(max_moves), 10))):
+        current_metrics = _assistant_state_metrics(current)
+        best = None
+
+        for cand in candidate_instances:
+            identity = (cand['agent'], cand['date'])
+            if identity in used_agent_dates:
+                continue
+
+            trial = _assistant_apply_shift_to_state(
+                current,
+                cand['date'],
+                cand['campaignNorm'],
+                cand['channelNorm'],
+                cand['oldIntervals'],
+                cand['newIntervals']
+            )
+            if _assistant_new_deficits_created(current, trial) > 0:
+                continue
+
+            trial_metrics = _assistant_state_metrics(trial)
+            reduction = current_metrics['total_deficit'] - trial_metrics['total_deficit']
+            worst_improvement = trial_metrics['worst_gap'] - current_metrics['worst_gap']
+
+            if reduction <= 0:
+                continue
+
+            # Prefer more deficit removed, then worst-gap relief, then smaller schedule moves.
+            score = reduction * 100.0 + max(0.0, worst_improvement) * 12.0 - (abs(cand['deltaMinutes']) / 30.0)
+            if best is None or score > best['score']:
+                best = {
+                    'score': score,
+                    'candidate': cand,
+                    'trial': trial,
+                    'metrics': trial_metrics,
+                    'reduction': reduction,
+                    'worstImprovement': worst_improvement
+                }
+
+        if best is None:
+            break
+
+        cand = best['candidate']
+        used_agent_dates.add((cand['agent'], cand['date']))
+        before_metrics = _assistant_state_metrics(current)
+        current = best['trial']
+        after_metrics = best['metrics']
+
+        selected.append({
+            'agent': cand['agent'],
+            'campaign': cand['campaign'],
+            'channel': cand['channel'],
+            'date': cand['date'],
+            'day': cand['day'],
+            'currentSchedule': cand['currentSchedule'],
+            'proposedSchedule': cand['proposedSchedule'],
+            'deltaMinutes': cand['deltaMinutes'],
+            'deficitReduction': round(best['reduction'], 1),
+            'worstGapBefore': before_metrics['worst_gap'],
+            'worstGapAfter': after_metrics['worst_gap']
+        })
+
+        if after_metrics['total_deficit'] <= 0:
+            break
+
+    after_metrics = _assistant_state_metrics(current)
+    impact = _assistant_improved_intervals(baseline, current, limit=12)
+
+    return {
+        'available': True,
+        'sheet': roster.get('sheet'),
+        'baseline': baseline_metrics,
+        'after': after_metrics,
+        'moves': selected,
+        'impactIntervals': impact,
+        'candidateCount': len(candidate_instances),
+        'scopeDates': active_dates[:8],
+        'reason': '' if selected else 'No encontré movimientos de ±30/60/90 min que reduzcan déficit sin crear otro faltante dentro del alcance analizado.'
+    }
+
 @app.route('/api/wfm_assistant', methods=['POST'])
 def wfm_assistant():
     try:
@@ -1150,7 +1555,7 @@ def wfm_assistant():
         summary_terms = ['resumen', 'prioridad', 'prioridades', 'acciones', 'qué debo hacer', 'que debo hacer']
 
         if any(t in q for t in movement_terms):
-            actions = _assistant_movement_actions(deficits, surpluses)
+            schedule_plan = _assistant_optimize_roster(context, max_moves=6)
             if worst:
                 missing = abs(int(round(float(worst.get('gap', 0)))))
                 reply = (
@@ -1160,10 +1565,41 @@ def wfm_assistant():
                 )
             else:
                 reply = 'No detecto déficit en la selección actual.'
-            if actions:
-                reply += ' Encontré capacidad cercana que vale la pena revisar antes de agregar HC.'
+
+            if schedule_plan.get('moves'):
+                actions = [
+                    f"{m['agent']} · {m['campaign']} · {m['date']}: {m['currentSchedule']} → {m['proposedSchedule']} "
+                    f"({m['deltaMinutes']:+d} min)."
+                    for m in schedule_plan['moves']
+                ]
+                before = schedule_plan.get('baseline', {})
+                after = schedule_plan.get('after', {})
+                reply += (
+                    f" Encontré {len(schedule_plan['moves'])} movimientos concretos de roster que reducen el déficit "
+                    f"HC-intervalo de {before.get('total_deficit',0):g} a {after.get('total_deficit',0):g} "
+                    f"sin crear un faltante nuevo dentro del alcance analizado."
+                )
             else:
-                reply += ' No encontré un excedente cercano suficiente para compensarlo; conviene revisar extensiones, cambios de entrada o capacidad adicional.'
+                actions = _assistant_movement_actions(deficits, surpluses)
+                reason = schedule_plan.get('reason') or ''
+                if reason:
+                    reply += f" {reason}"
+                elif actions:
+                    reply += ' Encontré capacidad cercana para revisar, aunque no pude asociarla a personas específicas del roster.'
+                else:
+                    reply += ' No encontré un movimiento seguro con los datos actuales.'
+
+            note = (
+                'Simulación de planeación: los cambios no se aplican automáticamente. '
+                'Valida jornada, breaks/comidas, skills, transporte, restricciones laborales y cualquier excepción individual.'
+            )
+            return jsonify({
+                'reply': reply,
+                'cards': cards,
+                'actions': actions,
+                'schedule_plan': schedule_plan,
+                'note': note
+            }), 200
         elif any(t in q for t in deficit_terms):
             if worst:
                 missing = abs(int(round(float(worst.get('gap', 0)))))
