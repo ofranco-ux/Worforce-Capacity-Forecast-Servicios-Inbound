@@ -362,6 +362,27 @@
             #panelControl { position:sticky; top:14px; max-height:calc(100vh - 28px); overflow-y:auto !important; }
         }
         .sidebar-topline { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding-bottom:14px; border-bottom:1px solid var(--premium-border); }
+        .panel-toggle-btn {
+            display:inline-flex; align-items:center; justify-content:center; gap:8px;
+            min-height:34px; padding:0 12px; border-radius:11px;
+            border:1px solid rgba(79,140,255,.18); background:rgba(255,255,255,.03);
+            color:#DDE6F1; font-size:10px; font-weight:800; letter-spacing:.01em;
+            transition:.18s ease; flex:0 0 auto;
+        }
+        .panel-toggle-btn:hover { border-color:rgba(79,140,255,.30); background:rgba(79,140,255,.08); color:#FFFFFF; }
+        .panel-toggle-btn svg { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+        .sidebar-restore-btn {
+            position:fixed; left:14px; top:118px; z-index:35;
+            display:inline-flex; align-items:center; gap:9px;
+            min-height:40px; padding:0 14px; border-radius:14px;
+            border:1px solid rgba(79,140,255,.20);
+            background:linear-gradient(180deg, rgba(17,27,44,.96), rgba(12,20,34,.98));
+            color:#F1F5F9; font-size:10px; font-weight:800; letter-spacing:.01em;
+            box-shadow:0 20px 38px -30px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.04);
+            transition:.18s ease;
+        }
+        .sidebar-restore-btn:hover { border-color:rgba(79,140,255,.34); background:linear-gradient(180deg, rgba(79,140,255,.18), rgba(17,27,44,.98)); }
+        .sidebar-restore-btn svg { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
         .sidebar-title { color:#F8FAFC; font-size:12px; font-weight:800; letter-spacing:-.01em; }
         .sidebar-copy { color:#7B8BA2; font-size:10px; margin-top:3px; line-height:1.55; }
         .ghost-action {
@@ -1778,32 +1799,6 @@
                 <button id="btnTabGeneral" onclick="setModeWFM('general')" class="mode-tab"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="7" height="6" rx="1.3"/><rect x="13" y="5" width="7" height="6" rx="1.3"/><rect x="4" y="13" width="7" height="6" rx="1.3"/><rect x="13" y="13" width="7" height="6" rx="1.3"/></svg></span><span>Consolidado</span></button>
             </div>
             <span id="tagModoOps" class="hidden ops-badge">Operaciones</span>
-            <div id="forecastMenu" class="forecast-menu">
-                <button id="forecastMenuButton" type="button" class="forecast-menu-btn" onclick="toggleForecastMenu(event)" aria-expanded="false" aria-controls="forecastMenuPanel">
-                    <span class="forecast-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M7 12h10"/><path d="M10 17h4"/><circle cx="7" cy="7" r="1.5"/><circle cx="17" cy="12" r="1.5"/><circle cx="11" cy="17" r="1.5"/></svg></span>
-                    <span>Configuración</span>
-                    <span class="forecast-menu-caret" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span>
-                </button>
-                <div id="forecastMenuPanel" class="forecast-menu-panel hidden">
-                    <div class="forecast-menu-head">
-                        <p class="forecast-menu-title">Configuración del forecast</p>
-                        <p class="forecast-menu-copy">Gestiona desde aquí el panel de parámetros sin sacarlo al encabezado.</p>
-                    </div>
-                    <div class="forecast-menu-list">
-                        <p class="forecast-menu-section-label">Panel de parámetros</p>
-                        <button id="btnSidebarMenuAction" type="button" class="forecast-menu-item forecast-menu-item-primary" onclick="handleSidebarMenuAction()">
-                            <span class="forecast-menu-item-copy">
-                                <span class="forecast-menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-5 9-5 9 5 9 5-3.5 5-9 5-9-5-9-5Z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
-                                <span class="forecast-menu-item-text">
-                                    <span id="sidebarMenuActionLabel" class="forecast-menu-item-title">Ocultar parámetros</span>
-                                    <span id="sidebarMenuActionCopy" class="forecast-menu-item-subtitle">Oculta o recupera el panel lateral cuando lo necesites.</span>
-                                </span>
-                            </span>
-                            <span id="sidebarMenuActionState" class="forecast-menu-item-state">Visible</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
         </div>
     </header>
 
@@ -1816,6 +1811,10 @@
                     <p class="sidebar-title">Configurar forecast</p>
                     <p class="sidebar-copy">Ajusta los supuestos antes de generar la proyección.</p>
                 </div>
+                <button id="btnSidebarToggleInline" type="button" onclick="toggleSidebar()" class="panel-toggle-btn" title="Ocultar parámetros">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
+                    <span id="sidebarInlineToggleLabel">Ocultar</span>
+                </button>
             </div>
 
             <div id="contParametrosSimulacion">
@@ -2852,53 +2851,6 @@
             fetchLatestData(mode);
         }
 
-
-        function toggleForecastMenu(event) {
-            if (event) event.stopPropagation();
-            const panel = document.getElementById('forecastMenuPanel');
-            const button = document.getElementById('forecastMenuButton');
-            if (!panel || !button) return;
-            const willOpen = panel.classList.contains('hidden');
-            panel.classList.toggle('hidden', !willOpen);
-            button.classList.toggle('is-open', willOpen);
-            button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-        }
-
-        function closeForecastMenu() {
-            const panel = document.getElementById('forecastMenuPanel');
-            const button = document.getElementById('forecastMenuButton');
-            if (panel) panel.classList.add('hidden');
-            if (button) {
-                button.classList.remove('is-open');
-                button.setAttribute('aria-expanded', 'false');
-            }
-        }
-
-        function updateForecastMenuUI() {
-            const menu = document.getElementById('forecastMenu');
-            const label = document.getElementById('sidebarMenuActionLabel');
-            const copy = document.getElementById('sidebarMenuActionCopy');
-            const state = document.getElementById('sidebarMenuActionState');
-            const actionBtn = document.getElementById('btnSidebarMenuAction');
-            const isOps = currentMode === 'ops' || currentMode === 'operaciones';
-
-            if (menu) menu.classList.toggle('hidden', isOps);
-            if (actionBtn) actionBtn.disabled = isOps;
-            if (isOps) {
-                closeForecastMenu();
-                return;
-            }
-            if (label) label.innerText = isSidebarVisible ? 'Ocultar parámetros' : 'Mostrar parámetros';
-            if (copy) copy.innerText = isSidebarVisible ? 'Mantén el tablero limpio para la presentación.' : 'Recupera el panel para editar supuestos y horizontes.';
-            if (state) state.innerText = isSidebarVisible ? 'Visible' : 'Oculto';
-        }
-
-        function handleSidebarMenuAction() {
-            toggleSidebar();
-            updateForecastMenuUI();
-            closeForecastMenu();
-        }
-
         function switchMode(mode) {
             currentMode = mode;
             const aside = document.getElementById('panelControl');
@@ -3296,10 +3248,6 @@
         }
 
         window.addEventListener('DOMContentLoaded', async () => {
-            document.addEventListener('click', (event) => {
-                const menu = document.getElementById('forecastMenu');
-                if (menu && !menu.contains(event.target)) closeForecastMenu();
-            });
             updateForecastMenuUI();
             const urlParams = new URLSearchParams(window.location.search);
             const mode = urlParams.get('mode') || urlParams.get('role') || 'wfm';
