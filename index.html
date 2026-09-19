@@ -240,6 +240,69 @@
         .brand-title { font-size:18px; line-height:1.25; font-weight:800; color:#F8FAFC; letter-spacing:-.025em; }
         .brand-subtitle { margin-top:4px; font-size:11px; color:#8090A6; font-weight:500; }
         .header-actions { display:flex; align-items:center; gap:10px; margin-left:auto; }
+
+        .forecast-menu { position:relative; }
+        .forecast-menu-btn {
+            display:inline-flex; align-items:center; justify-content:center; gap:8px;
+            height:38px; padding:0 14px;
+            border:1px solid rgba(79,140,255,.22); border-radius:12px;
+            background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+            color:#D8E3EF; font-size:10px; font-weight:800; letter-spacing:.01em;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+            transition:.18s ease;
+        }
+        .forecast-menu-btn:hover {
+            border-color:rgba(79,140,255,.34);
+            background:linear-gradient(180deg, rgba(79,140,255,.11), rgba(79,140,255,.06));
+            color:#F8FBFF;
+        }
+        .forecast-menu-btn.is-open {
+            border-color:rgba(79,140,255,.40);
+            background:linear-gradient(180deg, rgba(79,140,255,.14), rgba(79,140,255,.08));
+            color:#F8FBFF;
+        }
+        .forecast-menu-icon, .forecast-menu-caret {
+            display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+        }
+        .forecast-menu-icon svg, .forecast-menu-caret svg {
+            width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;
+        }
+        .forecast-menu-panel {
+            position:absolute; right:0; top:calc(100% + 10px); width:290px; z-index:40;
+            padding:14px; border-radius:16px;
+            border:1px solid rgba(79,140,255,.16);
+            background:linear-gradient(180deg, rgba(18,28,47,.97), rgba(12,19,34,.98));
+            box-shadow:0 28px 55px -36px rgba(0,0,0,.92), inset 0 1px 0 rgba(255,255,255,.03);
+            backdrop-filter: blur(16px);
+        }
+        .forecast-menu-head { padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,.06); }
+        .forecast-menu-title { color:#F8FAFC; font-size:11px; font-weight:800; letter-spacing:-.01em; }
+        .forecast-menu-copy { margin-top:4px; color:#8293A9; font-size:10px; line-height:1.45; }
+        .forecast-menu-list { padding-top:12px; display:flex; flex-direction:column; gap:10px; }
+        .forecast-menu-item {
+            width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
+            min-height:42px; padding:10px 12px; border-radius:12px;
+            border:1px solid rgba(79,140,255,.14); background:rgba(255,255,255,.02);
+            color:#DDE6F1; transition:.18s ease;
+        }
+        .forecast-menu-item:hover { border-color:rgba(79,140,255,.26); background:rgba(79,140,255,.06); }
+        .forecast-menu-item-copy { display:flex; align-items:center; gap:10px; min-width:0; }
+        .forecast-menu-item-icon {
+            width:28px; height:28px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center;
+            background:linear-gradient(145deg, rgba(79,140,255,.14), rgba(45,212,232,.08)); color:#85AFFF; flex:0 0 auto;
+        }
+        .forecast-menu-item-icon svg { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+        .forecast-menu-item-text { text-align:left; }
+        .forecast-menu-item-title { display:block; color:#EFF5FB; font-size:10px; font-weight:800; }
+        .forecast-menu-item-subtitle { display:block; margin-top:2px; color:#7C8EA6; font-size:9px; }
+        .forecast-menu-item-state {
+            display:inline-flex; align-items:center; justify-content:center; height:24px; padding:0 10px; border-radius:999px;
+            background:rgba(79,140,255,.10); color:#92B1E9; font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+            flex:0 0 auto;
+        }
+        .forecast-menu-helper {
+            padding-top:2px; color:#6F8199; font-size:9px; line-height:1.45;
+        }
         .mode-switch {
             display:flex; align-items:center; gap:3px; padding:4px;
             border:1px solid var(--premium-border);
@@ -1397,6 +1460,42 @@
             color:#FFFFFF !important;
             background:linear-gradient(135deg,#7A8DA3,#596C82) !important;
         }
+
+        body.light-theme .forecast-menu-btn {
+            background:linear-gradient(180deg,#EEF3F8,#E7EDF4) !important;
+            border-color:#CAD5E0 !important;
+            color:#4C6077 !important;
+            box-shadow:0 8px 18px -16px rgba(53,78,114,.22), inset 0 1px 0 rgba(255,255,255,.85) !important;
+        }
+        body.light-theme .forecast-menu-btn:hover,
+        body.light-theme .forecast-menu-btn.is-open {
+            background:linear-gradient(180deg,#E4EBF4,#DCE5F0) !important;
+            border-color:#BECBDA !important;
+            color:#22354A !important;
+        }
+        body.light-theme .forecast-menu-panel {
+            background:linear-gradient(180deg,#F7FAFD,#EEF3F8) !important;
+            border-color:#D4DEE9 !important;
+            box-shadow:0 24px 44px -32px rgba(35,55,84,.22), inset 0 1px 0 rgba(255,255,255,.92) !important;
+        }
+        body.light-theme .forecast-menu-head { border-bottom-color:#E2EAF2 !important; }
+        body.light-theme .forecast-menu-title { color:#203247 !important; }
+        body.light-theme .forecast-menu-copy { color:#6A7E95 !important; }
+        body.light-theme .forecast-menu-item {
+            background:#FFFFFF !important;
+            border-color:#D6E0EA !important;
+            color:#1F3349 !important;
+            box-shadow:0 8px 16px -18px rgba(22,36,52,.16) !important;
+        }
+        body.light-theme .forecast-menu-item:hover { background:#F5F8FB !important; border-color:#BECBDD !important; }
+        body.light-theme .forecast-menu-item-icon {
+            background:linear-gradient(145deg, rgba(95,122,224,.13), rgba(61,171,161,.10)) !important;
+            color:#5A70DA !important;
+        }
+        body.light-theme .forecast-menu-item-title { color:#203247 !important; }
+        body.light-theme .forecast-menu-item-subtitle { color:#73879D !important; }
+        body.light-theme .forecast-menu-item-state { background:#E9EFF7 !important; color:#5C7088 !important; }
+        body.light-theme .forecast-menu-helper { color:#7B8DA3 !important; }
         body.light-theme .command-meta { display:none !important; }
 
         /* Superficies: no blanco puro */
@@ -1656,8 +1755,31 @@
                 <button id="btnTabGeneral" onclick="setModeWFM('general')" class="mode-tab"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="7" height="6" rx="1.3"/><rect x="13" y="5" width="7" height="6" rx="1.3"/><rect x="4" y="13" width="7" height="6" rx="1.3"/><rect x="13" y="13" width="7" height="6" rx="1.3"/></svg></span><span>Consolidado</span></button>
             </div>
             <span id="tagModoOps" class="hidden ops-badge">Operaciones</span>
-            <div id="containerShowSidebar" class="hidden">
-                <button onclick="toggleSidebar()" class="ghost-action"><span>◀</span> Parámetros</button>
+            <div id="forecastMenu" class="forecast-menu">
+                <button id="forecastMenuButton" type="button" class="forecast-menu-btn" onclick="toggleForecastMenu(event)" aria-expanded="false" aria-controls="forecastMenuPanel">
+                    <span class="forecast-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M7 12h10"/><path d="M10 17h4"/><circle cx="7" cy="7" r="1.5"/><circle cx="17" cy="12" r="1.5"/><circle cx="11" cy="17" r="1.5"/></svg></span>
+                    <span>Configuración</span>
+                    <span class="forecast-menu-caret" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span>
+                </button>
+                <div id="forecastMenuPanel" class="forecast-menu-panel hidden">
+                    <div class="forecast-menu-head">
+                        <p class="forecast-menu-title">Configuración del forecast</p>
+                        <p class="forecast-menu-copy">Centraliza aquí la visibilidad del panel de parámetros y los supuestos de planeación.</p>
+                    </div>
+                    <div class="forecast-menu-list">
+                        <button id="btnSidebarMenuAction" type="button" class="forecast-menu-item" onclick="handleSidebarMenuAction()">
+                            <span class="forecast-menu-item-copy">
+                                <span class="forecast-menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-5 9-5 9 5 9 5-3.5 5-9 5-9-5-9-5Z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
+                                <span class="forecast-menu-item-text">
+                                    <span id="sidebarMenuActionLabel" class="forecast-menu-item-title">Ocultar parámetros</span>
+                                    <span id="sidebarMenuActionCopy" class="forecast-menu-item-subtitle">Mantén el tablero limpio para la presentación.</span>
+                                </span>
+                            </span>
+                            <span id="sidebarMenuActionState" class="forecast-menu-item-state">Visible</span>
+                        </button>
+                        <p class="forecast-menu-helper">Cuando el panel esté oculto, podrás volver a mostrarlo desde este mismo menú.</p>
+                    </div>
+                </div>
             </div>
         </div>
     </header>
@@ -1671,7 +1793,6 @@
                     <p class="sidebar-title">Configurar forecast</p>
                     <p class="sidebar-copy">Ajusta los supuestos antes de generar la proyección.</p>
                 </div>
-                <button type="button" onclick="toggleSidebar()" class="ghost-action" title="Ocultar parámetros">Ocultar</button>
             </div>
 
             <div id="contParametrosSimulacion">
@@ -2708,19 +2829,64 @@
             fetchLatestData(mode);
         }
 
+
+        function toggleForecastMenu(event) {
+            if (event) event.stopPropagation();
+            const panel = document.getElementById('forecastMenuPanel');
+            const button = document.getElementById('forecastMenuButton');
+            if (!panel || !button) return;
+            const willOpen = panel.classList.contains('hidden');
+            panel.classList.toggle('hidden', !willOpen);
+            button.classList.toggle('is-open', willOpen);
+            button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        }
+
+        function closeForecastMenu() {
+            const panel = document.getElementById('forecastMenuPanel');
+            const button = document.getElementById('forecastMenuButton');
+            if (panel) panel.classList.add('hidden');
+            if (button) {
+                button.classList.remove('is-open');
+                button.setAttribute('aria-expanded', 'false');
+            }
+        }
+
+        function updateForecastMenuUI() {
+            const menu = document.getElementById('forecastMenu');
+            const label = document.getElementById('sidebarMenuActionLabel');
+            const copy = document.getElementById('sidebarMenuActionCopy');
+            const state = document.getElementById('sidebarMenuActionState');
+            const actionBtn = document.getElementById('btnSidebarMenuAction');
+            const isOps = currentMode === 'ops' || currentMode === 'operaciones';
+
+            if (menu) menu.classList.toggle('hidden', isOps);
+            if (actionBtn) actionBtn.disabled = isOps;
+            if (isOps) {
+                closeForecastMenu();
+                return;
+            }
+            if (label) label.innerText = isSidebarVisible ? 'Ocultar parámetros' : 'Mostrar parámetros';
+            if (copy) copy.innerText = isSidebarVisible ? 'Mantén el tablero limpio para la presentación.' : 'Recupera el panel para editar supuestos y horizontes.';
+            if (state) state.innerText = isSidebarVisible ? 'Visible' : 'Oculto';
+        }
+
+        function handleSidebarMenuAction() {
+            toggleSidebar();
+            updateForecastMenuUI();
+            closeForecastMenu();
+        }
+
         function switchMode(mode) {
             currentMode = mode;
             const aside = document.getElementById('panelControl');
             const main = document.getElementById('dashboardMain');
             const tag = document.getElementById('tagModoOps');
-            const containerShow = document.getElementById('containerShowSidebar');
             const ambulanceRule = document.getElementById('ambulanceRule');
 
             if (mode === 'ops' || mode === 'operaciones') {
                 if (aside) aside.style.display = 'none';
                 // La regla de Ambulancias es informativa para WFM; no se muestra en Operaciones.
                 if (ambulanceRule) ambulanceRule.classList.add('hidden');
-                if (containerShow) containerShow.classList.add('hidden'); 
                 if (main) {
                     main.classList.remove('lg:col-span-9');
                     main.classList.add('lg:col-span-12');
@@ -2730,29 +2896,25 @@
                 if (tag) tag.classList.add('hidden');
                 if (isSidebarVisible) {
                     if (aside) aside.style.display = 'block';
-                    if (containerShow) containerShow.classList.add('hidden');
                     if (main) {
                         main.classList.remove('lg:col-span-12');
                         main.classList.add('lg:col-span-9');
                     }
                 }
             }
+            updateForecastMenuUI();
             setTimeout(() => { if (gapChartInstance) gapChartInstance.resize(); }, 100);
         }
 
         function toggleSidebar() {
             const aside = document.getElementById('panelControl');
             const main = document.getElementById('dashboardMain');
-            const containerShow = document.getElementById('containerShowSidebar');
 
             if (isSidebarVisible) {
                 if (aside) aside.style.display = 'none';
                 if (main) {
                     main.classList.remove('lg:col-span-9');
                     main.classList.add('lg:col-span-12');
-                }
-                if (containerShow && currentMode !== 'ops' && currentMode !== 'operaciones') {
-                    containerShow.classList.remove('hidden');
                 }
                 isSidebarVisible = false;
             } else {
@@ -2761,9 +2923,9 @@
                     main.classList.remove('lg:col-span-12');
                     main.classList.add('lg:col-span-9');
                 }
-                if (containerShow) containerShow.classList.add('hidden');
                 isSidebarVisible = true;
             }
+            updateForecastMenuUI();
             setTimeout(() => { if (gapChartInstance) gapChartInstance.resize(); }, 150);
         }
 
@@ -3111,6 +3273,11 @@
         }
 
         window.addEventListener('DOMContentLoaded', async () => {
+            document.addEventListener('click', (event) => {
+                const menu = document.getElementById('forecastMenu');
+                if (menu && !menu.contains(event.target)) closeForecastMenu();
+            });
+            updateForecastMenuUI();
             const urlParams = new URLSearchParams(window.location.search);
             const mode = urlParams.get('mode') || urlParams.get('role') || 'wfm';
             switchMode(mode);
@@ -3938,4 +4105,3 @@
     </script>
 </body>
 </html>
-
