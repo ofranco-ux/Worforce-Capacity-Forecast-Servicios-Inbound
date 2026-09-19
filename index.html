@@ -2057,6 +2057,49 @@
         .wfm-plan-impact-row strong { color:#29445A; font-family:'JetBrains Mono',monospace; }
         @media (max-width:640px) { .wfm-plan-metrics { grid-template-columns:1fr; } }
 
+
+        .wfm-assistant-launcher.is-critical {
+            background:linear-gradient(135deg,#81384B 0%,#A34B62 55%,#31566C 130%);
+        }
+        .wfm-assistant-launcher.is-warning {
+            background:linear-gradient(135deg,#5C4D2E 0%,#78603A 45%,#245D66 130%);
+        }
+        .wfm-assistant-launcher.is-ok {
+            background:linear-gradient(135deg,#173A56 0%,#214E6B 58%,#287C79 130%);
+        }
+        .wfm-assistant-launcher-badge.is-critical { background:#FF95A8; box-shadow:0 0 0 4px rgba(255,149,168,.14); }
+        .wfm-assistant-launcher-badge.is-warning { background:#F0C56D; box-shadow:0 0 0 4px rgba(240,197,109,.14); }
+        .wfm-assistant-launcher-badge.is-ok { background:#7ED9CC; box-shadow:0 0 0 4px rgba(126,217,204,.11); }
+
+        .wfm-autopilot-insight {
+            margin:10px 13px 0;
+            padding:11px 12px;
+            border-radius:13px;
+            border:1px solid #D4E0E9;
+            background:linear-gradient(135deg,#F7FAFC,#EEF5F6);
+        }
+        .wfm-autopilot-insight.is-critical { border-color:rgba(201,78,104,.25); background:linear-gradient(135deg,#FFF7F8,#F8EEF1); }
+        .wfm-autopilot-insight.is-warning { border-color:rgba(167,106,19,.22); background:linear-gradient(135deg,#FFFBF3,#F6F2E8); }
+        .wfm-autopilot-insight.is-ok { border-color:rgba(37,139,120,.20); background:linear-gradient(135deg,#F5FBF9,#EDF6F4); }
+        .wfm-autopilot-top { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+        .wfm-autopilot-eyebrow { color:#6D8194; font-size:7px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; }
+        .wfm-autopilot-title { margin-top:3px; color:#203B52; font-size:11px; font-weight:850; }
+        .wfm-autopilot-status {
+            flex:0 0 auto; min-height:21px; padding:0 7px; border-radius:999px;
+            display:inline-flex; align-items:center; background:#E9F1F4; color:#597083;
+            font-size:7px; font-weight:900; letter-spacing:.08em;
+        }
+        .is-critical .wfm-autopilot-status { background:#F8E2E7; color:#B44861; }
+        .is-warning .wfm-autopilot-status { background:#F4E9CE; color:#8A641D; }
+        .is-ok .wfm-autopilot-status { background:#DFF1EC; color:#2B7A6E; }
+        .wfm-autopilot-copy { margin-top:6px; color:#60758A; font-size:9px; line-height:1.45; }
+        .wfm-autopilot-action {
+            margin-top:8px; min-height:29px; padding:0 9px; border-radius:9px;
+            border:1px solid #C9D7E2; background:rgba(255,255,255,.7); color:#31536B;
+            font-size:8px; font-weight:850;
+        }
+        .wfm-autopilot-action.hidden { display:none !important; }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -2671,6 +2714,7 @@
         }
 
         let globalData = [];
+        let wfmDataVersion = 0;
         let gapChartInstance = null; 
         let generalChartInstance = null;
         
@@ -3268,6 +3312,7 @@
                 }
 
                 globalData = nextData;
+                wfmDataVersion += 1;
 
                 if (globalData.length > 0) {
                     if (!isBackground) {
@@ -3329,6 +3374,7 @@
                 setRunStatus('Calculando campañas…', 'amber');
                 const response = await fetch(url, { method: 'POST', body: formData });
                 globalData = await response.json();
+                wfmDataVersion += 1;
                 
                 if (response.ok && Array.isArray(globalData)) {
                     const modeKey = forecastMode === 'chat' ? 'chat' : 'llamadas';
@@ -3606,7 +3652,12 @@
 
         function debouncedActualizarGrafica() {
             clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => { actualizarGrafica(); }, 50); 
+            debounceTimer = setTimeout(async () => {
+                await actualizarGrafica();
+                invalidateWfmAssistantContext();
+                updateWfmAssistantContextChips();
+                scheduleWfmAutopilot();
+            }, 50);
         }
 
         function actualizarVisibilidadFiltros() {
@@ -4393,6 +4444,68 @@
         // ASISTENTE WFM · CONTEXTO DEL FILTRO + RECOMENDACIONES DEL SERVIDOR
         // ================================================================
         let wfmAssistantBusy = false;
+        let wfmAssistantContextCache = { key: '', value: null };
+        let wfmAutopilotTimer = null;
+        let wfmAutopilotAbortController = null;
+        let wfmAutopilotLastSignature = '';
+        let wfmAutopilotPayload = null;
+        let wfmAutopilotRenderedSignature = '';
+
+
+        function wfmAssistantContextKey() {
+            const param = id => document.getElementById(id)?.value ?? '';
+            const boolParam = id => document.getElementById(id)?.checked ? '1' : '0';
+            const compactSet = set => Array.from(set || []).sort().join(',');
+            return [
+                wfmDataVersion,
+                forecastMode,
+                compactSet(selectedMeses),
+                compactSet(selectedSemanas),
+                compactSet(selectedCampanas),
+                compactSet(selectedFechas),
+                compactSet(selectedIntervalos),
+                param('targetSl'),
+                param('targetTime'),
+                param('merma'),
+                param('jornada'),
+                param('concurrencia'),
+                boolParam('chkNocturno')
+            ].join('|');
+        }
+
+        function invalidateWfmAssistantContext() {
+            wfmAssistantContextCache = { key:'', value:null };
+        }
+
+        function setWfmLauncherState(context, severity = null) {
+            const launcher = document.getElementById('wfmAssistantLauncher');
+            const textEl = document.getElementById('wfmAssistantLauncherText');
+            const badge = document.getElementById('wfmAssistantLauncherBadge');
+            if (!launcher || !textEl || !badge) return;
+
+            launcher.classList.remove('is-critical', 'is-warning', 'is-ok');
+            badge.classList.remove('is-critical', 'is-warning', 'is-ok');
+
+            let state = severity;
+            if (!state) {
+                if (context?.worst) {
+                    const gap = Number(context.worst.gap || 0);
+                    const cov = Number(context.worst.coverage || 100);
+                    state = gap <= -5 || cov < 85 ? 'critical' : 'warning';
+                } else {
+                    state = 'ok';
+                }
+            }
+            launcher.classList.add(`is-${state}`);
+            badge.classList.add(`is-${state}`);
+
+            if (context?.worst) {
+                const gap = Math.abs(Math.round(Number(context.worst.gap || 0)));
+                textEl.textContent = state === 'critical' ? `WFM · faltan ${gap} HC` : `WFM · revisar ${gap} HC`;
+            } else {
+                textEl.textContent = 'WFM · cobertura estable';
+            }
+        }
 
         function toggleWfmAssistant(forceOpen = null) {
             const panel = document.getElementById('wfmAssistantPanel');
@@ -4428,6 +4541,10 @@
         }
 
         function buildWfmAssistantContext() {
+            const contextKey = wfmAssistantContextKey();
+            if (wfmAssistantContextCache.key === contextKey && wfmAssistantContextCache.value) {
+                return wfmAssistantContextCache.value;
+            }
             const rows = wfmAssistantFilteredRows();
             const intervalMap = new Map();
             const campaignMap = new Map();
@@ -4531,8 +4648,9 @@
                 slot.actual = Math.max(slot.actual, actual);
             });
 
-            return {
+            const result = {
                 mode: forecastMode,
+                contextSignature: contextKey,
                 filters: {
                     months: Array.from(selectedMeses).slice(0, 20),
                     weeks: Array.from(selectedSemanas).slice(0, 20),
@@ -4552,6 +4670,8 @@
                 optimizationSlots: Array.from(optimizationMap.values()).slice(0, 5000),
                 optimizationDates
             };
+            wfmAssistantContextCache = { key: contextKey, value: result };
+            return result;
         }
 
         function updateWfmAssistantContextChips() {
@@ -4574,8 +4694,91 @@
             if (ctx.filters.campaigns.length === 1) chip(ctx.filters.campaigns[0]);
             else if (ctx.filters.campaigns.length > 1) chip(`${ctx.filters.campaigns.length} campañas`);
             chip(ctx.worst ? `Peor gap ${ctx.worst.gap} HC` : 'Sin déficit');
+            setWfmLauncherState(ctx);
         }
 
+        function renderWfmAutopilotInsight(payload, context) {
+            const box = document.getElementById('wfmAutopilotInsight');
+            if (!box) return;
+            const ctx = context || buildWfmAssistantContext();
+            const severity = payload?.severity || (ctx.worst ? 'warning' : 'ok');
+            const plan = payload?.schedule_plan;
+            const moves = Array.isArray(plan?.moves) ? plan.moves : [];
+
+            box.className = `wfm-autopilot-insight is-${severity}`;
+            const title = document.getElementById('wfmAutopilotTitle');
+            const copy = document.getElementById('wfmAutopilotCopy');
+            const action = document.getElementById('wfmAutopilotAction');
+            const status = document.getElementById('wfmAutopilotStatus');
+
+            if (status) status.textContent = severity === 'critical' ? 'CRÍTICO' : severity === 'warning' ? 'ATENCIÓN' : 'ESTABLE';
+            if (title) {
+                title.textContent = payload?.headline || (ctx.worst
+                    ? `${ctx.worst.channel} · ${ctx.worst.interval} · ${ctx.worst.gap} HC`
+                    : 'Cobertura estable');
+            }
+            if (copy) {
+                if (payload?.reply) copy.textContent = payload.reply;
+                else if (ctx.worst) copy.textContent = `Detecté ${Math.abs(Math.round(ctx.worst.gap))} HC faltantes con ${Math.round(ctx.worst.coverage)}% de cobertura. Estoy preparando opciones.`;
+                else copy.textContent = `No detecto déficit en la selección actual. Cobertura promedio ${ctx.averageCoverage}%.`;
+            }
+            if (action) {
+                action.classList.toggle('hidden', !moves.length);
+                action.textContent = moves.length ? `Ver ${moves.length} movimientos` : 'Ver análisis';
+            }
+            setWfmLauncherState(ctx, severity);
+        }
+
+        function showWfmAutopilotPlan() {
+            toggleWfmAssistant(true);
+            if (!wfmAutopilotPayload) return;
+            const signature = wfmAutopilotLastSignature || wfmAssistantContextKey();
+            if (wfmAutopilotRenderedSignature === signature) return;
+            appendWfmAssistantMessage('bot', wfmAutopilotPayload.reply || 'Análisis autónomo actualizado.', wfmAutopilotPayload);
+            wfmAutopilotRenderedSignature = signature;
+        }
+
+        function scheduleWfmAutopilot() {
+            clearTimeout(wfmAutopilotTimer);
+            const context = buildWfmAssistantContext();
+            renderWfmAutopilotInsight(null, context);
+
+            if (!context.rowCount) return;
+            const signature = context.contextSignature || wfmAssistantContextKey();
+            if (signature === wfmAutopilotLastSignature && wfmAutopilotPayload) return;
+
+            wfmAutopilotTimer = setTimeout(() => {
+                const run = () => runWfmAutopilot(context, signature);
+                if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 900 });
+                else run();
+            }, 280);
+        }
+
+        async function runWfmAutopilot(context, signature) {
+            if (wfmAutopilotAbortController) {
+                try { wfmAutopilotAbortController.abort(); } catch (e) {}
+            }
+            wfmAutopilotAbortController = new AbortController();
+
+            try {
+                const response = await fetch('/api/wfm_assistant', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    signal:wfmAutopilotAbortController.signal,
+                    body:JSON.stringify({ intent:'auto', context })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'No se pudo ejecutar el autopiloto.');
+                // Ignore stale responses after a filter/data change.
+                if ((buildWfmAssistantContext().contextSignature || wfmAssistantContextKey()) !== signature) return;
+                wfmAutopilotLastSignature = signature;
+                wfmAutopilotPayload = data;
+                renderWfmAutopilotInsight(data, context);
+            } catch (error) {
+                if (error?.name === 'AbortError') return;
+                console.warn('Autopiloto WFM:', error);
+            }
+        }
 
         function renderWfmSchedulePlan(plan) {
             if (!plan || !plan.available) return null;
@@ -4779,6 +4982,57 @@
             return row;
         }
 
+
+        function getLocalWfmAnswer(question, context) {
+            const q = String(question || '').toLowerCase();
+            const movement = ['mover','movimiento','horario','turno','break','comida','optimiza','candidato','redistribuir'];
+            if (movement.some(x => q.includes(x))) return null;
+
+            const worst = context.worst;
+            if (q.includes('déficit') || q.includes('deficit') || q.includes('faltante') || q.includes('riesgo') || q.includes('cobertura')) {
+                if (!worst) {
+                    return {
+                        reply:`No detecto déficit en el filtro actual. La cobertura promedio es ${context.averageCoverage}%.`,
+                        cards:[],
+                        actions:[]
+                    };
+                }
+                return {
+                    reply:`El mayor déficit está en ${worst.channel} el ${worst.date} a las ${worst.interval}: ${Math.round(worst.required)} HC requeridos vs ${Math.round(worst.actual)} actuales; faltan ${Math.abs(Math.round(worst.gap))} HC y la cobertura es ${Math.round(worst.coverage)}%.`,
+                    cards:[
+                        {title:'Mayor déficit',value:`${Math.abs(Math.round(worst.gap))} HC`,detail:`${worst.date} · ${worst.interval}`},
+                        {title:'Cobertura',value:`${Math.round(worst.coverage)}%`,detail:`${Math.round(worst.actual)} actual vs ${Math.round(worst.required)} requerido`}
+                    ],
+                    actions:[`Prioriza ${worst.interval} antes de retirar capacidad de intervalos cubiertos.`]
+                };
+            }
+
+            if (q.includes('resumen') || q.includes('prioridad') || q.includes('qué debo hacer') || q.includes('que debo hacer')) {
+                if (!worst) {
+                    return { reply:`Operación estable: no detecto déficit y la cobertura promedio es ${context.averageCoverage}%.`, cards:[], actions:[] };
+                }
+                return {
+                    reply:`Prioridad: proteger ${worst.channel} el ${worst.date} a las ${worst.interval}. Faltan ${Math.abs(Math.round(worst.gap))} HC y la cobertura es ${Math.round(worst.coverage)}%.`,
+                    cards:[],
+                    actions:[
+                        'Revisar primero entradas/salidas y capacidad cercana.',
+                        'Evitar mover HC desde intervalos que queden por debajo del requerimiento.',
+                        'Usar Optimizar horarios para obtener candidatos concretos del roster.'
+                    ]
+                };
+            }
+
+            if ((q.includes('por qué') || q.includes('porque') || q.includes('requerido') || q.includes('necesito')) && q.includes('hc')) {
+                const suffix = worst ? ` En el punto crítico, ${worst.interval}, se requieren ${Math.round(worst.required)} HC y hay ${Math.round(worst.actual)}.` : '';
+                return {
+                    reply:`El HC requerido depende de volumen proyectado, AHT, objetivos de servicio y merma; en Chat también interviene la concurrencia.${suffix}`,
+                    cards:[],
+                    actions:[]
+                };
+            }
+            return null;
+        }
+
         function askWfmQuick(question) {
             const input = document.getElementById('wfmAssistantInput');
             if (input) input.value = question;
@@ -4802,6 +5056,15 @@
 
             appendWfmAssistantMessage('user', question);
             input.value = '';
+
+            // Respuestas operativas simples se resuelven en el navegador sin viaje al servidor.
+            const localAnswer = getLocalWfmAnswer(question, context);
+            if (localAnswer) {
+                appendWfmAssistantMessage('bot', localAnswer.reply, localAnswer);
+                updateWfmAssistantContextChips();
+                return;
+            }
+
             wfmAssistantBusy = true;
             send.disabled = true;
             const thinking = appendWfmAssistantThinking();
@@ -4842,9 +5105,9 @@
 
     <!-- ASISTENTE WFM -->
     <button id="wfmAssistantLauncher" type="button" class="wfm-assistant-launcher" onclick="toggleWfmAssistant(true)" aria-controls="wfmAssistantPanel" aria-expanded="false">
-        <span class="wfm-assistant-launcher-badge" aria-hidden="true"></span>
+        <span id="wfmAssistantLauncherBadge" class="wfm-assistant-launcher-badge is-ok" aria-hidden="true"></span>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 9h8M8 13h5"/><path d="M7 18.5 3.5 21V6.8A1.8 1.8 0 0 1 5.3 5h13.4a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H7Z"/></svg>
-        <span>Asistente WFM</span>
+        <span id="wfmAssistantLauncherText">WFM · analizando</span>
     </button>
 
     <section id="wfmAssistantPanel" class="wfm-assistant-panel hidden" aria-label="Asistente WFM">
@@ -4855,7 +5118,7 @@
                 </div>
                 <div>
                     <p class="wfm-assistant-title">Asistente WFM</p>
-                    <p class="wfm-assistant-subtitle">Analiza cobertura, roster y movimientos de horario sobre la proyección actual.</p>
+                    <p class="wfm-assistant-subtitle">Autopiloto operativo: detecta riesgo, analiza roster y prepara movimientos sin esperar una pregunta.</p>
                 </div>
             </div>
             <button type="button" class="wfm-assistant-close" onclick="toggleWfmAssistant(false)" aria-label="Cerrar asistente">
@@ -4866,6 +5129,18 @@
         <div id="wfmAssistantContext" class="wfm-assistant-context">
             <span class="wfm-context-chip is-mode">Llamadas</span>
             <span class="wfm-context-chip">Sin análisis todavía</span>
+        </div>
+
+        <div id="wfmAutopilotInsight" class="wfm-autopilot-insight is-ok">
+            <div class="wfm-autopilot-top">
+                <div>
+                    <div class="wfm-autopilot-eyebrow">Autopiloto WFM</div>
+                    <div id="wfmAutopilotTitle" class="wfm-autopilot-title">Analizando cobertura…</div>
+                </div>
+                <span id="wfmAutopilotStatus" class="wfm-autopilot-status">AUTO</span>
+            </div>
+            <p id="wfmAutopilotCopy" class="wfm-autopilot-copy">El copiloto se actualiza automáticamente cuando cambias filtros o llega un nuevo forecast.</p>
+            <button id="wfmAutopilotAction" type="button" class="wfm-autopilot-action hidden" onclick="showWfmAutopilotPlan()">Ver análisis</button>
         </div>
 
         <div class="wfm-assistant-quick">
