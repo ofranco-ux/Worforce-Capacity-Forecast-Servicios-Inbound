@@ -268,12 +268,18 @@
             width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;
         }
         .forecast-menu-panel {
-            position:absolute; right:0; top:calc(100% + 10px); width:290px; z-index:40;
+            position:absolute; right:calc(100% + 14px); top:50%; transform:translateY(-50%); width:320px; z-index:40;
             padding:14px; border-radius:16px;
             border:1px solid rgba(79,140,255,.16);
             background:linear-gradient(180deg, rgba(18,28,47,.97), rgba(12,19,34,.98));
             box-shadow:0 28px 55px -36px rgba(0,0,0,.92), inset 0 1px 0 rgba(255,255,255,.03);
             backdrop-filter: blur(16px);
+        }
+        .forecast-menu-panel::after {
+            content:'';
+            position:absolute; right:-7px; top:50%; transform:translateY(-50%) rotate(45deg);
+            width:14px; height:14px; border-top:1px solid rgba(79,140,255,.16); border-right:1px solid rgba(79,140,255,.16);
+            background:rgba(13,20,35,.98);
         }
         .forecast-menu-head { padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,.06); }
         .forecast-menu-title { color:#F8FAFC; font-size:11px; font-weight:800; letter-spacing:-.01em; }
@@ -281,11 +287,15 @@
         .forecast-menu-list { padding-top:12px; display:flex; flex-direction:column; gap:10px; }
         .forecast-menu-item {
             width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
-            min-height:42px; padding:10px 12px; border-radius:12px;
-            border:1px solid rgba(79,140,255,.14); background:rgba(255,255,255,.02);
+            min-height:48px; padding:11px 12px; border-radius:12px;
+            border:1px solid rgba(79,140,255,.16); background:rgba(255,255,255,.03);
             color:#DDE6F1; transition:.18s ease;
         }
-        .forecast-menu-item:hover { border-color:rgba(79,140,255,.26); background:rgba(79,140,255,.06); }
+        .forecast-menu-item:hover { border-color:rgba(79,140,255,.26); background:rgba(79,140,255,.07); }
+        .forecast-menu-item-primary {
+            border-color:rgba(79,140,255,.26);
+            background:linear-gradient(180deg, rgba(79,140,255,.08), rgba(79,140,255,.04));
+        }
         .forecast-menu-item-copy { display:flex; align-items:center; gap:10px; min-width:0; }
         .forecast-menu-item-icon {
             width:28px; height:28px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center;
@@ -302,6 +312,10 @@
         }
         .forecast-menu-helper {
             padding-top:2px; color:#6F8199; font-size:9px; line-height:1.45;
+        }
+        .forecast-menu-section-label {
+            margin-top:2px; margin-bottom:4px;
+            color:#6F8199; font-size:8px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
         }
         .mode-switch {
             display:flex; align-items:center; gap:3px; padding:4px;
@@ -1478,6 +1492,11 @@
             border-color:#D4DEE9 !important;
             box-shadow:0 24px 44px -32px rgba(35,55,84,.22), inset 0 1px 0 rgba(255,255,255,.92) !important;
         }
+        body.light-theme .forecast-menu-panel::after {
+            background:#F1F5F9 !important;
+            border-top-color:#D4DEE9 !important;
+            border-right-color:#D4DEE9 !important;
+        }
         body.light-theme .forecast-menu-head { border-bottom-color:#E2EAF2 !important; }
         body.light-theme .forecast-menu-title { color:#203247 !important; }
         body.light-theme .forecast-menu-copy { color:#6A7E95 !important; }
@@ -1488,6 +1507,10 @@
             box-shadow:0 8px 16px -18px rgba(22,36,52,.16) !important;
         }
         body.light-theme .forecast-menu-item:hover { background:#F5F8FB !important; border-color:#BECBDD !important; }
+        body.light-theme .forecast-menu-item-primary {
+            background:linear-gradient(180deg,#EEF4FB,#E8F0F8) !important;
+            border-color:#C8D5E5 !important;
+        }
         body.light-theme .forecast-menu-item-icon {
             background:linear-gradient(145deg, rgba(95,122,224,.13), rgba(61,171,161,.10)) !important;
             color:#5A70DA !important;
@@ -1764,20 +1787,20 @@
                 <div id="forecastMenuPanel" class="forecast-menu-panel hidden">
                     <div class="forecast-menu-head">
                         <p class="forecast-menu-title">Configuración del forecast</p>
-                        <p class="forecast-menu-copy">Centraliza aquí la visibilidad del panel de parámetros y los supuestos de planeación.</p>
+                        <p class="forecast-menu-copy">Gestiona desde aquí el panel de parámetros sin sacarlo al encabezado.</p>
                     </div>
                     <div class="forecast-menu-list">
-                        <button id="btnSidebarMenuAction" type="button" class="forecast-menu-item" onclick="handleSidebarMenuAction()">
+                        <p class="forecast-menu-section-label">Panel de parámetros</p>
+                        <button id="btnSidebarMenuAction" type="button" class="forecast-menu-item forecast-menu-item-primary" onclick="handleSidebarMenuAction()">
                             <span class="forecast-menu-item-copy">
                                 <span class="forecast-menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-5 9-5 9 5 9 5-3.5 5-9 5-9-5-9-5Z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
                                 <span class="forecast-menu-item-text">
                                     <span id="sidebarMenuActionLabel" class="forecast-menu-item-title">Ocultar parámetros</span>
-                                    <span id="sidebarMenuActionCopy" class="forecast-menu-item-subtitle">Mantén el tablero limpio para la presentación.</span>
+                                    <span id="sidebarMenuActionCopy" class="forecast-menu-item-subtitle">Oculta o recupera el panel lateral cuando lo necesites.</span>
                                 </span>
                             </span>
                             <span id="sidebarMenuActionState" class="forecast-menu-item-state">Visible</span>
                         </button>
-                        <p class="forecast-menu-helper">Cuando el panel esté oculto, podrás volver a mostrarlo desde este mismo menú.</p>
                     </div>
                 </div>
             </div>
@@ -4105,3 +4128,4 @@
     </script>
 </body>
 </html>
+
