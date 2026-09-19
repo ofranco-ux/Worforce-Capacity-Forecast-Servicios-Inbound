@@ -2102,7 +2102,7 @@
 
 
         /* ================================================================
-           WFM COPILOT V4 · CHAT PROFESIONAL + NEXO + ALCANCE DE ANÁLISIS
+           WFM COPILOT · CHAT PROFESIONAL + FRANK + ALCANCE DE ANÁLISIS
            ================================================================ */
         .wfm-assistant-panel {
             width:min(488px, calc(100vw - 32px)) !important;
@@ -3015,6 +3015,168 @@
         .wfm-toast.is-success { background:#225F58; border-color:#347A72; }
         .wfm-toast.is-error { background:#8A4052; border-color:#A95468; }
 
+
+        /* ================================================================
+           V6 · GESTIÓN DE HORARIOS / ROSTER OPERATIVO
+           ================================================================ */
+        .roster-nav-btn {
+            display:inline-flex; align-items:center; justify-content:center; gap:8px;
+            min-height:34px; padding:0 12px; border-radius:10px;
+            border:1px solid rgba(255,255,255,.12);
+            background:rgba(255,255,255,.055); color:#D8E5EE;
+            font-size:9px; font-weight:850; transition:.16s ease;
+        }
+        .roster-nav-btn:hover { background:rgba(255,255,255,.11); color:#FFF; }
+        .roster-nav-btn svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+        .roster-overlay {
+            position:fixed; inset:0; z-index:130; padding:18px;
+            background:rgba(13,27,39,.48); backdrop-filter:blur(9px);
+            display:flex; align-items:center; justify-content:center;
+        }
+        .roster-overlay.hidden { display:none !important; }
+        .roster-shell {
+            position:relative;
+            width:min(1500px, calc(100vw - 28px));
+            height:min(900px, calc(100vh - 28px));
+            display:flex; flex-direction:column; overflow:hidden;
+            border-radius:24px; border:1px solid #C9D7E2;
+            background:linear-gradient(180deg,#F8FBFD,#EEF3F7);
+            box-shadow:0 38px 90px -48px rgba(22,45,64,.7);
+        }
+        .roster-head {
+            flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:14px;
+            padding:14px 16px; color:#FFF;
+            background:linear-gradient(135deg,#173A56,#214F69 70%,#276862 140%);
+        }
+        .roster-head-left { display:flex; align-items:center; gap:11px; min-width:0; }
+        .roster-head-mark {
+            width:38px; height:38px; flex:0 0 auto; display:flex; align-items:center; justify-content:center;
+            border-radius:12px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.07);
+        }
+        .roster-head-mark svg { width:18px; height:18px; fill:none; stroke:#9DE5D8; stroke-width:1.8; }
+        .roster-title { font-size:14px; font-weight:900; letter-spacing:-.02em; }
+        .roster-subtitle { margin-top:2px; color:#C2D5E2; font-size:8.5px; }
+        .roster-head-actions { display:flex; align-items:center; gap:7px; flex:0 0 auto; }
+        .roster-head-btn {
+            min-height:34px; padding:0 10px; border-radius:10px; border:1px solid rgba(255,255,255,.12);
+            background:rgba(255,255,255,.06); color:#E6EFF5; font-size:8px; font-weight:850;
+        }
+        .roster-head-btn:hover { background:rgba(255,255,255,.12); }
+        .roster-head-btn.primary { background:rgba(126,217,204,.13); border-color:rgba(126,217,204,.28); color:#C9F4EC; }
+
+        .roster-kpis {
+            flex:0 0 auto; display:grid; grid-template-columns:repeat(5,minmax(0,1fr));
+            gap:8px; padding:11px 14px 0;
+        }
+        .roster-kpi { padding:10px 11px; border-radius:13px; border:1px solid #D8E2EA; background:#FFF; min-width:0; }
+        .roster-kpi-label { color:#8394A5; font-size:7px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; }
+        .roster-kpi-value { margin-top:4px; color:#203E55; font-family:'JetBrains Mono',monospace; font-size:15px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .roster-kpi-detail { margin-top:2px; color:#8796A5; font-size:7.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+        .roster-tabs { flex:0 0 auto; display:flex; gap:5px; padding:10px 14px 7px; }
+        .roster-tab {
+            min-height:31px; padding:0 12px; border-radius:9px; color:#65798D;
+            border:1px solid transparent; font-size:8.5px; font-weight:900;
+        }
+        .roster-tab.is-active { background:#FFF; border-color:#D6E1E9; color:#27465B; box-shadow:0 7px 18px -17px rgba(31,53,73,.42); }
+
+        .roster-toolbar {
+            flex:0 0 auto; display:grid; grid-template-columns:minmax(220px,1.5fr) repeat(4,minmax(130px,.8fr)) auto;
+            gap:7px; padding:0 14px 9px;
+        }
+        .roster-input,.roster-select {
+            width:100%; min-height:38px; border-radius:10px; border:1px solid #CFDBE5;
+            background:#FFF; color:#2A4358; padding:0 10px; font-size:9px; outline:none;
+        }
+        .roster-input:focus,.roster-select:focus { border-color:#829BCC; box-shadow:0 0 0 3px rgba(83,112,191,.08); }
+        .roster-toolbar-btn {
+            min-height:38px; padding:0 11px; border-radius:10px; border:1px solid #CAD7E1;
+            background:#F9FBFC; color:#3D5A70; font-size:8px; font-weight:900; white-space:nowrap;
+        }
+
+        .roster-bulk {
+            flex:0 0 auto; margin:0 14px 8px; padding:8px 10px; border-radius:11px;
+            border:1px solid #C8DCD7; background:#EFF7F5; display:flex; align-items:center; justify-content:space-between; gap:10px;
+        }
+        .roster-bulk.hidden { display:none !important; }
+        .roster-bulk-copy { color:#3B6D65; font-size:8.5px; font-weight:850; }
+        .roster-bulk-actions { display:flex; gap:6px; }
+        .roster-bulk-btn { min-height:29px; padding:0 9px; border-radius:8px; border:1px solid #BDD5CF; background:#FFF; color:#387269; font-size:7.5px; font-weight:900; }
+
+        .roster-content { flex:1 1 auto; min-height:0; padding:0 14px 14px; }
+        .roster-table-wrap { height:100%; overflow:auto; border:1px solid #D4DFE8; border-radius:14px; background:#FFF; }
+        .roster-table { width:max(1280px,100%); border-collapse:separate; border-spacing:0; font-size:8.5px; }
+        .roster-table th {
+            position:sticky; top:0; z-index:3; padding:9px 8px;
+            background:#EAF0F5; color:#61768A; font-size:7px; text-transform:uppercase; letter-spacing:.07em;
+            text-align:left; border-bottom:1px solid #D5DFE7; white-space:nowrap;
+        }
+        .roster-table td { padding:8px; color:#3F586E; border-bottom:1px solid #EEF2F5; white-space:nowrap; }
+        .roster-table tr:hover td { background:#F8FAFC; }
+        .roster-agent-id { color:#263F55; font-family:'JetBrains Mono',monospace; font-weight:850; }
+        .roster-agent-name { color:#263F55; font-weight:850; max-width:220px; overflow:hidden; text-overflow:ellipsis; }
+        .roster-schedule {
+            display:inline-flex; min-height:24px; padding:0 6px; align-items:center;
+            border-radius:7px; background:#EFF4F7; color:#526A7E; font-family:'JetBrains Mono',monospace; font-size:7.5px; font-weight:800;
+        }
+        .roster-schedule.off { background:#F4F5F7; color:#9AA6B1; }
+        .roster-status {
+            display:inline-flex; min-height:22px; padding:0 7px; align-items:center; border-radius:999px;
+            font-size:7px; font-weight:900; text-transform:uppercase;
+        }
+        .roster-status.active { background:#DEF1EC; color:#27766C; }
+        .roster-status.inactive { background:#F1E4E7; color:#A05263; }
+        .roster-edit-btn { min-height:27px; padding:0 8px; border-radius:8px; border:1px solid #D0DCE5; color:#49647A; background:#FFF; font-size:7.5px; font-weight:900; }
+
+        .roster-history-list { height:100%; overflow:auto; display:flex; flex-direction:column; gap:7px; }
+        .roster-history-card { padding:10px 11px; border-radius:12px; border:1px solid #D9E3EA; background:#FFF; }
+        .roster-history-title { color:#304D63; font-size:9px; font-weight:900; }
+        .roster-history-meta { margin-top:3px; color:#8293A3; font-size:7.5px; }
+        .roster-history-change { margin-top:6px; color:#5C7386; font-size:8px; line-height:1.45; }
+
+        .roster-editor-backdrop {
+            position:absolute; inset:0; z-index:5; display:flex; align-items:center; justify-content:flex-end;
+            background:rgba(20,40,56,.16); backdrop-filter:blur(2px);
+        }
+        .roster-editor-backdrop.hidden { display:none !important; }
+        .roster-editor {
+            width:min(520px,100%); height:100%; overflow:auto; padding:16px;
+            background:#F7FAFC; border-left:1px solid #CAD7E1; box-shadow:-24px 0 55px -42px rgba(26,49,67,.6);
+        }
+        .roster-editor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding-bottom:12px; border-bottom:1px solid #DCE5EC; }
+        .roster-editor-title { color:#213F56; font-size:13px; font-weight:900; }
+        .roster-editor-copy { margin-top:3px; color:#7C8E9F; font-size:8px; line-height:1.4; }
+        .roster-close-editor { width:31px; height:31px; border-radius:9px; border:1px solid #D3DEE7; background:#FFF; color:#617588; }
+        .roster-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin-top:12px; }
+        .roster-field.full { grid-column:1/-1; }
+        .roster-field label { display:block; margin-bottom:5px; color:#667B8F; font-size:7px; font-weight:900; text-transform:uppercase; letter-spacing:.07em; }
+        .roster-days-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:12px; }
+        .roster-day { padding:8px; border-radius:10px; border:1px solid #DAE4EB; background:#FFF; }
+        .roster-day label { display:block; margin-bottom:4px; color:#60758A; font-size:7px; font-weight:900; }
+        .roster-editor-actions { display:flex; justify-content:flex-end; gap:7px; margin-top:14px; padding-top:12px; border-top:1px solid #DCE5EC; }
+        .roster-save-btn { min-height:36px; padding:0 13px; border-radius:10px; background:linear-gradient(135deg,#244E66,#2F7978); color:#FFF; font-size:8.5px; font-weight:900; }
+        .roster-cancel-btn { min-height:36px; padding:0 13px; border-radius:10px; border:1px solid #D2DDE6; background:#FFF; color:#5D7286; font-size:8.5px; font-weight:900; }
+
+        .roster-empty { height:100%; min-height:260px; display:flex; align-items:center; justify-content:center; flex-direction:column; text-align:center; color:#72869A; gap:4px; }
+        .roster-empty strong { color:#2F4B60; font-size:11px; }
+
+        @media (max-width:1050px) {
+            .roster-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .roster-toolbar { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        }
+        @media (max-width:640px) {
+            .roster-overlay { padding:6px; }
+            .roster-shell { width:100%; height:100%; border-radius:16px; }
+            .roster-head { padding:10px; }
+            .roster-subtitle { display:none; }
+            .roster-head-btn span { display:none; }
+            .roster-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); padding:8px 9px 0; }
+            .roster-toolbar { grid-template-columns:1fr 1fr; padding:0 9px 8px; }
+            .roster-content { padding:0 9px 9px; }
+            .roster-form-grid,.roster-days-grid { grid-template-columns:1fr; }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -3042,6 +3204,10 @@
                 <button id="btnTabChat" onclick="setModeWFM('chat')" class="mode-tab"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 18.5 3.5 21V6.8A1.8 1.8 0 0 1 5.3 5h13.4a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H7Z"/><path d="M8 10h8M8 13h5"/></svg></span><span>Chat</span></button>
                 <button id="btnTabGeneral" onclick="setModeWFM('general')" class="mode-tab"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="7" height="6" rx="1.3"/><rect x="13" y="5" width="7" height="6" rx="1.3"/><rect x="4" y="13" width="7" height="6" rx="1.3"/><rect x="13" y="13" width="7" height="6" rx="1.3"/></svg></span><span>Consolidado</span></button>
             </div>
+            <button id="btnRosterManager" type="button" class="roster-nav-btn" onclick="openRosterManager()" title="Gestionar horarios">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 3v6M17 3v6M5 10h14v10H5z"/><path d="M8 14h3M13 14h3M8 17h3"/></svg>
+                <span>Gestión de horarios</span>
+            </button>
             <span id="tagModoOps" class="hidden ops-badge">Operaciones</span>
         </div>
     </header>
@@ -5355,6 +5521,215 @@
             a.click();
         }
     
+
+        // ================================================================
+        // V6 · GESTIÓN DE HORARIOS / ROSTER OPERATIVO
+        // ================================================================
+        let rosterAgents = [];
+        let rosterStats = {};
+        let rosterCampaigns = [];
+        let rosterSupervisors = [];
+        let rosterSelectedIds = new Set();
+        let rosterEditingId = null;
+        let rosterCurrentView = 'agents';
+
+        function rosterSafe(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        }
+
+        async function openRosterManager() {
+            document.getElementById('rosterManagerOverlay')?.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+            await Promise.all([loadRosterData(), loadWfmDecisionLog()]);
+            updateRosterKpis();
+            setRosterView('agents');
+        }
+
+        function closeRosterManager() {
+            document.getElementById('rosterManagerOverlay')?.classList.add('hidden');
+            document.body.style.overflow = '';
+            closeRosterEditor();
+            closeRosterBulkEditor();
+        }
+
+        async function loadRosterData() {
+            const tbody = document.getElementById('rosterTableBody');
+            if (tbody) tbody.innerHTML = '<tr><td colspan="15" style="padding:30px;text-align:center;color:#7D8FA1">Cargando roster operativo…</td></tr>';
+            try {
+                const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'No se pudo cargar el roster.');
+                rosterAgents = Array.isArray(data.agents) ? data.agents : [];
+                rosterStats = data.stats || {};
+                rosterCampaigns = data.campaigns || [];
+                rosterSupervisors = data.supervisors || [];
+                updateRosterKpis();
+                populateRosterFilters();
+                renderRosterTable();
+            } catch (error) {
+                if (tbody) tbody.innerHTML = `<tr><td colspan="15" style="padding:30px;text-align:center;color:#A75264">${rosterSafe(error.message)}</td></tr>`;
+            }
+        }
+
+        function updateRosterKpis() {
+            const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val;};
+            set('rosterKpiActive',Number(rosterStats.active||0).toLocaleString());
+            set('rosterKpiCampaigns',Number(rosterStats.campaigns||0).toLocaleString());
+            set('rosterKpiSupervisors',Number(rosterStats.supervisors||0).toLocaleString());
+            set('rosterKpiPendingFrank',Number(wfmDecisionStats?.pendingApplication||0).toLocaleString());
+            const updated=String(rosterStats.lastUpdate||'');
+            set('rosterKpiUpdated',updated?updated.replace('T',' ').slice(0,16):'—');
+        }
+
+        function populateRosterFilters() {
+            const c=document.getElementById('rosterFilterCampaign'), s=document.getElementById('rosterFilterSupervisor');
+            const cv=c?.value||'', sv=s?.value||'';
+            if(c){c.innerHTML='<option value="">Todas las campañas</option>'+rosterCampaigns.map(x=>`<option>${rosterSafe(x)}</option>`).join('');c.value=rosterCampaigns.includes(cv)?cv:'';}
+            if(s){s.innerHTML='<option value="">Todos los supervisores</option>'+rosterSupervisors.map(x=>`<option>${rosterSafe(x)}</option>`).join('');s.value=rosterSupervisors.includes(sv)?sv:'';}
+        }
+
+        function rosterFilteredAgents() {
+            const q=String(document.getElementById('rosterSearch')?.value||'').trim().toLowerCase();
+            const campaign=document.getElementById('rosterFilterCampaign')?.value||'';
+            const supervisor=document.getElementById('rosterFilterSupervisor')?.value||'';
+            const channel=document.getElementById('rosterFilterChannel')?.value||'';
+            const status=document.getElementById('rosterFilterStatus')?.value||'';
+            return rosterAgents.filter(a=>{
+                if(campaign&&a.campaign!==campaign)return false;
+                if(supervisor&&a.supervisor!==supervisor)return false;
+                if(channel&&a.channel!==channel)return false;
+                if(status&&a.status!==status)return false;
+                if(q&&!`${a.agentId} ${a.fullName} ${a.supervisor} ${a.campaign}`.toLowerCase().includes(q))return false;
+                return true;
+            });
+        }
+
+        function renderRosterTable() {
+            const tbody=document.getElementById('rosterTableBody'); if(!tbody)return;
+            const rows=rosterFilteredAgents(), days=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+            if(!rows.length){tbody.innerHTML='<tr><td colspan="15"><div class="roster-empty"><strong>Sin agentes para estos filtros</strong><span>Ajusta la búsqueda o carga una nueva plantilla.</span></div></td></tr>';updateRosterBulkBar();return;}
+            tbody.innerHTML=rows.map(a=>{
+                const schedules=days.map(day=>{const v=a.schedules?.[day]||'DD-DD';return `<td><span class="roster-schedule ${v==='DD-DD'?'off':''}">${rosterSafe(v)}</span></td>`}).join('');
+                return `<tr>
+                    <td><input type="checkbox" ${rosterSelectedIds.has(a.agentId)?'checked':''} onchange="toggleRosterSelection('${rosterSafe(a.agentId)}',this.checked)"></td>
+                    <td><span class="roster-agent-id">${rosterSafe(a.agentId)}</span></td>
+                    <td><div class="roster-agent-name" title="${rosterSafe(a.fullName||'')}">${rosterSafe(a.fullName||'Sin nombre registrado')}</div></td>
+                    <td>${rosterSafe(a.supervisor||'Sin supervisor')}</td><td>${rosterSafe(a.campaign)}</td><td>${rosterSafe(a.channel)}</td>
+                    ${schedules}
+                    <td><span class="roster-status ${a.status==='Activo'?'active':'inactive'}">${rosterSafe(a.status)}</span></td>
+                    <td><button type="button" class="roster-edit-btn" onclick="openRosterEditor('${rosterSafe(a.agentId)}')">Editar</button></td>
+                </tr>`;
+            }).join('');
+            updateRosterBulkBar();
+        }
+
+        function toggleRosterSelection(id,checked){checked?rosterSelectedIds.add(id):rosterSelectedIds.delete(id);updateRosterBulkBar();}
+        function toggleRosterSelectAll(checked){rosterFilteredAgents().forEach(a=>checked?rosterSelectedIds.add(a.agentId):rosterSelectedIds.delete(a.agentId));renderRosterTable();}
+        function clearRosterSelection(){rosterSelectedIds.clear();const el=document.getElementById('rosterSelectAll');if(el)el.checked=false;renderRosterTable();}
+        function updateRosterBulkBar(){const b=document.getElementById('rosterBulkBar'),c=document.getElementById('rosterBulkCopy');if(!b||!c)return;b.classList.toggle('hidden',!rosterSelectedIds.size);c.textContent=`${rosterSelectedIds.size} agente${rosterSelectedIds.size===1?'':'s'} seleccionado${rosterSelectedIds.size===1?'':'s'}`;}
+        function resetRosterFilters(){['rosterSearch','rosterFilterCampaign','rosterFilterSupervisor','rosterFilterChannel','rosterFilterStatus'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});renderRosterTable();}
+
+        function openRosterEditor(agentId=null){
+            rosterEditingId=agentId||null;const a=agentId?rosterAgents.find(x=>x.agentId===agentId):null;
+            document.getElementById('rosterEditorBackdrop')?.classList.remove('hidden');
+            document.getElementById('rosterEditorTitle').textContent=a?`Editar · ${a.agentId}`:'Nuevo agente';
+            const idEl=document.getElementById('rosterEditId');idEl.value=a?.agentId||'';idEl.disabled=!!a;
+            document.getElementById('rosterEditName').value=a?.fullName||'';
+            document.getElementById('rosterEditSupervisor').value=a?.supervisor||'';
+            document.getElementById('rosterEditCampaign').value=a?.campaign||'';
+            document.getElementById('rosterEditChannel').value=a?.channel||'Llamadas';
+            document.getElementById('rosterEditStatus').value=a?.status||'Activo';
+            ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>document.getElementById(`rosterDay${d}`).value=a?.schedules?.[d]||'DD-DD');
+        }
+        function closeRosterEditor(){document.getElementById('rosterEditorBackdrop')?.classList.add('hidden');rosterEditingId=null;}
+
+        async function saveRosterAgent(){
+            const btn=document.getElementById('rosterSaveAgentBtn');
+            const payload={agentId:String(document.getElementById('rosterEditId')?.value||'').trim(),fullName:String(document.getElementById('rosterEditName')?.value||'').trim(),supervisor:String(document.getElementById('rosterEditSupervisor')?.value||'').trim(),campaign:String(document.getElementById('rosterEditCampaign')?.value||'').trim(),channel:document.getElementById('rosterEditChannel')?.value||'Llamadas',status:document.getElementById('rosterEditStatus')?.value||'Activo',schedules:{},actorMode:currentMode,reason:rosterEditingId?'Edición desde Gestión de horarios':'Alta desde Gestión de horarios'};
+            ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>payload.schedules[d]=String(document.getElementById(`rosterDay${d}`)?.value||'DD-DD').trim());
+            if(!payload.agentId||!payload.campaign){alert('ID del agente y Campaña son obligatorios.');return;}
+            if(btn){btn.disabled=true;btn.textContent='Guardando…';}
+            try{
+                const response=await fetch('/api/roster/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+                const data=await response.json();if(!response.ok)throw new Error(data.error||'No se pudo guardar.');
+                closeRosterEditor();await loadRosterData();await refreshForecastAfterRosterChange();
+            }catch(error){alert(error.message)}finally{if(btn){btn.disabled=false;btn.textContent='Guardar cambios';}}
+        }
+
+        function openRosterBulkEditor(){if(!rosterSelectedIds.size)return;document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');['rosterBulkSupervisor','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>document.getElementById(id).value='');}
+        function closeRosterBulkEditor(){document.getElementById('rosterBulkBackdrop')?.classList.add('hidden');}
+        async function saveRosterBulkEdit(){
+            const changes={},sup=String(document.getElementById('rosterBulkSupervisor')?.value||'').trim(),camp=String(document.getElementById('rosterBulkCampaign')?.value||'').trim(),ch=document.getElementById('rosterBulkChannel')?.value||'',st=document.getElementById('rosterBulkStatus')?.value||'';
+            if(sup)changes.supervisor=sup;if(camp)changes.campaign=camp;if(ch)changes.channel=ch;if(st)changes.status=st;
+            if(!Object.keys(changes).length){alert('Completa al menos un campo para modificar.');return;}
+            try{
+                const response=await fetch('/api/roster/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentIds:Array.from(rosterSelectedIds),changes,actorMode:currentMode})});
+                const data=await response.json();if(!response.ok)throw new Error(data.error||'No se pudieron aplicar los cambios.');
+                closeRosterBulkEditor();clearRosterSelection();await loadRosterData();await refreshForecastAfterRosterChange();
+            }catch(error){alert(error.message)}
+        }
+
+        async function importRosterFile(event){
+            const file=event.target.files?.[0];if(!file)return;
+            if(!confirm(`Se cargarán/actualizarán los agentes incluidos en ${file.name}. ¿Continuar?`)){event.target.value='';return;}
+            try{
+                const form=new FormData();form.append('file',file);form.append('actorMode',currentMode);
+                const response=await fetch('/api/roster/import',{method:'POST',body:form});const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudo importar.');
+                alert(`Carga terminada: ${data.imported||0} agentes procesados.${data.errors?.length?` ${data.errors.length} filas con observaciones.`:''}`);
+                await loadRosterData();await refreshForecastAfterRosterChange();
+            }catch(error){alert(error.message)}finally{event.target.value='';}
+        }
+
+        function exportRosterCsv(){window.location.href='/api/roster/export.csv';}
+        function downloadRosterTemplate(){window.location.href='/api/roster/template.csv';}
+
+        async function setRosterView(view){
+            rosterCurrentView=view;
+            document.getElementById('rosterAgentsView')?.classList.toggle('hidden',view!=='agents');
+            document.getElementById('rosterHistoryView')?.classList.toggle('hidden',view!=='history');
+            document.getElementById('rosterTabAgents')?.classList.toggle('is-active',view==='agents');
+            document.getElementById('rosterTabHistory')?.classList.toggle('is-active',view==='history');
+            if(view==='history')await loadRosterHistory();
+        }
+
+        async function loadRosterHistory(){
+            const list=document.getElementById('rosterHistoryList');if(!list)return;
+            list.innerHTML='<div class="roster-empty"><strong>Cargando historial…</strong></div>';
+            try{
+                const response=await fetch('/api/roster/history?limit=250',{cache:'no-store'});const rows=await response.json();
+                if(!response.ok)throw new Error(rows.error||'No se pudo cargar el historial.');
+                if(!rows.length){list.innerHTML='<div class="roster-empty"><strong>Sin cambios registrados</strong><span>Las modificaciones aparecerán aquí.</span></div>';return;}
+                list.innerHTML=rows.map(r=>{
+                    const before=r.before||{},after=r.after||{};let type=r.changeType;
+                    if(type==='agent_updated')type='Horario / datos actualizados';if(type==='agent_created')type='Agente agregado';if(type==='frank_recommendation_applied')type='Recomendación de Frank aplicada';
+                    const detail=(before.schedule||after.schedule)?`${before.date||after.date||''} · ${before.schedule||'—'} → ${after.schedule||'—'}`:`${after.fullName||before.fullName||'Sin nombre'} · ${after.campaign||before.campaign||''}`;
+                    return `<div class="roster-history-card"><div class="roster-history-title">${rosterSafe(r.agentId||'—')} · ${rosterSafe(type)}</div><div class="roster-history-meta">${rosterSafe(String(r.changedAt||'').replace('T',' '))} · ${rosterSafe(r.changedBy||'')}</div><div class="roster-history-change">${rosterSafe(detail)}${r.reason?` · ${rosterSafe(r.reason)}`:''}</div></div>`;
+                }).join('');
+            }catch(error){list.innerHTML=`<div class="roster-empty"><strong>Error</strong><span>${rosterSafe(error.message)}</span></div>`}
+        }
+
+        async function refreshForecastAfterRosterChange(){
+            try{
+                modeDataCache.llamadas=null;modeDataCache.chat=null;wfmAutopilotLastSignature='';wfmAutopilotPayload=null;invalidateWfmAssistantContext();
+                await fetchLatestData(forecastMode,true);
+            }catch(error){console.warn('Actualización forecast después del roster:',error)}
+        }
+
+        async function applyWfmMoveToRoster(actionId,buttonEl=null){
+            const move=wfmPlanMovesById[actionId];if(!move)return;
+            const who=`${move.agentId||move.agent||'Agente'}${move.fullName?` · ${move.fullName}`:''}`;
+            if(!confirm(`Aplicar al roster operativo?\n\n${who}\n${move.date||''}\n${move.currentSchedule||'—'} → ${move.proposedSchedule||'—'}\n\nSe guardará como excepción para esa fecha específica.`))return;
+            const original=buttonEl?.textContent||'';if(buttonEl){buttonEl.disabled=true;buttonEl.textContent='Aplicando…';}
+            try{
+                const response=await fetch('/api/roster/apply-recommendation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actionId,move,actorMode:currentMode})});
+                const data=await response.json();if(!response.ok)throw new Error(data.error||'No se pudo aplicar al roster.');
+                await Promise.all([loadWfmDecisionLog(),loadRosterData()]);renderWfmPlanWorkspace(wfmCurrentPlanPayload);await refreshForecastAfterRosterChange();
+                showWfmToast(`Roster actualizado: ${data.agentId} · ${data.date} · ${data.before} → ${data.after}`,'success');
+            }catch(error){if(buttonEl){buttonEl.disabled=false;buttonEl.textContent=original;}showWfmToast(error.message,'error');}
+        }
+
+
         // ================================================================
         // ASISTENTE WFM · CONTEXTO DEL FILTRO + RECOMENDACIONES DEL SERVIDOR
         // ================================================================
@@ -6288,7 +6663,7 @@
             htmlOut += `
                 <section class="wfm-v5-section">
                     <div class="wfm-v5-section-head">
-                        <div><div class="wfm-v5-section-title">Acciones de roster</div><div class="wfm-v5-section-copy">Ajustes de entrada/salida. Puedes aprobar cada movimiento y después marcarlo como aplicado. Frank no gestiona break o lunch.</div></div>
+                        <div><div class="wfm-v5-section-title">Acciones de roster</div><div class="wfm-v5-section-copy">Ajustes de entrada/salida. Puedes aprobar cada movimiento y después aplicarlo al roster operativo. Frank no gestiona break o lunch.</div></div>
                     </div>
                     <div class="wfm-actions-grid">`;
 
@@ -6309,10 +6684,10 @@
 
                     if (status === 'accepted') {
                         decisionBadge = '<span class="wfm-action-decision pending">Aprobada · pendiente</span>';
-                        stateCopy = 'Movimiento aprobado y registrado. Falta que Operaciones lo ejecute; aprobarlo aquí no modifica automáticamente el roster.';
+                        stateCopy = 'Movimiento aprobado y registrado. Puedes aplicarlo al roster operativo para la fecha recomendada.';
                         controls = `
                             <button type="button" class="wfm-action-btn" onclick="toggleWfmMoveSimulation('${wfmEsc(move.actionId)}')">Ver simulación</button>
-                            <button type="button" class="wfm-action-btn apply" onclick="decideWfmMove('${wfmEsc(move.actionId)}','applied', this)">Marcar como aplicado</button>
+                            <button type="button" class="wfm-action-btn apply" onclick="applyWfmMoveToRoster('${wfmEsc(move.actionId)}', this)">Aplicar al roster</button>
                             <button type="button" class="wfm-action-btn reject" onclick="decideWfmMove('${wfmEsc(move.actionId)}','rejected', this)">Cambiar a descartada</button>`;
                     } else if (status === 'applied') {
                         decisionBadge = '<span class="wfm-action-decision applied">Aplicada</span>';
@@ -6331,7 +6706,7 @@
                     return `
                         <article class="wfm-action-card${cls}" data-action-card="${wfmEsc(move.actionId)}">
                             <div class="wfm-action-top">
-                                <div><div class="wfm-action-agent">${wfmEsc(move.agent || 'Agente')}</div><div class="wfm-action-campaign">${wfmEsc(move.campaign || '')} · ${wfmEsc(move.date || '')} · ${wfmEsc(move.day || '')}</div></div>
+                                <div><div class="wfm-action-agent">${wfmEsc(move.agentId || move.agent || 'Agente')} · ${wfmEsc(move.fullName || move.agent || 'Sin nombre registrado')}</div><div class="wfm-action-campaign">${move.supervisor ? `Sup. ${wfmEsc(move.supervisor)} · ` : ''}${wfmEsc(move.campaign || '')} · ${wfmEsc(move.date || '')} · ${wfmEsc(move.day || '')}</div></div>
                                 ${decisionBadge}
                             </div>
                             <div class="wfm-action-schedule"><span>${wfmEsc(move.currentSchedule || '—')}</span><span>→</span><strong>${wfmEsc(move.proposedSchedule || '—')}</strong><span>(${Number(move.deltaMinutes||0) > 0 ? '+' : ''}${Number(move.deltaMinutes||0)} min)</span></div>
@@ -6424,6 +6799,7 @@
                 if (!response.ok) throw new Error('No se pudo cargar la bitácora.');
                 wfmDecisionLog = Array.isArray(data.records) ? data.records : [];
                 wfmDecisionStats = data.stats || wfmDecisionStats;
+                updateRosterKpis();
                 const count = document.getElementById('wfmLogCount');
                 if (count) count.textContent = String(wfmDecisionLog.length);
                 if (wfmAssistantView === 'log') renderWfmDecisionLog();
@@ -6856,6 +7232,109 @@
 
 </script>
 
+
+    <!-- V6 · GESTIÓN DE HORARIOS -->
+    <div id="rosterManagerOverlay" class="roster-overlay hidden" role="dialog" aria-modal="true" aria-label="Gestión de horarios">
+        <div id="rosterManagerShell" class="roster-shell">
+            <div class="roster-head">
+                <div class="roster-head-left">
+                    <div class="roster-head-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 3v6M17 3v6M5 10h14v10H5z"/><path d="M8 14h3M13 14h3M8 17h3"/></svg></div>
+                    <div><div class="roster-title">Gestión de horarios</div><div class="roster-subtitle">Roster operativo · ID, nombre completo, supervisor, campaña y horario semanal.</div></div>
+                </div>
+                <div class="roster-head-actions">
+                    <button type="button" class="roster-head-btn" onclick="downloadRosterTemplate()"><span>Plantilla</span></button>
+                    <button type="button" class="roster-head-btn" onclick="document.getElementById('rosterImportFile').click()"><span>Cargar</span></button>
+                    <input id="rosterImportFile" type="file" class="hidden" accept=".csv,.xlsx" onchange="importRosterFile(event)">
+                    <button type="button" class="roster-head-btn" onclick="exportRosterCsv()"><span>Exportar</span></button>
+                    <button type="button" class="roster-head-btn primary" onclick="openRosterEditor()"><span>+ Agente</span></button>
+                    <button type="button" class="roster-head-btn" onclick="closeRosterManager()" aria-label="Cerrar">✕</button>
+                </div>
+            </div>
+
+            <div class="roster-kpis">
+                <div class="roster-kpi"><div class="roster-kpi-label">Agentes activos</div><div id="rosterKpiActive" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
+                <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div id="rosterKpiCampaigns" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Con roster asignado</div></div>
+                <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div id="rosterKpiSupervisors" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Registrados</div></div>
+                <div class="roster-kpi"><div class="roster-kpi-label">Pendientes Frank</div><div id="rosterKpiPendingFrank" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Aprobadas no aplicadas</div></div>
+                <div class="roster-kpi"><div class="roster-kpi-label">Última actualización</div><div id="rosterKpiUpdated" class="roster-kpi-value" style="font-size:10px">—</div><div class="roster-kpi-detail">Roster operativo</div></div>
+            </div>
+
+            <div class="roster-tabs">
+                <button id="rosterTabAgents" type="button" class="roster-tab is-active" onclick="setRosterView('agents')">Plantilla actual</button>
+                <button id="rosterTabHistory" type="button" class="roster-tab" onclick="setRosterView('history')">Historial de cambios</button>
+            </div>
+
+            <div id="rosterAgentsView" class="contents">
+                <div class="roster-toolbar">
+                    <input id="rosterSearch" class="roster-input" placeholder="Buscar por ID, nombre, supervisor o campaña…" oninput="renderRosterTable()">
+                    <select id="rosterFilterCampaign" class="roster-select" onchange="renderRosterTable()"><option value="">Todas las campañas</option></select>
+                    <select id="rosterFilterSupervisor" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los supervisores</option></select>
+                    <select id="rosterFilterChannel" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
+                    <select id="rosterFilterStatus" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los estados</option><option>Activo</option><option>Inactivo</option></select>
+                    <button type="button" class="roster-toolbar-btn" onclick="resetRosterFilters()">Limpiar filtros</button>
+                </div>
+                <div id="rosterBulkBar" class="roster-bulk hidden">
+                    <div id="rosterBulkCopy" class="roster-bulk-copy">0 agentes seleccionados</div>
+                    <div class="roster-bulk-actions"><button type="button" class="roster-bulk-btn" onclick="openRosterBulkEditor()">Editar selección</button><button type="button" class="roster-bulk-btn" onclick="clearRosterSelection()">Cancelar selección</button></div>
+                </div>
+                <div class="roster-content">
+                    <div class="roster-table-wrap">
+                        <table class="roster-table">
+                            <thead><tr>
+                                <th><input id="rosterSelectAll" type="checkbox" onchange="toggleRosterSelectAll(this.checked)"></th>
+                                <th>ID agente</th><th>Nombre completo</th><th>Supervisor</th><th>Campaña</th><th>Canal</th>
+                                <th>Lunes</th><th>Martes</th><th>Miércoles</th><th>Jueves</th><th>Viernes</th><th>Sábado</th><th>Domingo</th><th>Estado</th><th>Acciones</th>
+                            </tr></thead>
+                            <tbody id="rosterTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="rosterHistoryView" class="roster-content hidden"><div id="rosterHistoryList" class="roster-history-list"></div></div>
+
+            <div id="rosterEditorBackdrop" class="roster-editor-backdrop hidden">
+                <aside class="roster-editor">
+                    <div class="roster-editor-head">
+                        <div><div id="rosterEditorTitle" class="roster-editor-title">Nuevo agente</div><div class="roster-editor-copy">Los cambios actualizan el roster operativo utilizado por el forecast y Frank.</div></div>
+                        <button type="button" class="roster-close-editor" onclick="closeRosterEditor()">✕</button>
+                    </div>
+                    <div class="roster-form-grid">
+                        <div class="roster-field"><label>ID agente</label><input id="rosterEditId" class="roster-input" placeholder="A-00001"></div>
+                        <div class="roster-field"><label>Nombre completo</label><input id="rosterEditName" class="roster-input" placeholder="Nombre Apellido"></div>
+                        <div class="roster-field"><label>Supervisor</label><input id="rosterEditSupervisor" class="roster-input" placeholder="Supervisor"></div>
+                        <div class="roster-field"><label>Campaña</label><input id="rosterEditCampaign" class="roster-input" placeholder="Campaña"></div>
+                        <div class="roster-field"><label>Canal</label><select id="rosterEditChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
+                        <div class="roster-field"><label>Estado</label><select id="rosterEditStatus" class="roster-select"><option>Activo</option><option>Inactivo</option></select></div>
+                    </div>
+                    <div class="roster-days-grid">
+                        <div class="roster-day"><label>Lunes</label><input id="rosterDayLunes" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+                        <div class="roster-day"><label>Martes</label><input id="rosterDayMartes" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+                        <div class="roster-day"><label>Miércoles</label><input id="rosterDayMiércoles" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+                        <div class="roster-day"><label>Jueves</label><input id="rosterDayJueves" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+                        <div class="roster-day"><label>Viernes</label><input id="rosterDayViernes" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+                        <div class="roster-day"><label>Sábado</label><input id="rosterDaySábado" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+                        <div class="roster-day"><label>Domingo</label><input id="rosterDayDomingo" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+                    </div>
+                    <div class="roster-editor-actions"><button type="button" class="roster-cancel-btn" onclick="closeRosterEditor()">Cancelar</button><button id="rosterSaveAgentBtn" type="button" class="roster-save-btn" onclick="saveRosterAgent()">Guardar cambios</button></div>
+                </aside>
+            </div>
+
+            <div id="rosterBulkBackdrop" class="roster-editor-backdrop hidden">
+                <aside class="roster-editor" style="max-width:430px;height:auto;max-height:90%">
+                    <div class="roster-editor-head"><div><div class="roster-editor-title">Edición masiva</div><div class="roster-editor-copy">Solo se modificarán los campos que completes.</div></div><button type="button" class="roster-close-editor" onclick="closeRosterBulkEditor()">✕</button></div>
+                    <div class="roster-form-grid">
+                        <div class="roster-field full"><label>Supervisor</label><input id="rosterBulkSupervisor" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
+                        <div class="roster-field full"><label>Campaña</label><input id="rosterBulkCampaign" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
+                        <div class="roster-field"><label>Canal</label><select id="rosterBulkChannel" class="roster-select"><option value="">Sin cambio</option><option>Llamadas</option><option>Chat</option></select></div>
+                        <div class="roster-field"><label>Estado</label><select id="rosterBulkStatus" class="roster-select"><option value="">Sin cambio</option><option>Activo</option><option>Inactivo</option></select></div>
+                    </div>
+                    <div class="roster-editor-actions"><button type="button" class="roster-cancel-btn" onclick="closeRosterBulkEditor()">Cancelar</button><button type="button" class="roster-save-btn" onclick="saveRosterBulkEdit()">Aplicar cambios</button></div>
+                </aside>
+            </div>
+        </div>
+    </div>
+
     <!-- ASISTENTE WFM -->
     <button id="wfmAssistantLauncher" type="button" class="wfm-assistant-launcher" onclick="toggleWfmAssistant(true)" aria-controls="wfmAssistantPanel" aria-expanded="false">
         <span id="wfmAssistantLauncherBadge" class="wfm-assistant-launcher-badge is-ok" aria-hidden="true"></span>
@@ -6985,6 +7464,3 @@
 
 </body>
 </html>
-
-
-
