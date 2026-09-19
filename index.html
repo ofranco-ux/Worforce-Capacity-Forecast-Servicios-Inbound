@@ -2605,6 +2605,342 @@
             .wfm-plan-impact-row strong { grid-column:2; }
         }
 
+
+        /* ================================================================
+           WFM CONTROL TOWER V5 · PLAN DE ACCIÓN + SIMULADOR + AUDITORÍA
+           ================================================================ */
+        .wfm-workspace-tabs {
+            flex:0 0 auto;
+            display:grid;
+            grid-template-columns:repeat(3,minmax(0,1fr));
+            gap:4px;
+            padding:6px 11px;
+            background:#EEF3F6;
+            border-bottom:1px solid #D8E2EA;
+        }
+        .wfm-workspace-tab {
+            min-height:31px; border-radius:9px; color:#657A8F;
+            font-size:8px; font-weight:900; letter-spacing:.02em;
+            transition:.16s ease;
+        }
+        .wfm-workspace-tab.is-active {
+            background:#FFFFFF; color:#24445B; border:1px solid #D5E0E8;
+            box-shadow:0 7px 15px -14px rgba(31,54,75,.35);
+        }
+        .wfm-workspace-tab-count {
+            display:inline-flex; min-width:17px; height:17px; margin-left:5px;
+            align-items:center; justify-content:center; border-radius:999px;
+            background:#E8EEF4; color:#5D7288; font-size:7px;
+        }
+        .wfm-workspace-tab.is-active .wfm-workspace-tab-count { background:#DDECE9; color:#2B766D; }
+
+        .wfm-workspace-view {
+            flex:1 1 auto; min-height:0; overflow-y:auto;
+            background:linear-gradient(180deg,#F5F8FA,#F0F4F7);
+        }
+        .wfm-workspace-view.hidden { display:none !important; }
+
+        .wfm-plan-workspace { padding:12px; }
+        .wfm-plan-empty {
+            min-height:210px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+            text-align:center; padding:24px; border:1px dashed #CBD7E1; border-radius:16px; background:rgba(255,255,255,.55);
+        }
+        .wfm-plan-empty-title { color:#29465D; font-size:12px; font-weight:850; }
+        .wfm-plan-empty-copy { max-width:340px; margin-top:6px; color:#778A9D; font-size:9px; line-height:1.5; }
+
+        .wfm-brief {
+            padding:12px; border-radius:15px; border:1px solid #D6E1E9;
+            background:linear-gradient(135deg,#FFFFFF,#F2F7F8);
+        }
+        .wfm-brief-eyebrow { color:#71869A; font-size:7px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; }
+        .wfm-brief-title { margin-top:4px; color:#1F3E55; font-size:13px; font-weight:900; }
+        .wfm-brief-copy { margin-top:6px; color:#5E7488; font-size:9px; line-height:1.5; }
+        .wfm-brief-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:10px; }
+        .wfm-brief-kpi { min-width:0; padding:8px; border-radius:10px; border:1px solid #DFE7EE; background:#FFF; }
+        .wfm-brief-kpi-label { color:#8292A2; font-size:6.8px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; }
+        .wfm-brief-kpi-value { margin-top:4px; color:#203E55; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:900; }
+
+        .wfm-v5-section { margin-top:10px; padding:11px; border-radius:14px; border:1px solid #D8E2E9; background:#FFFFFF; }
+        .wfm-v5-section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px; }
+        .wfm-v5-section-title { color:#29465C; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; }
+        .wfm-v5-section-copy { margin-top:3px; color:#8292A2; font-size:8px; line-height:1.4; }
+
+        .wfm-risk-list { display:flex; flex-direction:column; gap:6px; }
+        .wfm-risk-row {
+            display:grid; grid-template-columns:minmax(0,1fr) auto; gap:9px; align-items:center;
+            padding:8px 9px; border-radius:10px; background:#F7F9FB; border:1px solid #E2E8EE;
+        }
+        .wfm-risk-name { color:#314D63; font-size:9px; font-weight:850; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .wfm-risk-detail { margin-top:2px; color:#8494A4; font-size:7.5px; }
+        .wfm-risk-gap { font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:900; color:#C65369; }
+
+        .wfm-actions-grid { display:flex; flex-direction:column; gap:8px; }
+        .wfm-action-card {
+            padding:10px; border-radius:12px; border:1px solid #DCE5EC; background:#FAFCFD;
+            transition:.16s ease;
+        }
+        .wfm-action-card.is-accepted { border-color:#BFDCD5; background:#F4FAF8; }
+        .wfm-action-card.is-rejected { border-color:#E5D1D5; background:#FBF6F7; opacity:.82; }
+        .wfm-action-top { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+        .wfm-action-agent { color:#233F55; font-size:10px; font-weight:900; }
+        .wfm-action-campaign { margin-top:2px; color:#788B9D; font-size:8px; }
+        .wfm-action-safety {
+            flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; min-height:22px; padding:0 7px;
+            border-radius:999px; background:#DFF1EC; color:#28786E; font-size:7px; font-weight:900;
+        }
+        .wfm-action-safety::before { content:''; width:5px; height:5px; border-radius:50%; background:#43A995; }
+        .wfm-action-schedule {
+            margin-top:8px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+            color:#586F82; font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:800;
+        }
+        .wfm-action-schedule strong { color:#24465C; }
+        .wfm-action-impact { margin-top:6px; color:#5D7F79; font-size:8px; font-weight:800; }
+        .wfm-action-controls { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+        .wfm-action-btn {
+            min-height:30px; padding:0 9px; border-radius:9px; border:1px solid #CDD9E3;
+            background:#FFF; color:#466077; font-size:7.8px; font-weight:900;
+        }
+        .wfm-action-btn:hover { background:#F1F5F8; }
+        .wfm-action-btn.accept { border-color:#BCD9D2; color:#27756C; background:#F2F9F7; }
+        .wfm-action-btn.reject { border-color:#E1CDD2; color:#A65264; background:#FCF7F8; }
+        .wfm-action-decision {
+            display:inline-flex; align-items:center; min-height:24px; padding:0 8px; border-radius:999px;
+            font-size:7px; font-weight:900; text-transform:uppercase; letter-spacing:.06em;
+        }
+        .wfm-action-decision.accepted { background:#DFF1EC; color:#28776D; }
+        .wfm-action-decision.rejected { background:#F5E2E6; color:#AB4C61; }
+
+        .wfm-move-simulation {
+            margin-top:8px; padding:8px; border-radius:10px; border:1px solid #DBE5EC; background:#FFF;
+        }
+        .wfm-move-simulation.hidden { display:none !important; }
+        .wfm-sim-row {
+            display:grid; grid-template-columns:88px minmax(0,1fr) auto; gap:7px; align-items:center;
+            padding:5px 0; border-bottom:1px solid #EEF2F5; font-size:7.5px; color:#718397;
+        }
+        .wfm-sim-row:last-child { border-bottom:0; }
+        .wfm-sim-row strong { color:#2E4A5F; font-family:'JetBrains Mono',monospace; }
+
+        .wfm-quality-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+        .wfm-quality-item { padding:8px; border-radius:10px; border:1px solid #E0E7ED; background:#F8FAFC; min-width:0; }
+        .wfm-quality-label { color:#8494A4; font-size:6.8px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; }
+        .wfm-quality-value { margin-top:4px; color:#304C62; font-size:8.5px; font-weight:850; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+        .wfm-log-workspace { padding:12px; }
+        .wfm-log-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-bottom:10px; }
+        .wfm-log-kpi { padding:9px; border-radius:11px; border:1px solid #DCE5EC; background:#FFF; min-width:0; }
+        .wfm-log-kpi-label { color:#8393A4; font-size:6.8px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; }
+        .wfm-log-kpi-value { margin-top:5px; color:#243F55; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:900; }
+        .wfm-log-list { display:flex; flex-direction:column; gap:7px; }
+        .wfm-log-row { padding:9px; border-radius:11px; border:1px solid #DEE6ED; background:#FFF; }
+        .wfm-log-row-top { display:flex; justify-content:space-between; gap:8px; }
+        .wfm-log-title { color:#2D485E; font-size:9px; font-weight:850; }
+        .wfm-log-meta { margin-top:3px; color:#8696A6; font-size:7.5px; }
+        .wfm-log-status { font-size:7px; font-weight:900; text-transform:uppercase; }
+        .wfm-log-status.accepted { color:#2C786E; }
+        .wfm-log-status.rejected { color:#A85063; }
+
+        .wfm-chat-plan-link {
+            display:inline-flex; align-items:center; min-height:29px; margin-top:9px; padding:0 9px;
+            border-radius:9px; border:1px solid #CCD9E3; background:#F0F5F8; color:#36556C;
+            font-size:7.8px; font-weight:900;
+        }
+
+        .wfm-assistant-panel.view-plan .wfm-assistant-quick,
+        .wfm-assistant-panel.view-log .wfm-assistant-quick,
+        .wfm-assistant-panel.view-plan .wfm-assistant-input-wrap,
+        .wfm-assistant-panel.view-log .wfm-assistant-input-wrap,
+        .wfm-assistant-panel.view-plan .wfm-autopilot-insight,
+        .wfm-assistant-panel.view-log .wfm-autopilot-insight {
+            display:none !important;
+        }
+
+        @media (max-width:640px) {
+            .wfm-brief-grid, .wfm-log-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .wfm-quality-grid { grid-template-columns:1fr; }
+            .wfm-sim-row { grid-template-columns:78px minmax(0,1fr); }
+            .wfm-sim-row strong { grid-column:2; }
+        }
+
+
+        /* ================================================================
+           WFM CONTROL TOWER V5.1 · CICLO DE CONVERSACIÓN AMIGABLE
+           ================================================================ */
+        .wfm-assistant-session {
+            min-height:32px;
+            padding:0 10px;
+            border-radius:10px;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            gap:6px;
+            color:#DDE8F0;
+            background:rgba(255,255,255,.06);
+            border:1px solid rgba(255,255,255,.10);
+            font-size:7.5px;
+            font-weight:850;
+            white-space:nowrap;
+            transition:.16s ease;
+        }
+        .wfm-assistant-session:hover {
+            color:#FFFFFF;
+            background:rgba(255,255,255,.13);
+        }
+        .wfm-assistant-session svg {
+            width:13px; height:13px;
+            fill:none; stroke:currentColor; stroke-width:1.8;
+            stroke-linecap:round; stroke-linejoin:round;
+        }
+        .wfm-assistant-session.hidden { display:none !important; }
+
+        .wfm-welcome-shell {
+            flex:1 1 auto;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            min-height:290px;
+            padding:20px 16px 24px;
+            background:linear-gradient(180deg,#F5F8FA 0%,#F1F5F8 100%);
+        }
+        .wfm-welcome-card {
+            width:min(390px, 100%);
+            padding:20px 18px 18px;
+            border-radius:18px;
+            border:1px solid #D7E2EA;
+            background:linear-gradient(145deg,#FFFFFF,#F7FAFC);
+            text-align:center;
+            box-shadow:0 18px 38px -34px rgba(31,53,73,.38);
+        }
+        .wfm-welcome-mascot {
+            position:relative;
+            width:62px;
+            height:62px;
+            margin:0 auto 12px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            animation:wfmNexoFloat 3.6s ease-in-out infinite;
+        }
+        .wfm-welcome-mascot .wfm-mascot-halo { inset:5px; }
+        .wfm-welcome-mascot .wfm-mascot-face {
+            width:40px !important;
+            height:35px !important;
+            background:linear-gradient(145deg,#2D5A70,#24495E);
+            border-color:#426F82;
+        }
+        .wfm-welcome-title {
+            color:#203F56;
+            font-size:15px;
+            font-weight:900;
+            letter-spacing:-.025em;
+        }
+        .wfm-welcome-copy {
+            max-width:330px;
+            margin:7px auto 0;
+            color:#61778A;
+            font-size:10px;
+            line-height:1.55;
+        }
+        .wfm-welcome-context {
+            display:flex;
+            justify-content:center;
+            flex-wrap:wrap;
+            gap:5px;
+            margin-top:12px;
+        }
+        .wfm-welcome-chip {
+            min-height:23px;
+            padding:0 8px;
+            display:inline-flex;
+            align-items:center;
+            border-radius:999px;
+            border:1px solid #D7E2EA;
+            background:#F3F7F9;
+            color:#60768A;
+            font-size:7px;
+            font-weight:850;
+            text-transform:uppercase;
+            letter-spacing:.05em;
+        }
+        .wfm-welcome-actions {
+            display:flex;
+            justify-content:center;
+            gap:7px;
+            margin-top:15px;
+        }
+        .wfm-welcome-start {
+            min-height:38px;
+            padding:0 15px;
+            border-radius:11px;
+            border:1px solid #2F6872;
+            background:linear-gradient(135deg,#214C65,#2F7778);
+            color:#FFFFFF;
+            font-size:9px;
+            font-weight:900;
+            box-shadow:0 12px 24px -20px rgba(31,74,92,.5);
+        }
+        .wfm-welcome-start:hover { filter:brightness(1.04); transform:translateY(-1px); }
+
+        .wfm-session-farewell {
+            width:min(390px,100%);
+            margin:auto;
+            padding:20px 18px;
+            border-radius:18px;
+            border:1px solid #D8E2E9;
+            background:#FFFFFF;
+            text-align:center;
+        }
+        .wfm-session-farewell-title {
+            color:#29465C;
+            font-size:14px;
+            font-weight:900;
+        }
+        .wfm-session-farewell-copy {
+            max-width:320px;
+            margin:7px auto 0;
+            color:#718497;
+            font-size:9px;
+            line-height:1.5;
+        }
+
+        /* Antes de iniciar una conversación, Nexo saluda primero.
+           El autopiloto puede seguir calculando en segundo plano, pero no invade la charla. */
+        .wfm-assistant-panel.session-idle .wfm-assistant-context,
+        .wfm-assistant-panel.session-idle .wfm-autopilot-insight,
+        .wfm-assistant-panel.session-idle .wfm-assistant-quick,
+        .wfm-assistant-panel.session-idle .wfm-assistant-input-wrap,
+        .wfm-assistant-panel.session-ended .wfm-assistant-context,
+        .wfm-assistant-panel.session-ended .wfm-autopilot-insight,
+        .wfm-assistant-panel.session-ended .wfm-assistant-quick,
+        .wfm-assistant-panel.session-ended .wfm-assistant-input-wrap {
+            display:none !important;
+        }
+        .wfm-assistant-panel.session-idle .wfm-workspace-tabs,
+        .wfm-assistant-panel.session-ended .wfm-workspace-tabs {
+            border-top:1px solid #DCE5EC;
+        }
+        .wfm-assistant-panel.session-idle #wfmAssistantMessages,
+        .wfm-assistant-panel.session-ended #wfmAssistantMessages {
+            padding:0 !important;
+            background:transparent !important;
+        }
+        .wfm-assistant-panel.session-idle #wfmAssistantMessages > .wfm-msg,
+        .wfm-assistant-panel.session-ended #wfmAssistantMessages > .wfm-msg {
+            display:none;
+        }
+        .wfm-assistant-panel.session-idle #wfmAssistantMessages .wfm-welcome-shell,
+        .wfm-assistant-panel.session-ended #wfmAssistantMessages .wfm-welcome-shell {
+            display:flex;
+        }
+        .wfm-welcome-shell { display:none; }
+
+        @media (max-width:640px) {
+            .wfm-assistant-session span { display:none; }
+            .wfm-assistant-session { width:32px; padding:0; }
+            .wfm-welcome-shell { min-height:260px; padding:16px 12px 20px; }
+            .wfm-welcome-card { padding:18px 14px 16px; }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -4956,6 +5292,14 @@
         let wfmAutopilotPayload = null;
         let wfmAutopilotRenderedSignature = '';
         let wfmAnalysisScope = 'day'; // day | week | month
+        let wfmAssistantView = 'chat';
+        let wfmCurrentPlanPayload = null;
+        let wfmPlanMovesById = {};
+        let wfmDecisionLog = [];
+        let wfmDecisionStats = { resolved:0, accepted:0, rejected:0, opsResolved:0, opsAutonomy:0, acceptedEstimatedDeficitReduction:0 };
+        let wfmConversationActive = false;
+        let wfmConversationStartedAt = null;
+        let wfmConversationSequence = 0;
 
 
         function wfmAssistantContextKey() {
@@ -5018,6 +5362,135 @@
         }
 
 
+
+        function wfmConversationGreeting() {
+            const hour = new Date().getHours();
+            if (hour < 12) return 'Buenos días';
+            if (hour < 19) return 'Buenas tardes';
+            return 'Buenas noches';
+        }
+
+        function renderWfmConversationWelcome(ended = false) {
+            const welcome = document.getElementById('wfmConversationWelcome');
+            const title = document.getElementById('wfmWelcomeTitle');
+            const copy = document.getElementById('wfmWelcomeCopy');
+            const ctxWrap = document.getElementById('wfmWelcomeContext');
+            const startBtn = document.getElementById('wfmWelcomeStartBtn');
+            if (!welcome || !title || !copy || !ctxWrap || !startBtn) return;
+
+            const context = buildWfmAssistantContext();
+            const greeting = wfmConversationGreeting();
+
+            if (ended) {
+                title.textContent = 'Conversación finalizada.';
+                copy.textContent = 'Gracias. La conversación anterior quedó cerrada; el Plan y la Bitácora permanecen disponibles. Cuando quieras podemos comenzar desde cero con el contexto actual.';
+                startBtn.textContent = 'Iniciar nueva conversación';
+            } else {
+                title.textContent = `${greeting}, soy Nexo.`;
+                copy.textContent = 'Antes de comenzar el análisis, quiero darte la bienvenida. Puedo ayudarte a entender la proyección, detectar riesgos y preparar movimientos de roster para el periodo seleccionado.';
+                startBtn.textContent = 'Iniciar conversación';
+            }
+
+            ctxWrap.innerHTML = '';
+            [
+                context.scopeLabel || 'Diario',
+                context.scopeDetail || 'Periodo actual',
+                forecastMode === 'general' ? 'Consolidado' : forecastMode === 'chat' ? 'Chat' : 'Llamadas'
+            ].filter(Boolean).forEach(textValue => {
+                const chip = document.createElement('span');
+                chip.className = 'wfm-welcome-chip';
+                chip.textContent = textValue;
+                ctxWrap.appendChild(chip);
+            });
+        }
+
+        function updateWfmConversationControls() {
+            const panel = document.getElementById('wfmAssistantPanel');
+            const sessionBtn = document.getElementById('wfmAssistantSessionBtn');
+            const sessionLabel = document.getElementById('wfmAssistantSessionLabel');
+            const input = document.getElementById('wfmAssistantInput');
+            const send = document.getElementById('wfmAssistantSend');
+
+            if (!panel) return;
+
+            panel.classList.toggle('session-idle', !wfmConversationActive && !wfmConversationStartedAt);
+            panel.classList.toggle('session-ended', !wfmConversationActive && !!wfmConversationStartedAt);
+            panel.classList.toggle('session-active', wfmConversationActive);
+
+            if (sessionBtn) {
+                sessionBtn.classList.toggle('hidden', !wfmConversationActive && !wfmConversationStartedAt);
+                sessionBtn.setAttribute('aria-label', wfmConversationActive ? 'Finalizar conversación' : 'Iniciar nueva conversación');
+                sessionBtn.title = wfmConversationActive ? 'Finalizar conversación' : 'Nueva conversación';
+            }
+            if (sessionLabel) sessionLabel.textContent = wfmConversationActive ? 'Finalizar' : 'Nueva';
+
+            if (input) {
+                input.disabled = !wfmConversationActive;
+                input.placeholder = wfmConversationActive
+                    ? 'Escribe tu duda sobre la proyección o el roster…'
+                    : 'Inicia una conversación para escribirle a Nexo';
+            }
+            if (send) send.disabled = !wfmConversationActive || wfmAssistantBusy;
+        }
+
+        function clearWfmConversationMessages() {
+            const container = document.getElementById('wfmAssistantMessages');
+            const welcome = document.getElementById('wfmConversationWelcome');
+            if (!container || !welcome) return;
+            Array.from(container.children).forEach(child => {
+                if (child !== welcome) child.remove();
+            });
+            container.scrollTop = 0;
+        }
+
+        function startWfmConversation() {
+            const panel = document.getElementById('wfmAssistantPanel');
+            const container = document.getElementById('wfmAssistantMessages');
+            if (!panel || !container) return;
+
+            clearWfmConversationMessages();
+            wfmConversationActive = true;
+            wfmConversationStartedAt = new Date();
+            wfmConversationSequence += 1;
+            panel.classList.remove('conversation-mode');
+            updateWfmConversationControls();
+            showWfmAssistantView('chat');
+
+            const context = buildWfmAssistantContext();
+            const greeting = wfmConversationGreeting();
+            const modeLabel = forecastMode === 'general' ? 'Consolidado' : forecastMode === 'chat' ? 'Chat' : 'Llamadas';
+            appendWfmAssistantMessage(
+                'bot',
+                `${greeting}. Soy Nexo y ya estoy listo para ayudarte. Estás trabajando en ${context.scopeLabel || 'el periodo'} · ${context.scopeDetail || 'selección actual'} · ${modeLabel}. ¿Qué quieres revisar primero?`,
+                { scopeLabel: context.scopeLabel, scopeDetail: context.scopeDetail }
+            );
+
+            const welcome = document.getElementById('wfmConversationWelcome');
+            if (welcome) welcome.style.display = 'none';
+
+            setTimeout(() => document.getElementById('wfmAssistantInput')?.focus(), 100);
+        }
+
+        function endWfmConversation() {
+            if (!wfmConversationActive) return;
+            const panel = document.getElementById('wfmAssistantPanel');
+            if (!panel) return;
+
+            wfmConversationActive = false;
+            clearWfmConversationMessages();
+            panel.classList.remove('conversation-mode');
+            renderWfmConversationWelcome(true);
+            const welcome = document.getElementById('wfmConversationWelcome');
+            if (welcome) welcome.style.display = 'flex';
+            updateWfmConversationControls();
+            showWfmAssistantView('chat');
+        }
+
+        function handleWfmConversationSession() {
+            if (wfmConversationActive) endWfmConversation();
+            else startWfmConversation();
+        }
+
         function toggleWfmAssistantExpand() {
             const panel = document.getElementById('wfmAssistantPanel');
             const btn = document.getElementById('wfmAssistantExpand');
@@ -5039,12 +5512,18 @@
             launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
             if (open) {
                 const messages = document.getElementById('wfmAssistantMessages');
-                if (messages?.querySelector('.wfm-msg.user')) panel.classList.add('conversation-mode');
+                if (wfmConversationActive && messages?.querySelector('.wfm-msg.user')) panel.classList.add('conversation-mode');
                 updateWfmAssistantContextChips();
+                loadWfmDecisionLog();
+                renderWfmConversationWelcome(!wfmConversationActive && !!wfmConversationStartedAt);
+                updateWfmConversationControls();
                 const meta = wfmAssistantScopeMeta();
                 const scopeHint = document.getElementById('wfmScopeHint');
                 if (scopeHint) scopeHint.textContent = meta.description;
-                setTimeout(() => document.getElementById('wfmAssistantInput')?.focus(), 80);
+                setTimeout(() => {
+                    if (wfmConversationActive) document.getElementById('wfmAssistantInput')?.focus();
+                    else document.getElementById('wfmWelcomeStartBtn')?.focus();
+                }, 80);
             }
         }
 
@@ -5101,6 +5580,7 @@
             wfmAutopilotPayload = null;
             wfmAutopilotRenderedSignature = '';
             updateWfmAssistantContextChips();
+            if (!wfmConversationActive) renderWfmConversationWelcome(!!wfmConversationStartedAt);
             scheduleWfmAutopilot();
         }
 
@@ -5332,11 +5812,8 @@
 
         function showWfmAutopilotPlan() {
             toggleWfmAssistant(true);
-            if (!wfmAutopilotPayload) return;
-            const signature = wfmAutopilotLastSignature || wfmAssistantContextKey();
-            if (wfmAutopilotRenderedSignature === signature) return;
-            appendWfmAssistantMessage('bot', wfmAutopilotPayload.reply || 'Análisis autónomo actualizado.', wfmAutopilotPayload);
-            wfmAutopilotRenderedSignature = signature;
+            if (wfmAutopilotPayload?.schedule_plan) registerWfmPlanPayload(wfmAutopilotPayload);
+            showWfmAssistantView('plan');
         }
 
         function scheduleWfmAutopilot() {
@@ -5374,11 +5851,272 @@
                 if ((buildWfmAssistantContext().contextSignature || wfmAssistantContextKey()) !== signature) return;
                 wfmAutopilotLastSignature = signature;
                 wfmAutopilotPayload = data;
+                if (data?.schedule_plan) registerWfmPlanPayload(data);
                 renderWfmAutopilotInsight(data, context);
             } catch (error) {
                 if (error?.name === 'AbortError') return;
                 console.warn('Autopiloto WFM:', error);
             }
+        }
+
+
+        function wfmEsc(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+            }[ch]));
+        }
+
+        function showWfmAssistantView(view) {
+            if (!['chat','plan','log'].includes(view)) return;
+            wfmAssistantView = view;
+            const panel = document.getElementById('wfmAssistantPanel');
+            const chat = document.getElementById('wfmAssistantMessages');
+            const plan = document.getElementById('wfmAssistantPlanView');
+            const log = document.getElementById('wfmAssistantLogView');
+
+            chat?.classList.toggle('hidden', view !== 'chat');
+            plan?.classList.toggle('hidden', view !== 'plan');
+            log?.classList.toggle('hidden', view !== 'log');
+
+            panel?.classList.toggle('view-plan', view === 'plan');
+            panel?.classList.toggle('view-log', view === 'log');
+
+            [['chat','wfmViewChatBtn'],['plan','wfmViewPlanBtn'],['log','wfmViewLogBtn']].forEach(([name,id]) => {
+                const btn = document.getElementById(id);
+                const active = name === view;
+                btn?.classList.toggle('is-active', active);
+                btn?.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+
+            if (view === 'plan') renderWfmPlanWorkspace(wfmCurrentPlanPayload);
+            if (view === 'log') renderWfmDecisionLog();
+        }
+
+        function wfmMoveStatus(actionId) {
+            const rec = wfmDecisionLog.find(x => x.actionId === actionId);
+            return rec?.decision || '';
+        }
+
+        function buildWfmExecutiveSummary(context, payload) {
+            const plan = payload?.schedule_plan;
+            const worst = context?.worst;
+            if (!worst) {
+                return `El periodo ${context?.scopeDetail || 'seleccionado'} no presenta déficit. Cobertura promedio ${context?.averageCoverage || 100}%.`;
+            }
+            const moves = Array.isArray(plan?.moves) ? plan.moves.length : 0;
+            const before = Number(plan?.baseline?.total_deficit ?? context?.totalDeficitHCIntervals ?? 0);
+            const after = Number(plan?.after?.total_deficit ?? before);
+            let copy = `La principal presión está en ${worst.channel || 'la operación'} el ${worst.date || ''} a las ${worst.interval || ''}: ${Math.abs(Math.round(Number(worst.gap || 0)))} HC faltantes y ${Math.round(Number(worst.coverage || 0))}% de cobertura.`;
+            if (moves) copy += ` El plan propone ${moves} movimientos de roster y reduce el déficit HC-intervalo estimado de ${before.toFixed(0)} a ${after.toFixed(0)}.`;
+            return copy;
+        }
+
+        function renderWfmPlanWorkspace(payload) {
+            const container = document.getElementById('wfmAssistantPlanView');
+            if (!container) return;
+
+            const context = buildWfmAssistantContext();
+            const plan = payload?.schedule_plan || wfmCurrentPlanPayload?.schedule_plan || null;
+            const effectivePayload = payload || wfmCurrentPlanPayload || {};
+            const moves = Array.isArray(plan?.moves) ? plan.moves : [];
+            wfmPlanMovesById = {};
+            moves.forEach(m => { if (m.actionId) wfmPlanMovesById[m.actionId] = m; });
+
+            const planCount = document.getElementById('wfmPlanCount');
+            if (planCount) planCount.textContent = String(moves.length);
+
+            const worst = context.worst;
+            const before = plan?.baseline || {};
+            const after = plan?.after || before;
+            const quality = effectivePayload?.data_quality || {};
+            const risks = (context.campaigns || []).filter(x => Number(x.worstGap || 0) < 0).slice(0,5);
+            const alerts = (context.deficits || []).slice(0,5);
+
+            const summary = buildWfmExecutiveSummary(context, effectivePayload);
+
+            let htmlOut = `
+                <div class="wfm-brief">
+                    <div class="wfm-brief-eyebrow">Resumen ejecutivo · ${wfmEsc(context.scopeLabel || 'Análisis')}</div>
+                    <div class="wfm-brief-title">${worst ? 'Plan de acción recomendado' : 'Cobertura estable'}</div>
+                    <div class="wfm-brief-copy">${wfmEsc(summary)}</div>
+                    <div class="wfm-brief-grid">
+                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Déficit estimado</div><div class="wfm-brief-kpi-value">${Number(before.total_deficit ?? context.totalDeficitHCIntervals ?? 0).toFixed(0)}</div></div>
+                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Después del plan</div><div class="wfm-brief-kpi-value">${Number(after.total_deficit ?? before.total_deficit ?? 0).toFixed(0)}</div></div>
+                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Peor brecha</div><div class="wfm-brief-kpi-value">${Number(after.worst_gap ?? worst?.gap ?? 0).toFixed(0)} HC</div></div>
+                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Movimientos</div><div class="wfm-brief-kpi-value">${moves.length}</div></div>
+                    </div>
+                </div>`;
+
+            if (alerts.length) {
+                htmlOut += `
+                    <section class="wfm-v5-section">
+                        <div class="wfm-v5-section-head">
+                            <div><div class="wfm-v5-section-title">Alertas del periodo</div><div class="wfm-v5-section-copy">Franjas con mayor presión dentro del Mes / Semana / Día seleccionado.</div></div>
+                        </div>
+                        <div class="wfm-risk-list">
+                            ${alerts.map(a => `
+                                <div class="wfm-risk-row">
+                                    <div><div class="wfm-risk-name">${wfmEsc(a.channel || '')} · ${wfmEsc(a.date || '')} · ${wfmEsc(a.interval || '')}</div><div class="wfm-risk-detail">${Math.round(Number(a.actual||0))} actual vs ${Math.round(Number(a.required||0))} requerido · cobertura ${Math.round(Number(a.coverage||0))}%</div></div>
+                                    <div class="wfm-risk-gap">${Math.round(Number(a.gap||0))} HC</div>
+                                </div>`).join('')}
+                        </div>
+                    </section>`;
+            }
+
+            if (risks.length) {
+                htmlOut += `
+                    <section class="wfm-v5-section">
+                        <div class="wfm-v5-section-head">
+                            <div><div class="wfm-v5-section-title">Ranking de presión por campaña</div><div class="wfm-v5-section-copy">Ordenado por la peor brecha observada dentro del periodo.</div></div>
+                        </div>
+                        <div class="wfm-risk-list">
+                            ${risks.map(r => `
+                                <div class="wfm-risk-row">
+                                    <div><div class="wfm-risk-name">${wfmEsc(r.campaign || 'Campaña')} · ${wfmEsc(r.channel || '')}</div><div class="wfm-risk-detail">${wfmEsc(r.worstDate || '')} ${wfmEsc(r.worstInterval || '')}</div></div>
+                                    <div class="wfm-risk-gap">${Math.round(Number(r.worstGap||0))} HC</div>
+                                </div>`).join('')}
+                        </div>
+                    </section>`;
+            }
+
+            htmlOut += `
+                <section class="wfm-v5-section">
+                    <div class="wfm-v5-section-head">
+                        <div><div class="wfm-v5-section-title">Acciones de roster</div><div class="wfm-v5-section-copy">Solo ajustes de entrada/salida. Nexo no gestiona desconexiones de break o lunch.</div></div>
+                    </div>
+                    <div class="wfm-actions-grid">`;
+
+            if (!moves.length) {
+                htmlOut += `<div class="wfm-plan-empty" style="min-height:120px"><div class="wfm-plan-empty-title">${wfmEsc(plan?.reason || (worst ? 'No encontré movimientos seguros con el roster disponible.' : 'No se requieren movimientos.'))}</div></div>`;
+            } else {
+                htmlOut += moves.map(move => {
+                    const status = wfmMoveStatus(move.actionId);
+                    const cls = status ? ` is-${status}` : '';
+                    const decisionBadge = status ? `<span class="wfm-action-decision ${status}">${status === 'accepted' ? 'Aprobada' : 'Descartada'}</span>` : '';
+                    return `
+                        <article class="wfm-action-card${cls}" data-action-card="${wfmEsc(move.actionId)}">
+                            <div class="wfm-action-top">
+                                <div><div class="wfm-action-agent">${wfmEsc(move.agent || 'Agente')}</div><div class="wfm-action-campaign">${wfmEsc(move.campaign || '')} · ${wfmEsc(move.date || '')} · ${wfmEsc(move.day || '')}</div></div>
+                                ${decisionBadge || '<span class="wfm-action-safety">Sin déficit nuevo</span>'}
+                            </div>
+                            <div class="wfm-action-schedule"><span>${wfmEsc(move.currentSchedule || '—')}</span><span>→</span><strong>${wfmEsc(move.proposedSchedule || '—')}</strong><span>(${Number(move.deltaMinutes||0) > 0 ? '+' : ''}${Number(move.deltaMinutes||0)} min)</span></div>
+                            <div class="wfm-action-impact">Impacto estimado: reduce ${Number(move.deficitReduction || 0).toFixed(0)} HC-intervalo de déficit.</div>
+                            <div class="wfm-action-controls">
+                                <button type="button" class="wfm-action-btn" onclick="toggleWfmMoveSimulation('${wfmEsc(move.actionId)}')">Simular impacto</button>
+                                <button type="button" class="wfm-action-btn accept" onclick="decideWfmMove('${wfmEsc(move.actionId)}','accepted')">Aprobar recomendación</button>
+                                <button type="button" class="wfm-action-btn reject" onclick="decideWfmMove('${wfmEsc(move.actionId)}','rejected')">Descartar</button>
+                            </div>
+                            <div id="wfmMoveSim_${wfmEsc(move.actionId)}" class="wfm-move-simulation hidden">
+                                ${(move.impactIntervals || []).length ? (move.impactIntervals || []).map(row => `
+                                    <div class="wfm-sim-row"><span>${wfmEsc(row.date || '')} ${wfmEsc(row.interval || '')}</span><span>${wfmEsc(row.campaign || '')}</span><strong>${Number(row.beforeGap||0).toFixed(0)} → ${Number(row.afterGap||0).toFixed(0)} HC</strong></div>
+                                `).join('') : '<div class="wfm-v5-section-copy">El movimiento mejora el déficit global sin crear un faltante nuevo dentro del alcance analizado.</div>'}
+                            </div>
+                        </article>`;
+                }).join('');
+            }
+            htmlOut += `</div></section>`;
+
+            htmlOut += `
+                <section class="wfm-v5-section">
+                    <div class="wfm-v5-section-head"><div><div class="wfm-v5-section-title">Calidad y trazabilidad de datos</div><div class="wfm-v5-section-copy">La recomendación solo es tan confiable como la fuente que la alimenta.</div></div></div>
+                    <div class="wfm-quality-grid">
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Filas forecast</div><div class="wfm-quality-value">${Number(quality.forecastRows ?? context.rowCount ?? 0).toLocaleString()}</div></div>
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Roster disponible</div><div class="wfm-quality-value">${quality.rosterAvailable === false ? 'No confirmado' : `${Number(quality.rosterAgents || 0)} agentes`}</div></div>
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'historico.xlsx')}</div></div>
+                    </div>
+                    <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Nexo no inventará ese dato.</div>
+                </section>`;
+
+            container.innerHTML = htmlOut;
+        }
+
+        function toggleWfmMoveSimulation(actionId) {
+            document.getElementById(`wfmMoveSim_${actionId}`)?.classList.toggle('hidden');
+        }
+
+        async function decideWfmMove(actionId, decision) {
+            const move = wfmPlanMovesById[actionId];
+            if (!move) return;
+            try {
+                const context = buildWfmAssistantContext();
+                const response = await fetch('/api/wfm_action_decision', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({
+                        actionId,
+                        decision,
+                        actorMode: typeof currentMode !== 'undefined' ? currentMode : 'wfm',
+                        scopeLabel: context.scopeLabel,
+                        scopeDetail: context.scopeDetail,
+                        move
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'No se pudo registrar la decisión.');
+                await loadWfmDecisionLog();
+                renderWfmPlanWorkspace(wfmCurrentPlanPayload);
+            } catch (error) {
+                appendWfmAssistantMessage('bot', `No pude registrar la decisión: ${error.message}`);
+                showWfmAssistantView('chat');
+            }
+        }
+
+        async function loadWfmDecisionLog() {
+            try {
+                const response = await fetch('/api/wfm_action_decisions?limit=100');
+                const data = await response.json();
+                if (!response.ok) throw new Error('No se pudo cargar la bitácora.');
+                wfmDecisionLog = Array.isArray(data.records) ? data.records : [];
+                wfmDecisionStats = data.stats || wfmDecisionStats;
+                const count = document.getElementById('wfmLogCount');
+                if (count) count.textContent = String(wfmDecisionLog.length);
+                if (wfmAssistantView === 'log') renderWfmDecisionLog();
+            } catch (error) {
+                console.warn('Bitácora WFM:', error);
+            }
+        }
+
+        function renderWfmDecisionLog() {
+            const container = document.getElementById('wfmAssistantLogView');
+            if (!container) return;
+            const stats = wfmDecisionStats || {};
+            const rows = wfmDecisionLog || [];
+
+            let out = `
+                <div class="wfm-log-kpis">
+                    <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Resueltas</div><div class="wfm-log-kpi-value">${Number(stats.resolved||0)}</div></div>
+                    <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Aprobadas</div><div class="wfm-log-kpi-value">${Number(stats.accepted||0)}</div></div>
+                    <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Autonomía Ops*</div><div class="wfm-log-kpi-value">${Number(stats.opsAutonomy||0)}%</div></div>
+                    <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Impacto aceptado</div><div class="wfm-log-kpi-value">${Number(stats.acceptedEstimatedDeficitReduction||0).toFixed(0)}</div></div>
+                </div>
+                <section class="wfm-v5-section" style="margin-top:0">
+                    <div class="wfm-v5-section-head"><div><div class="wfm-v5-section-title">Bitácora de decisiones</div><div class="wfm-v5-section-copy">*Autonomía Ops = porcentaje de decisiones registradas desde modo Operaciones sobre las recomendaciones resueltas.</div></div></div>
+                    <div class="wfm-log-list">`;
+
+            if (!rows.length) {
+                out += `<div class="wfm-plan-empty" style="min-height:130px"><div class="wfm-plan-empty-title">Sin decisiones registradas</div><div class="wfm-plan-empty-copy">Aprueba o descarta una recomendación desde Plan para comenzar la trazabilidad.</div></div>`;
+            } else {
+                out += rows.map(r => {
+                    const m = r.move || {};
+                    const status = r.decision || '';
+                    return `
+                        <div class="wfm-log-row">
+                            <div class="wfm-log-row-top"><div><div class="wfm-log-title">${wfmEsc(m.agent || 'Acción')} · ${wfmEsc(m.campaign || '')}</div><div class="wfm-log-meta">${wfmEsc(m.date || '')} · ${wfmEsc(m.currentSchedule || '')} → ${wfmEsc(m.proposedSchedule || '')} · ${wfmEsc(r.scopeLabel || '')}</div></div><span class="wfm-log-status ${wfmEsc(status)}">${status === 'accepted' ? 'Aprobada' : 'Descartada'}</span></div>
+                            <div class="wfm-log-meta">Registrada ${wfmEsc(r.updatedAt || '')} · modo ${wfmEsc(r.actorMode || 'wfm')} · impacto estimado ${Number(m.deficitReduction||0).toFixed(0)} HC-intervalo</div>
+                        </div>`;
+                }).join('');
+            }
+            out += `</div></section>`;
+            container.innerHTML = out;
+        }
+
+        function registerWfmPlanPayload(payload) {
+            if (!payload?.schedule_plan) return;
+            wfmCurrentPlanPayload = payload;
+            const moves = Array.isArray(payload.schedule_plan.moves) ? payload.schedule_plan.moves : [];
+            const count = document.getElementById('wfmPlanCount');
+            if (count) count.textContent = String(moves.length);
+            renderWfmPlanWorkspace(payload);
         }
 
         function renderWfmSchedulePlan(plan) {
@@ -5577,8 +6315,14 @@
             }
 
             if (payload && payload.schedule_plan) {
-                const planEl = renderWfmSchedulePlan(payload.schedule_plan);
-                if (planEl) bubble.appendChild(planEl);
+                registerWfmPlanPayload(payload);
+                const planLink = document.createElement('button');
+                planLink.type = 'button';
+                planLink.className = 'wfm-chat-plan-link';
+                const moveCount = Array.isArray(payload.schedule_plan.moves) ? payload.schedule_plan.moves.length : 0;
+                planLink.textContent = moveCount ? `Abrir plan de acción · ${moveCount} movimientos` : 'Abrir análisis del periodo';
+                planLink.addEventListener('click', () => showWfmAssistantView('plan'));
+                bubble.appendChild(planLink);
             }
 
             if (payload && payload.note) {
@@ -5610,7 +6354,7 @@
 
         function getLocalWfmAnswer(question, context) {
             const q = String(question || '').toLowerCase();
-            const movement = ['mover','movimiento','horario','turno','break','comida','optimiza','candidato','redistribuir'];
+            const movement = ['mover','movimiento','horario','turno','optimiza','candidato','redistribuir'];
             if (movement.some(x => q.includes(x))) return null;
 
             const worst = context.worst;
@@ -5659,6 +6403,7 @@
         }
 
         function askWfmQuick(question) {
+            if (!wfmConversationActive) startWfmConversation();
             const input = document.getElementById('wfmAssistantInput');
             if (input) input.value = question;
             sendWfmAssistantQuestion();
@@ -5666,6 +6411,10 @@
 
         async function sendWfmAssistantQuestion() {
             if (wfmAssistantBusy) return;
+            if (!wfmConversationActive) {
+                startWfmConversation();
+                return;
+            }
             const input = document.getElementById('wfmAssistantInput');
             const send = document.getElementById('wfmAssistantSend');
             if (!input || !send) return;
@@ -5703,6 +6452,7 @@
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'No se pudo analizar la proyección.');
                 thinking?.remove();
+                if (data?.schedule_plan) registerWfmPlanPayload(data);
                 appendWfmAssistantMessage('bot', data.reply || 'Análisis completado.', data);
             } catch (error) {
                 thinking?.remove();
@@ -5724,6 +6474,11 @@
             const initialScopeHint = document.getElementById('wfmScopeHint');
             if (initialScopeHint) initialScopeHint.textContent = initialScopeMeta.description;
 
+            showWfmAssistantView('chat');
+            loadWfmDecisionLog();
+            renderWfmConversationWelcome(false);
+            updateWfmConversationControls();
+
             const input = document.getElementById('wfmAssistantInput');
             if (input) {
                 input.addEventListener('keydown', (event) => {
@@ -5744,7 +6499,7 @@
         <span id="wfmAssistantLauncherText">WFM · analizando</span>
     </button>
 
-    <section id="wfmAssistantPanel" class="wfm-assistant-panel hidden" aria-label="Asistente WFM">
+    <section id="wfmAssistantPanel" class="wfm-assistant-panel hidden session-idle" aria-label="Asistente WFM">
         <div class="wfm-assistant-head">
             <div class="wfm-assistant-head-main">
                 <div class="wfm-mascot" aria-hidden="true">
@@ -5757,10 +6512,14 @@
                 </div>
                 <div>
                     <p class="wfm-assistant-title">Nexo · WFM Copilot</p>
-                    <p class="wfm-assistant-subtitle">Cobertura, riesgos y optimización de roster en un solo lugar.</p>
+                    <p class="wfm-assistant-subtitle">Tu copiloto para entender la proyección y convertirla en acciones claras.</p>
                 </div>
             </div>
             <div class="wfm-assistant-head-actions">
+                <button id="wfmAssistantSessionBtn" type="button" class="wfm-assistant-session hidden" onclick="handleWfmConversationSession()" aria-label="Finalizar conversación" title="Finalizar conversación">
+                    <svg id="wfmAssistantSessionIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg>
+                    <span id="wfmAssistantSessionLabel">Finalizar</span>
+                </button>
                 <button id="wfmAssistantExpand" type="button" class="wfm-assistant-expand" onclick="toggleWfmAssistantExpand()" aria-label="Ampliar asistente" title="Ampliar">
                     <svg id="wfmAssistantExpandIcon" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/><path d="M3 8l6-6M21 8l-6-6M21 16l-6 6M3 16l6 6"/></svg>
                 </button>
@@ -5781,6 +6540,12 @@
                 <button type="button" class="wfm-scope-btn is-active" data-wfm-scope="day" aria-pressed="true" onclick="setWfmAnalysisScope('day')">Día</button>
             </div>
             <p id="wfmScopeHint" class="wfm-scope-hint">Analiza los días seleccionados completos. El filtro de intervalo no limita la recomendación.</p>
+        </div>
+
+        <div class="wfm-workspace-tabs" role="tablist" aria-label="Nexo workspace">
+            <button id="wfmViewChatBtn" type="button" class="wfm-workspace-tab is-active" role="tab" aria-selected="true" onclick="showWfmAssistantView('chat')">Chat</button>
+            <button id="wfmViewPlanBtn" type="button" class="wfm-workspace-tab" role="tab" aria-selected="false" onclick="showWfmAssistantView('plan')">Plan <span id="wfmPlanCount" class="wfm-workspace-tab-count">0</span></button>
+            <button id="wfmViewLogBtn" type="button" class="wfm-workspace-tab" role="tab" aria-selected="false" onclick="showWfmAssistantView('log')">Bitácora <span id="wfmLogCount" class="wfm-workspace-tab-count">0</span></button>
         </div>
 
         <div id="wfmAssistantContext" class="wfm-assistant-context">
@@ -5808,12 +6573,37 @@
         </div>
 
         <div id="wfmAssistantMessages" class="wfm-assistant-messages" aria-live="polite">
-            <div class="wfm-msg bot">
-                <div class="wfm-msg-avatar" aria-hidden="true"><span class="wfm-mini-mascot"><i></i><b></b></span></div>
-                <div class="wfm-msg-bubble">
-                    <div class="wfm-msg-content">Listo. Selecciona Mes, Semana o Día y pregúntame por riesgos, cobertura o movimientos de roster.</div>
-                    <div class="wfm-msg-meta">Las recomendaciones siempre evalúan el periodo completo elegido.</div>
+            <div id="wfmConversationWelcome" class="wfm-welcome-shell">
+                <div class="wfm-welcome-card">
+                    <div class="wfm-welcome-mascot" aria-hidden="true">
+                        <span class="wfm-mascot-halo"></span>
+                        <span class="wfm-mascot-face">
+                            <i class="wfm-mascot-eye left"></i>
+                            <i class="wfm-mascot-eye right"></i>
+                            <b class="wfm-mascot-mouth"></b>
+                        </span>
+                    </div>
+                    <div id="wfmWelcomeTitle" class="wfm-welcome-title">Hola, soy Nexo.</div>
+                    <div id="wfmWelcomeCopy" class="wfm-welcome-copy">Antes de analizar la operación, quiero darte la bienvenida. Cuando quieras, iniciamos una conversación sobre el periodo que tengas seleccionado.</div>
+                    <div id="wfmWelcomeContext" class="wfm-welcome-context"></div>
+                    <div class="wfm-welcome-actions">
+                        <button id="wfmWelcomeStartBtn" type="button" class="wfm-welcome-start" onclick="startWfmConversation()">Iniciar conversación</button>
+                    </div>
                 </div>
+            </div>
+        </div>
+
+        <div id="wfmAssistantPlanView" class="wfm-workspace-view wfm-plan-workspace hidden" role="tabpanel">
+            <div class="wfm-plan-empty">
+                <div class="wfm-plan-empty-title">Plan de acción listo cuando exista presión de capacidad</div>
+                <div class="wfm-plan-empty-copy">Nexo mostrará riesgos, movimientos de roster, simulación antes/después y controles de aprobación. No administra desconexiones de break o lunch.</div>
+            </div>
+        </div>
+
+        <div id="wfmAssistantLogView" class="wfm-workspace-view wfm-log-workspace hidden" role="tabpanel">
+            <div class="wfm-plan-empty">
+                <div class="wfm-plan-empty-title">Sin decisiones registradas</div>
+                <div class="wfm-plan-empty-copy">Aquí quedará la trazabilidad de recomendaciones aprobadas o descartadas por Operaciones/WFM.</div>
             </div>
         </div>
 
@@ -5824,7 +6614,7 @@
                     <svg viewBox="0 0 24 24"><path d="m4 12 16-7-5 14-3-5-8-2Z"/><path d="m12 14 8-9"/></svg>
                 </button>
             </div>
-            <p class="wfm-assistant-input-help">Recomendaciones de planeación. Valida jornada, descansos, skills y restricciones antes de aplicar.</p>
+            <p class="wfm-assistant-input-help">Recomendaciones de planeación. Nexo no gestiona break/lunch; valida jornada, skills y restricciones antes de aplicar.</p>
         </div>
     </section>
 
