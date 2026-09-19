@@ -5337,25 +5337,25 @@
             launcher.classList.remove('is-critical', 'is-warning', 'is-ok');
             badge.classList.remove('is-critical', 'is-warning', 'is-ok');
 
+            const capacity = context?.periodCapacity || {};
+            const gap = Number(capacity.gap || 0);
+            const coverage = Number(capacity.coverage ?? 100);
+
             let state = severity;
             if (!state) {
-                if (context?.worst) {
-                    const gap = Number(context.worst.gap || 0);
-                    const cov = Number(context.worst.coverage || 100);
-                    state = gap <= -5 || cov < 85 ? 'critical' : 'warning';
-                } else {
-                    state = 'ok';
-                }
+                state = gap < 0
+                    ? (gap <= -5 || coverage < 85 ? 'critical' : 'warning')
+                    : 'ok';
             }
             launcher.classList.add(`is-${state}`);
             badge.classList.add(`is-${state}`);
 
             const scopeShort = context?.scopeLabel || 'Diario';
-            if (context?.worst) {
-                const gap = Math.abs(Math.round(Number(context.worst.gap || 0)));
+            if (gap < 0) {
+                const missing = Math.abs(Math.round(gap));
                 textEl.textContent = state === 'critical'
-                    ? `${scopeShort} · faltan ${gap} HC`
-                    : `${scopeShort} · revisar ${gap} HC`;
+                    ? `${scopeShort} · faltan ${missing} HC`
+                    : `${scopeShort} · revisar ${missing} HC`;
             } else {
                 textEl.textContent = `${scopeShort} · cobertura estable`;
             }
@@ -5458,10 +5458,9 @@
 
             const context = buildWfmAssistantContext();
             const greeting = wfmConversationGreeting();
-            const modeLabel = forecastMode === 'general' ? 'Consolidado' : forecastMode === 'chat' ? 'Chat' : 'Llamadas';
             appendWfmAssistantMessage(
                 'bot',
-                `${greeting}. Soy Nexo y ya estoy listo para ayudarte. Estás trabajando en ${context.scopeLabel || 'el periodo'} · ${context.scopeDetail || 'selección actual'} · ${modeLabel}. ¿Qué quieres revisar primero?`,
+                `${greeting}. Soy Nexo y ya estoy listo para ayudarte. Tomaré como referencia el alcance y los filtros que ves arriba. ¿Qué quieres revisar primero?`,
                 { scopeLabel: context.scopeLabel, scopeDetail: context.scopeDetail }
             );
 
@@ -5605,6 +5604,184 @@
             });
         }
 
+
+        function computeWfmChannelPeriodCapacity(channelRows, channelName) {
+            const rows = Array.isArray(channelRows) ? channelRows : [];
+            if (!rows.length) {
+                return { required:0, actual:0, gap:0, coverage:100, campaigns:[] };
+            }
+
+            const durJornada = parseFloat(document.getElementById('jornada')?.value || 8) || 8;
+            const usarNocturno = !!document.getElementById('chkNocturno')?.checked;
+            const concurrencia = parseFloat(document.getElementById('concurrencia')?.value || 3) || 3;
+            const factorDescanso = usarNocturno ? (7.0 / 5.0) : (7.0 / 6.0);
+            const merma = parseFloat(document.getElementById('merma')?.value || 30) || 0;
+            const factorAsistencia = Math.max(0.01, 1.0 - (merma / 100.0));
+
+            const fechas = new Set();
+            const agg = new Map();
+            const backendLookup = new Map();
+
+            rows.forEach(r => {
+                const campaign = String(getProp(r, ['Campaña','Campana'], 'General'));
+                const date = wfmAssistantSafeDate(getProp(r, ['Fecha'], ''));
+                const interval = String(getProp(r, ['Intervalo'], '00:00'));
+                const calls = Number(getProp(r, ['Llamadas','Recibidas','Recibidos'], 0)) || 0;
+                const aht = Number(getProp(r, ['AHT_Segundos'], 180)) || 180;
+
+                fechas.add(date);
+                const key = `${interval}|${campaign}|${date}`;
+                if (!agg.has(key)) agg.set(key, { interval, campaign, date, calls:0, ht:0 });
+                const a = agg.get(key);
+                a.calls += calls;
+                a.ht += calls * aht;
+
+                const backendFte = Number(getProp(r, ['FTE_Erlang'], NaN));
+                const backendSl = Number(getProp(r, ['Target_SL'], NaN));
+                const backendAsa = Number(getProp(r, ['Target_ASA'], NaN));
+                const backendConcurrency = Number(getProp(r, ['Concurrencia_Aplicada'], channelName === 'Chat' ? 3 : 1));
+                if (Number.isFinite(backendFte) && Number.isFinite(backendSl) && Number.isFinite(backendAsa)) {
+                    const fteKey = `${channelName}|${campaign}|${date}|${interval}`;
+                    if (!backendLookup.has(fteKey)) {
+                        backendLookup.set(fteKey, {
+                            fte:backendFte,
+                            targetSl:backendSl,
+                            targetAsa:backendAsa,
+                            concurrency:backendConcurrency
+                        });
+                    } else {
+                        backendLookup.set(fteKey, null);
+                    }
+                }
+            });
+
+            const numDias = fechas.size || 1;
+            const intervalCampaign = new Map();
+            agg.forEach(v => {
+                const key = `${v.interval}|${v.campaign}`;
+                if (!intervalCampaign.has(key)) intervalCampaign.set(key, []);
+                intervalCampaign.get(key).push(v);
+            });
+
+            const ftePorCampana = {};
+            intervalCampaign.forEach((entries, key) => {
+                const [interval, campaign] = key.split('|');
+                let reqCampanaIntervalo = 0;
+
+                entries.forEach(entry => {
+                    const callsDay = entry.calls;
+                    const avgAht = callsDay > 0 ? entry.ht / callsDay : 180;
+                    const effectiveAht = channelName === 'Chat'
+                        ? avgAht / Math.max(1.0, concurrencia)
+                        : avgAht;
+
+                    if (callsDay >= 0.05) {
+                        const backendFte = backendFteCompatible(
+                            backendLookup,
+                            channelName,
+                            campaign,
+                            entry.date,
+                            interval,
+                            concurrencia
+                        );
+                        if (backendFte !== null) {
+                            reqCampanaIntervalo += backendFte;
+                        } else {
+                            const erlangLoad = (callsDay * effectiveAht * factorCoberturaAmbulancia(campaign, channelName)) / 1800.0;
+                            const targets = getCampaignTargets(campaign, channelName);
+                            reqCampanaIntervalo += calcular_agentes_requeridos_erlang_c_js(
+                                erlangLoad,
+                                effectiveAht,
+                                targets.targetTime,
+                                targets.targetSl
+                            );
+                        }
+                    }
+                });
+
+                if (!ftePorCampana[campaign]) ftePorCampana[campaign] = 0;
+                ftePorCampana[campaign] += reqCampanaIntervalo / numDias;
+            });
+
+            // Same roster rule used by the main KPI: maximum roster by campaign
+            // from the loaded dataset, then sum only campaigns present in scope.
+            const scopedCampaigns = [...new Set(rows.map(r => String(getProp(r, ['Campaña','Campana'], 'General'))))];
+            const rosterByCampaign = {};
+            (Array.isArray(globalData) ? globalData : []).forEach(r => {
+                const rowChannel = String(r.Canal || (forecastMode === 'chat' ? 'Chat' : 'Llamadas'));
+                if (forecastMode === 'general' && rowChannel !== channelName) return;
+                if (forecastMode !== 'general' && rowChannel && rowChannel !== channelName) return;
+
+                const campaign = String(getProp(r, ['Campaña','Campana'], 'General'));
+                if (!scopedCampaigns.includes(campaign)) return;
+                const roster = Math.max(
+                    Number(getProp(r, ['Total_Roster_Campana'], 0)) || 0,
+                    Number(getProp(r, ['Total_Roster_Dia'], 0)) || 0,
+                    Number(getProp(r, ['HC_Actual_Roster'], 0)) || 0
+                );
+                if (!(campaign in rosterByCampaign) || roster > rosterByCampaign[campaign]) {
+                    rosterByCampaign[campaign] = roster;
+                }
+            });
+
+            const campaignCapacity = scopedCampaigns.map(campaign => {
+                const fte = Number(ftePorCampana[campaign] || 0);
+                const required = Math.ceil((((fte * 0.5) / durJornada) * factorDescanso) / factorAsistencia);
+                const actual = Math.round(Number(rosterByCampaign[campaign] || 0));
+                const gap = actual - required;
+                const coverage = required > 0 ? Math.round((actual / required) * 100) : 100;
+                return { campaign, channel:channelName, required, actual, gap, coverage };
+            });
+
+            const required = campaignCapacity.reduce((sum, x) => sum + x.required, 0);
+            const actual = campaignCapacity.reduce((sum, x) => sum + x.actual, 0);
+            const gap = actual - required;
+            const coverage = required > 0 ? Math.round((actual / required) * 100) : 100;
+
+            return { required, actual, gap, coverage, campaigns:campaignCapacity };
+        }
+
+        function computeWfmPeriodCapacity(rows) {
+            const sourceRows = Array.isArray(rows) ? rows : [];
+            if (!sourceRows.length) {
+                return {
+                    required:0, actual:0, gap:0, coverage:100,
+                    channels:[], campaigns:[]
+                };
+            }
+
+            if (forecastMode === 'general') {
+                const channelResults = ['Llamadas','Chat'].map(channel => {
+                    const channelRows = sourceRows.filter(r => String(r.Canal || 'Llamadas') === channel);
+                    const result = computeWfmChannelPeriodCapacity(channelRows, channel);
+                    return { channel, ...result };
+                });
+
+                const required = channelResults.reduce((sum, x) => sum + x.required, 0);
+                const actual = channelResults.reduce((sum, x) => sum + x.actual, 0);
+                const gap = actual - required;
+                const coverage = required > 0 ? Math.round((actual / required) * 100) : 100;
+                const campaigns = channelResults.flatMap(x => x.campaigns);
+
+                return { required, actual, gap, coverage, channels:channelResults, campaigns };
+            }
+
+            const channel = forecastMode === 'chat' ? 'Chat' : 'Llamadas';
+            const channelRows = sourceRows.filter(r => {
+                const rowChannel = String(r.Canal || channel);
+                return rowChannel === channel;
+            });
+            const result = computeWfmChannelPeriodCapacity(channelRows.length ? channelRows : sourceRows, channel);
+            return {
+                required:result.required,
+                actual:result.actual,
+                gap:result.gap,
+                coverage:result.coverage,
+                channels:[{ channel, ...result }],
+                campaigns:result.campaigns
+            };
+        }
+
         function buildWfmAssistantContext() {
             const contextKey = wfmAssistantContextKey();
             if (wfmAssistantContextCache.key === contextKey && wfmAssistantContextCache.value) {
@@ -5631,10 +5808,16 @@
                 totalHandle += volume * aht;
 
                 const intervalKey = `${date}|${interval}|${channel}`;
-                if (!intervalMap.has(intervalKey)) intervalMap.set(intervalKey, { date, interval, channel, required:0, actual:0, volume:0, handle:0 });
+                if (!intervalMap.has(intervalKey)) {
+                    intervalMap.set(intervalKey, {
+                        date, interval, channel,
+                        required:0, actual:0, volume:0, handle:0,
+                        actualByCampaign:{}
+                    });
+                }
                 const slot = intervalMap.get(intervalKey);
                 slot.required += req;
-                slot.actual += actual;
+                slot.actualByCampaign[campaign] = Math.max(Number(slot.actualByCampaign[campaign] || 0), actual);
                 slot.volume += volume;
                 slot.handle += volume * aht;
 
@@ -5664,10 +5847,12 @@
             });
 
             const slots = Array.from(intervalMap.values()).map(x => {
+                x.actual = Object.values(x.actualByCampaign || {}).reduce((sum, value) => sum + Number(value || 0), 0);
                 x.gap = x.actual - x.required;
                 x.coverage = x.required > 0 ? Math.round((x.actual / x.required) * 100) : 100;
                 x.aht = x.volume > 0 ? Math.round(x.handle / x.volume) : 0;
                 delete x.handle;
+                delete x.actualByCampaign;
                 return x;
             });
 
@@ -5719,6 +5904,9 @@
             });
 
             const scopeMeta = wfmAssistantScopeMeta();
+            const periodCapacity = computeWfmPeriodCapacity(rows);
+            const periodCampaigns = [...(periodCapacity.campaigns || [])]
+                .sort((a,b) => Number(a.gap || 0) - Number(b.gap || 0));
             const totalDeficitHCIntervals = slots.reduce((sum, x) => sum + Math.max(0, -Number(x.gap || 0)), 0);
             const result = {
                 mode: forecastMode,
@@ -5740,6 +5928,8 @@
                 totalVolume: Math.round(totalVolume),
                 weightedAht: totalVolume > 0 ? Math.round(totalHandle / totalVolume) : 0,
                 averageCoverage: avgCoverage,
+                periodCapacity,
+                periodCampaigns,
                 worst,
                 deficits,
                 surpluses,
@@ -5771,7 +5961,8 @@
             chip(modeLabel, 'is-mode');
             if (ctx.filters.campaigns.length === 1) chip(ctx.filters.campaigns[0]);
             else if (ctx.filters.campaigns.length > 1) chip(`${ctx.filters.campaigns.length} campañas`);
-            chip(ctx.worst ? `Peor gap ${ctx.worst.gap} HC` : 'Sin déficit');
+            const periodGap = Number(ctx.periodCapacity?.gap || 0);
+            chip(periodGap < 0 ? `Brecha ${periodGap} HC` : 'Plantilla cubierta');
             setWfmLauncherState(ctx);
         }
 
@@ -5779,7 +5970,14 @@
             const box = document.getElementById('wfmAutopilotInsight');
             if (!box) return;
             const ctx = context || buildWfmAssistantContext();
-            const severity = payload?.severity || (ctx.worst ? 'warning' : 'ok');
+            const capacity = ctx.periodCapacity || {};
+            const periodGap = Number(capacity.gap || 0);
+            const periodCoverage = Number(capacity.coverage ?? 100);
+            const severity = payload?.severity || (
+                periodGap < 0
+                    ? (periodGap <= -5 || periodCoverage < 85 ? 'critical' : 'warning')
+                    : 'ok'
+            );
             const plan = payload?.schedule_plan;
             const moves = Array.isArray(plan?.moves) ? plan.moves : [];
 
@@ -5794,14 +5992,23 @@
                 status.textContent = `${ctx.scopeLabel || 'ANÁLISIS'} · ${statusText}`;
             }
             if (title) {
-                title.textContent = payload?.headline || (ctx.worst
-                    ? `${ctx.worst.channel} · ${ctx.worst.interval} · ${ctx.worst.gap} HC`
-                    : 'Cobertura estable');
+                title.textContent = payload?.headline || (
+                    periodGap < 0
+                        ? `${forecastMode === 'general' ? 'Consolidado' : forecastMode === 'chat' ? 'Chat' : 'Llamadas'} · ${periodGap} HC · ${periodCoverage}%`
+                        : 'Cobertura de plantilla estable'
+                );
             }
             if (copy) {
-                if (payload?.reply) copy.textContent = payload.reply;
-                else if (ctx.worst) copy.textContent = `Detecté ${Math.abs(Math.round(ctx.worst.gap))} HC faltantes con ${Math.round(ctx.worst.coverage)}% de cobertura. Estoy preparando opciones.`;
-                else copy.textContent = `No detecto déficit en la selección actual. Cobertura promedio ${ctx.averageCoverage}%.`;
+                if (payload?.reply) {
+                    copy.textContent = payload.reply;
+                } else if (periodGap < 0) {
+                    const worstText = ctx.worst
+                        ? ` El intervalo más presionado es ${ctx.worst.date} ${ctx.worst.interval}.`
+                        : '';
+                    copy.textContent = `Para el periodo completo se requieren ${capacity.required || 0} HC y hay ${capacity.actual || 0}; faltan ${Math.abs(Math.round(periodGap))} HC.${worstText}`;
+                } else {
+                    copy.textContent = `Para el periodo completo se requieren ${capacity.required || 0} HC y hay ${capacity.actual || 0}.`;
+                }
             }
             if (action) {
                 action.classList.toggle('hidden', !moves.length);
@@ -5899,15 +6106,22 @@
 
         function buildWfmExecutiveSummary(context, payload) {
             const plan = payload?.schedule_plan;
+            const capacity = context?.periodCapacity || {};
+            const gap = Number(capacity.gap || 0);
             const worst = context?.worst;
-            if (!worst) {
-                return `El periodo ${context?.scopeDetail || 'seleccionado'} no presenta déficit. Cobertura promedio ${context?.averageCoverage || 100}%.`;
-            }
             const moves = Array.isArray(plan?.moves) ? plan.moves.length : 0;
-            const before = Number(plan?.baseline?.total_deficit ?? context?.totalDeficitHCIntervals ?? 0);
-            const after = Number(plan?.after?.total_deficit ?? before);
-            let copy = `La principal presión está en ${worst.channel || 'la operación'} el ${worst.date || ''} a las ${worst.interval || ''}: ${Math.abs(Math.round(Number(worst.gap || 0)))} HC faltantes y ${Math.round(Number(worst.coverage || 0))}% de cobertura.`;
-            if (moves) copy += ` El plan propone ${moves} movimientos de roster y reduce el déficit HC-intervalo estimado de ${before.toFixed(0)} a ${after.toFixed(0)}.`;
+
+            if (gap >= 0) {
+                return `El periodo ${context?.scopeDetail || 'seleccionado'} está cubierto: ${capacity.actual || 0} HC actuales vs ${capacity.required || 0} requeridos (${capacity.coverage ?? 100}% de cobertura).`;
+            }
+
+            let copy = `El periodo requiere ${capacity.required || 0} HC y dispone de ${capacity.actual || 0}; la brecha de plantilla es de ${Math.abs(Math.round(gap))} HC y la cobertura es ${capacity.coverage ?? 0}%.`;
+            if (worst) copy += ` La franja más presionada es ${worst.date || ''} a las ${worst.interval || ''}.`;
+            if (moves) {
+                const before = Number(plan?.baseline?.total_deficit || 0);
+                const after = Number(plan?.after?.total_deficit || before);
+                copy += ` El optimizador propone ${moves} movimientos de roster; en la simulación por intervalo la exposición baja de ${before.toFixed(0)} a ${after.toFixed(0)} HC-intervalo.`;
+            }
             return copy;
         }
 
@@ -5926,10 +6140,11 @@
             if (planCount) planCount.textContent = String(moves.length);
 
             const worst = context.worst;
+            const periodCapacity = context.periodCapacity || {};
             const before = plan?.baseline || {};
             const after = plan?.after || before;
             const quality = effectivePayload?.data_quality || {};
-            const risks = (context.campaigns || []).filter(x => Number(x.worstGap || 0) < 0).slice(0,5);
+            const risks = (context.periodCampaigns || []).filter(x => Number(x.gap || 0) < 0).slice(0,5);
             const alerts = (context.deficits || []).slice(0,5);
 
             const summary = buildWfmExecutiveSummary(context, effectivePayload);
@@ -5937,12 +6152,12 @@
             let htmlOut = `
                 <div class="wfm-brief">
                     <div class="wfm-brief-eyebrow">Resumen ejecutivo · ${wfmEsc(context.scopeLabel || 'Análisis')}</div>
-                    <div class="wfm-brief-title">${worst ? 'Plan de acción recomendado' : 'Cobertura estable'}</div>
+                    <div class="wfm-brief-title">${Number(periodCapacity.gap || 0) < 0 ? 'Plan de acción recomendado' : 'Cobertura estable'}</div>
                     <div class="wfm-brief-copy">${wfmEsc(summary)}</div>
                     <div class="wfm-brief-grid">
-                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Déficit estimado</div><div class="wfm-brief-kpi-value">${Number(before.total_deficit ?? context.totalDeficitHCIntervals ?? 0).toFixed(0)}</div></div>
-                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Después del plan</div><div class="wfm-brief-kpi-value">${Number(after.total_deficit ?? before.total_deficit ?? 0).toFixed(0)}</div></div>
-                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Peor brecha</div><div class="wfm-brief-kpi-value">${Number(after.worst_gap ?? worst?.gap ?? 0).toFixed(0)} HC</div></div>
+                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">HC requerido</div><div class="wfm-brief-kpi-value">${Number(periodCapacity.required || 0).toFixed(0)}</div></div>
+                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">HC actual</div><div class="wfm-brief-kpi-value">${Number(periodCapacity.actual || 0).toFixed(0)}</div></div>
+                        <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Brecha plantilla</div><div class="wfm-brief-kpi-value">${Number(periodCapacity.gap || 0).toFixed(0)} HC</div></div>
                         <div class="wfm-brief-kpi"><div class="wfm-brief-kpi-label">Movimientos</div><div class="wfm-brief-kpi-value">${moves.length}</div></div>
                     </div>
                 </div>`;
@@ -5951,7 +6166,7 @@
                 htmlOut += `
                     <section class="wfm-v5-section">
                         <div class="wfm-v5-section-head">
-                            <div><div class="wfm-v5-section-title">Alertas del periodo</div><div class="wfm-v5-section-copy">Franjas con mayor presión dentro del Mes / Semana / Día seleccionado.</div></div>
+                            <div><div class="wfm-v5-section-title">Alertas por intervalo</div><div class="wfm-v5-section-copy">Franjas con mayor presión operativa. Estas alertas son intraperiodo y no sustituyen la brecha de plantilla.</div></div>
                         </div>
                         <div class="wfm-risk-list">
                             ${alerts.map(a => `
@@ -5967,13 +6182,13 @@
                 htmlOut += `
                     <section class="wfm-v5-section">
                         <div class="wfm-v5-section-head">
-                            <div><div class="wfm-v5-section-title">Ranking de presión por campaña</div><div class="wfm-v5-section-copy">Ordenado por la peor brecha observada dentro del periodo.</div></div>
+                            <div><div class="wfm-v5-section-title">Ranking de presión por campaña</div><div class="wfm-v5-section-copy">Brecha de plantilla calculada con la misma lógica del KPI principal.</div></div>
                         </div>
                         <div class="wfm-risk-list">
                             ${risks.map(r => `
                                 <div class="wfm-risk-row">
-                                    <div><div class="wfm-risk-name">${wfmEsc(r.campaign || 'Campaña')} · ${wfmEsc(r.channel || '')}</div><div class="wfm-risk-detail">${wfmEsc(r.worstDate || '')} ${wfmEsc(r.worstInterval || '')}</div></div>
-                                    <div class="wfm-risk-gap">${Math.round(Number(r.worstGap||0))} HC</div>
+                                    <div><div class="wfm-risk-name">${wfmEsc(r.campaign || 'Campaña')} · ${wfmEsc(r.channel || '')}</div><div class="wfm-risk-detail">${Math.round(Number(r.required||0))} requerido · ${Math.round(Number(r.actual||0))} actual · cobertura ${Math.round(Number(r.coverage||0))}%</div></div>
+                                    <div class="wfm-risk-gap">${Math.round(Number(r.gap||0))} HC</div>
                                 </div>`).join('')}
                         </div>
                     </section>`;
@@ -6358,43 +6573,49 @@
             if (movement.some(x => q.includes(x))) return null;
 
             const worst = context.worst;
+            const capacity = context.periodCapacity || {};
+            const gap = Number(capacity.gap || 0);
+            const required = Number(capacity.required || 0);
+            const actual = Number(capacity.actual || 0);
+            const coverage = Number(capacity.coverage ?? 100);
+
             if (q.includes('déficit') || q.includes('deficit') || q.includes('faltante') || q.includes('riesgo') || q.includes('cobertura')) {
-                if (!worst) {
+                if (gap >= 0) {
                     return {
-                        reply:`No detecto déficit en el filtro actual. La cobertura promedio es ${context.averageCoverage}%.`,
+                        reply:`Para el periodo ${context.scopeDetail || 'seleccionado'} no hay déficit de plantilla: ${actual} HC actuales vs ${required} requeridos (${coverage}% de cobertura).`,
                         cards:[],
                         actions:[]
                     };
                 }
                 return {
-                    reply:`El mayor déficit está en ${worst.channel} el ${worst.date} a las ${worst.interval}: ${Math.round(worst.required)} HC requeridos vs ${Math.round(worst.actual)} actuales; faltan ${Math.abs(Math.round(worst.gap))} HC y la cobertura es ${Math.round(worst.coverage)}%.`,
+                    reply:`Para el periodo ${context.scopeDetail || 'seleccionado'} se requieren ${required} HC y hay ${actual} HC. La brecha es de ${Math.abs(Math.round(gap))} HC y la cobertura de plantilla es ${coverage}%.${worst ? ` El intervalo más presionado es ${worst.date} a las ${worst.interval}.` : ''}`,
                     cards:[
-                        {title:'Mayor déficit',value:`${Math.abs(Math.round(worst.gap))} HC`,detail:`${worst.date} · ${worst.interval}`},
-                        {title:'Cobertura',value:`${Math.round(worst.coverage)}%`,detail:`${Math.round(worst.actual)} actual vs ${Math.round(worst.required)} requerido`}
+                        {title:'HC requerido',value:`${required} HC`,detail:context.scopeLabel || 'Periodo'},
+                        {title:'HC actual',value:`${actual} HC`,detail:`Cobertura ${coverage}%`},
+                        {title:'Brecha de plantilla',value:`${Math.abs(Math.round(gap))} HC`,detail:'Faltante del periodo'}
                     ],
-                    actions:[`Prioriza ${worst.interval} antes de retirar capacidad de intervalos cubiertos.`]
+                    actions: worst ? [`Revisar primero la franja ${worst.date} ${worst.interval} y después validar movimientos de roster.`] : []
                 };
             }
 
             if (q.includes('resumen') || q.includes('prioridad') || q.includes('qué debo hacer') || q.includes('que debo hacer')) {
-                if (!worst) {
-                    return { reply:`Operación estable: no detecto déficit y la cobertura promedio es ${context.averageCoverage}%.`, cards:[], actions:[] };
+                if (gap >= 0) {
+                    return { reply:`El periodo está cubierto: ${actual} HC actuales vs ${required} requeridos (${coverage}%).`, cards:[], actions:[] };
                 }
                 return {
-                    reply:`Prioridad: proteger ${worst.channel} el ${worst.date} a las ${worst.interval}. Faltan ${Math.abs(Math.round(worst.gap))} HC y la cobertura es ${Math.round(worst.coverage)}%.`,
+                    reply:`Prioridad del periodo: cerrar una brecha de ${Math.abs(Math.round(gap))} HC. Plantilla requerida ${required}, actual ${actual}, cobertura ${coverage}%.${worst ? ` La franja más presionada es ${worst.date} ${worst.interval}.` : ''}`,
                     cards:[],
                     actions:[
-                        'Revisar primero entradas/salidas y capacidad cercana.',
-                        'Evitar mover HC desde intervalos que queden por debajo del requerimiento.',
-                        'Usar Optimizar horarios para obtener candidatos concretos del roster.'
+                        'Revisar candidatos de entrada/salida desde Optimizar roster.',
+                        'Validar que cada movimiento no cree un déficit nuevo.',
+                        'Registrar la decisión en Plan para conservar trazabilidad.'
                     ]
                 };
             }
 
             if ((q.includes('por qué') || q.includes('porque') || q.includes('requerido') || q.includes('necesito')) && q.includes('hc')) {
-                const suffix = worst ? ` En el punto crítico, ${worst.interval}, se requieren ${Math.round(worst.required)} HC y hay ${Math.round(worst.actual)}.` : '';
                 return {
-                    reply:`El HC requerido depende de volumen proyectado, AHT, objetivos de servicio y merma; en Chat también interviene la concurrencia.${suffix}`,
+                    reply:`El periodo necesita ${required} HC después de convertir la carga proyectada en necesidad de plantilla con jornada, descanso y merma. Actualmente hay ${actual} HC, por lo que la brecha es ${gap} HC. En llamadas también intervienen volumen, AHT y objetivos de servicio; en Chat se agrega la concurrencia.`,
                     cards:[],
                     actions:[]
                 };
@@ -6620,5 +6841,6 @@
 
 </body>
 </html>
+
 
 
