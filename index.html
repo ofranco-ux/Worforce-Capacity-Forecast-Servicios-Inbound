@@ -3385,6 +3385,58 @@
             .roster-schedule-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
         }
 
+
+        /* ================================================================
+           V6.3 · CRONOGRAMA REAL 24x7
+           El eje siempre representa el día calendario 00:00 → 24:00.
+           Los turnos nocturnos arrastran cobertura desde el día anterior.
+           ================================================================ */
+        .roster-timeline-scroll {
+            scrollbar-width:thin;
+        }
+        .roster-timeline {
+            min-width:1120px;
+            height:190px;
+            gap:3px;
+            padding:20px 8px 30px;
+        }
+        .roster-franja {
+            flex:1 1 0;
+            min-width:16px;
+        }
+        .roster-franja-bar {
+            width:min(18px,82%);
+        }
+        .roster-franja-label.minor {
+            display:none;
+        }
+        .roster-franja.is-midnight {
+            border-left:1px solid rgba(72,100,121,.20);
+        }
+        .roster-franja.is-hour {
+            border-left:1px solid rgba(72,100,121,.06);
+        }
+        .roster-franja-count.is-zero {
+            opacity:.22;
+        }
+        .roster-24h-note {
+            display:inline-flex;
+            align-items:center;
+            min-height:22px;
+            margin-left:6px;
+            padding:0 7px;
+            border-radius:999px;
+            background:#EAF3F7;
+            color:#557488;
+            font-size:6.6px;
+            font-weight:900;
+            letter-spacing:.03em;
+        }
+        .roster-coverage-complete {
+            background:#E7F5F1;
+            color:#287168;
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -5921,70 +5973,125 @@
 
             renderRosterScheduleDayTabs();
 
+            const days = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+            const dayIndex = Math.max(0, days.indexOf(rosterScheduleDay));
+            const previousDay = days[(dayIndex + 6) % 7];
+
             const filtered = (Array.isArray(rows) ? rows : rosterFilteredAgents())
                 .filter(a => a.status === 'Activo');
 
-            const working = [];
-            filtered.forEach(agent => {
-                const range = rosterParseScheduleRange(agent.schedules?.[rosterScheduleDay]);
-                if (range) working.push({agent, ...range});
-            });
+            // El eje SIEMPRE es un día calendario completo: 48 franjas de 30 min.
+            // Un turno nocturno del día anterior (ej. Dom 22:00-07:00)
+            // aporta cobertura a Lun 00:00-07:00.
+            const slots = [];
+            const contributingIds = new Set();
 
-            const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val;};
-            set('rosterScheduleWorking', working.length.toLocaleString());
+            for (let t = 0; t < 1440; t += 30) {
+                let count = 0;
+                let carryCount = 0;
 
-            const scope = document.getElementById('rosterScheduleFilterScope');
-            if (scope) {
-                scope.textContent = rosterFiltersAreActive()
-                    ? `${filtered.length} activos · filtros actuales`
-                    : `${filtered.length} activos · plantilla total`;
+                filtered.forEach(agent => {
+                    const current = rosterParseScheduleRange(agent.schedules?.[rosterScheduleDay]);
+                    const previous = rosterParseScheduleRange(agent.schedules?.[previousDay]);
+
+                    let coveredByCurrent = false;
+                    let coveredByCarry = false;
+
+                    if (current) {
+                        // Turno normal: ej. 08:00-17:00.
+                        // Turno nocturno: ej. 22:00-07:00 => current.end > 1440.
+                        const currentEndToday = Math.min(current.end, 1440);
+                        coveredByCurrent = t >= current.start && t < currentEndToday;
+                    }
+
+                    if (previous && previous.end > 1440) {
+                        // Sólo la porción posterior a medianoche del turno previo.
+                        const carryEnd = previous.end - 1440;
+                        coveredByCarry = t >= 0 && t < carryEnd;
+                    }
+
+                    if (coveredByCurrent || coveredByCarry) {
+                        count += 1;
+                        contributingIds.add(String(agent.agentId || agent.fullName || agent.campaign || 'agent'));
+                        if (coveredByCarry && !coveredByCurrent) carryCount += 1;
+                    }
+                });
+
+                slots.push({minutes:t, count, carryCount});
             }
 
-            if (!working.length) {
-                set('rosterSchedulePeak','0 HC');
-                set('rosterScheduleFirst','—');
+            const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val;};
+            set('rosterScheduleWorking', contributingIds.size.toLocaleString());
+
+            const coveredSlots = slots.filter(x=>x.count > 0).length;
+            const scope = document.getElementById('rosterScheduleFilterScope');
+            if (scope) {
+                const prefix = rosterFiltersAreActive()
+                    ? `${filtered.length} activos · filtros actuales`
+                    : `${filtered.length} activos · plantilla total`;
+                scope.textContent = `${prefix} · ${coveredSlots}/48 franjas`;
+            }
+
+            const status24 = document.getElementById('rosterSchedule24hStatus');
+            if (status24) {
+                const complete = coveredSlots === 48;
+                status24.textContent = complete ? 'Cobertura 24h · 48/48' : `00:00 → 24:00 · ${coveredSlots}/48`;
+                status24.classList.toggle('roster-coverage-complete', complete);
+            }
+
+            const peak = Math.max(...slots.map(x=>x.count), 0);
+            set('rosterSchedulePeak', `${peak} HC`);
+
+            const firstCoveredIndex = slots.findIndex(x=>x.count > 0);
+            let lastCoveredIndex = -1;
+            for (let i=slots.length-1; i>=0; i--) {
+                if (slots[i].count > 0) { lastCoveredIndex = i; break; }
+            }
+
+            set(
+                'rosterScheduleFirst',
+                firstCoveredIndex >= 0 ? rosterMinutesLabel(slots[firstCoveredIndex].minutes) : '—'
+            );
+
+            if (lastCoveredIndex >= 0) {
+                const endMinute = slots[lastCoveredIndex].minutes + 30;
+                set('rosterScheduleLast', endMinute >= 1440 ? '24:00' : rosterMinutesLabel(endMinute));
+            } else {
                 set('rosterScheduleLast','—');
+            }
+
+            if (!coveredSlots) {
+                timeline.style.minWidth = '1120px';
                 timeline.innerHTML = `
                     <div class="roster-timeline-empty">
-                        <strong>Sin jornadas para ${rosterSafe(rosterScheduleDay)}</strong>
-                        <span>No hay agentes activos con horario dentro de los filtros actuales.</span>
+                        <strong>Sin cobertura para ${rosterSafe(rosterScheduleDay)}</strong>
+                        <span>No hay agentes activos cubriendo este día calendario dentro de los filtros actuales.</span>
                     </div>`;
                 return;
             }
 
-            const earliest = Math.min(...working.map(x=>x.start));
-            const latest = Math.max(...working.map(x=>x.end));
-
-            // Mantener el cronograma legible: una franja antes y una después.
-            let startWindow = Math.max(0, Math.floor(earliest / 30) * 30 - 30);
-            let endWindow = Math.min(2880, Math.ceil(latest / 30) * 30 + 30);
-
-            const slots = [];
-            for (let t=startWindow; t<endWindow; t+=30) {
-                let count = 0;
-                working.forEach(x => {
-                    // Para turnos nocturnos, t puede continuar después de 24h.
-                    if (t >= x.start && t < x.end) count += 1;
-                });
-                slots.push({minutes:t,count});
-            }
-
-            const peak = Math.max(...slots.map(x=>x.count),0);
-            set('rosterSchedulePeak', `${peak} HC`);
-            set('rosterScheduleFirst', rosterMinutesLabel(earliest));
-            set('rosterScheduleLast', rosterMinutesLabel(latest));
-
-            const chartHeight = 118;
-            timeline.style.minWidth = `${Math.max(760, slots.length * 34)}px`;
+            const chartHeight = 125;
+            timeline.style.minWidth = '1120px';
             timeline.innerHTML = slots.map((slot,index) => {
-                const height = peak > 0 ? Math.max(2, Math.round((slot.count / peak) * chartHeight)) : 2;
-                const showHour = slot.minutes % 60 === 0;
-                const labelClass = showHour ? '' : 'minor';
+                const height = peak > 0
+                    ? (slot.count > 0 ? Math.max(4, Math.round((slot.count / peak) * chartHeight)) : 2)
+                    : 2;
+
+                // Etiqueta cada 2 horas para que las 24h se lean completas de una sola vez.
+                const showLabel = slot.minutes % 120 === 0;
+                const isHour = slot.minutes % 60 === 0;
+                const title = slot.carryCount > 0
+                    ? `${rosterMinutesLabel(slot.minutes)} · ${slot.count} agentes · ${slot.carryCount} continúan de ${previousDay}`
+                    : `${rosterMinutesLabel(slot.minutes)} · ${slot.count} agentes`;
+
                 return `
-                    <div class="roster-franja" title="${rosterMinutesLabel(slot.minutes)} · ${slot.count} agentes activos">
-                        <span class="roster-franja-count" style="--bar-height:${height}px">${slot.count}</span>
+                    <div class="roster-franja ${slot.minutes===0?'is-midnight':''} ${isHour?'is-hour':''}"
+                         title="${rosterSafe(title)}"
+                         aria-label="${rosterSafe(title)}">
+                        <span class="roster-franja-count ${slot.count===0?'is-zero':''}"
+                              style="--bar-height:${height}px">${slot.count}</span>
                         <div class="roster-franja-bar" style="height:${height}px"></div>
-                        <span class="roster-franja-label ${labelClass}">${rosterMinutesLabel(slot.minutes)}</span>
+                        <span class="roster-franja-label ${showLabel?'':'minor'}">${rosterMinutesLabel(slot.minutes)}</span>
                     </div>`;
             }).join('');
         }
@@ -7704,18 +7811,18 @@
                             <div>
                                 <div id="rosterScheduleTitle" class="roster-schedule-title">
                                     Distribución de horarios por franja
-                                    <span id="rosterScheduleFilterScope" class="roster-filter-scope">Filtros actuales</span>
+                                    <span id="rosterScheduleFilterScope" class="roster-filter-scope">Filtros actuales</span><span id="rosterSchedule24hStatus" class="roster-24h-note">00:00 → 24:00</span>
                                 </div>
-                                <div class="roster-schedule-copy">Agentes activos cubriendo cada intervalo de 30 minutos con los filtros actuales. No incluye break/lunch.</div>
+                                <div class="roster-schedule-copy">Cobertura del día calendario completo, de 00:00 a 24:00, en intervalos de 30 minutos. Incluye el arrastre de turnos nocturnos del día anterior y no incluye break/lunch.</div>
                             </div>
                             <div id="rosterScheduleDayTabs" class="roster-day-tabs" aria-label="Día del cronograma"></div>
                         </div>
 
                         <div class="roster-schedule-summary">
-                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Con jornada</div><div id="rosterScheduleWorking" class="roster-schedule-stat-value">0</div></div>
+                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Agentes que cubren</div><div id="rosterScheduleWorking" class="roster-schedule-stat-value">0</div></div>
                             <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Pico simultáneo</div><div id="rosterSchedulePeak" class="roster-schedule-stat-value">0 HC</div></div>
-                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Primera entrada</div><div id="rosterScheduleFirst" class="roster-schedule-stat-value">—</div></div>
-                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Última salida</div><div id="rosterScheduleLast" class="roster-schedule-stat-value">—</div></div>
+                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Cobertura desde</div><div id="rosterScheduleFirst" class="roster-schedule-stat-value">—</div></div>
+                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Cobertura hasta</div><div id="rosterScheduleLast" class="roster-schedule-stat-value">—</div></div>
                         </div>
 
                         <div class="roster-timeline-scroll">
