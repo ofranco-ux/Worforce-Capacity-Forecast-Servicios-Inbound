@@ -3606,6 +3606,96 @@
             50% { opacity:1; transform:scale(1.15); }
         }
 
+
+        /* ================================================================
+           V6.7 · MONTHLY LOCK & ROLLING FORECAST
+           ================================================================ */
+        .forecast-control-nav {
+            display:inline-flex;align-items:center;justify-content:center;gap:7px;
+            min-height:34px;padding:0 11px;border-radius:10px;
+            border:1px solid rgba(126,217,204,.24);
+            background:rgba(126,217,204,.08);color:#D9F4EE;
+            font-size:9px;font-weight:850;transition:.16s ease;
+        }
+        .forecast-control-nav:hover { background:rgba(126,217,204,.14);color:#FFF; }
+        .forecast-control-nav svg { width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round; }
+        .forecast-control-nav-badge {
+            display:inline-flex;align-items:center;min-height:18px;padding:0 6px;border-radius:999px;
+            background:rgba(255,255,255,.09);color:#BDD3DF;font-size:6.5px;font-weight:900;letter-spacing:.04em;
+        }
+        .forecast-control-nav-badge.closed { background:rgba(126,217,204,.16);color:#BFF4E8; }
+        .forecast-control-shell {
+            width:min(1000px,calc(100vw - 30px));max-height:min(850px,calc(100vh - 32px));
+            display:flex;flex-direction:column;overflow:hidden;border-radius:22px;border:1px solid #C9D7E2;
+            background:linear-gradient(180deg,#F8FBFD,#EEF3F7);box-shadow:0 38px 90px -48px rgba(22,45,64,.72);
+        }
+        .forecast-control-head {
+            display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;
+            background:linear-gradient(135deg,#173A56,#214F69 72%,#276862 140%);color:#FFF;
+        }
+        .forecast-control-title { font-size:14px;font-weight:900;letter-spacing:-.02em; }
+        .forecast-control-subtitle { margin-top:2px;color:#C5D7E3;font-size:8.5px; }
+        .forecast-control-body { padding:14px;overflow:auto; }
+        .forecast-control-toolbar {
+            display:grid;grid-template-columns:minmax(190px,.8fr) minmax(260px,1.5fr) auto;gap:8px;align-items:end;
+            padding:10px;border:1px solid #D7E2E9;border-radius:13px;background:#FFF;
+        }
+        .forecast-control-field label {
+            display:block;margin-bottom:4px;color:#7A8C9D;font-size:6.8px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;
+        }
+        .forecast-control-input {
+            width:100%;min-height:34px;padding:0 9px;border:1px solid #D4DFE7;border-radius:9px;background:#F9FBFC;
+            color:#2D4B61;font-size:8.5px;font-weight:750;outline:none;
+        }
+        .forecast-control-refresh {
+            min-height:34px;padding:0 11px;border-radius:9px;border:1px solid #D2DEE6;background:#F5F8FA;color:#4F687B;
+            font-size:8px;font-weight:900;
+        }
+        .forecast-control-rule {
+            margin-top:9px;padding:9px 10px;border-radius:11px;border:1px solid #D3E3DF;background:#EEF7F5;
+            color:#49756E;font-size:8px;line-height:1.5;
+        }
+        .forecast-control-cards { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px; }
+        .forecast-control-card {
+            border:1px solid #D6E1E8;border-radius:14px;background:#FFF;padding:12px;min-width:0;
+        }
+        .forecast-control-card.closed { border-color:#BFD9D3;background:linear-gradient(145deg,#FFFFFF,#F2F9F7); }
+        .forecast-control-card-head { display:flex;align-items:flex-start;justify-content:space-between;gap:8px; }
+        .forecast-control-channel { color:#29485E;font-size:10px;font-weight:900; }
+        .forecast-control-state {
+            display:inline-flex;align-items:center;min-height:23px;padding:0 8px;border-radius:999px;
+            background:#EEF2F5;color:#657C8F;font-size:6.8px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;
+        }
+        .forecast-control-state.closed { background:#DDF1EC;color:#28756B; }
+        .forecast-control-meta { margin-top:4px;color:#8293A2;font-size:7.5px;line-height:1.45; }
+        .forecast-control-metrics { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px; }
+        .forecast-control-metric { padding:8px;border-radius:9px;border:1px solid #E1E8ED;background:#F8FAFB; }
+        .forecast-control-metric span { display:block;color:#8998A5;font-size:6.2px;font-weight:900;text-transform:uppercase;letter-spacing:.06em; }
+        .forecast-control-metric strong { display:block;margin-top:3px;color:#2D4B61;font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:900; }
+        .forecast-control-actions { display:flex;gap:6px;flex-wrap:wrap;margin-top:10px; }
+        .forecast-control-action {
+            min-height:31px;padding:0 10px;border-radius:9px;border:1px solid #D1DDE5;background:#FFF;color:#506B7D;
+            font-size:7.5px;font-weight:900;
+        }
+        .forecast-control-action.primary { border-color:#B9D7D0;background:#EAF6F3;color:#286F66; }
+        .forecast-control-action.warning { border-color:#E6D5B8;background:#FFF8EA;color:#8A682F; }
+        .forecast-control-action.danger { border-color:#E3CDD3;background:#FCF7F8;color:#A45163; }
+        .forecast-control-history { margin-top:10px;border:1px solid #D8E2E9;border-radius:13px;background:#FFF;padding:10px; }
+        .forecast-control-history-title { color:#39576B;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.07em; }
+        .forecast-control-history-list { margin-top:7px;display:flex;flex-direction:column;gap:6px; }
+        .forecast-control-history-item { padding:8px 9px;border-radius:9px;background:#F7F9FB;border:1px solid #E2E8ED; }
+        .forecast-control-history-item strong { color:#365268;font-size:8px; }
+        .forecast-control-history-item span { display:block;margin-top:2px;color:#8091A0;font-size:7px;line-height:1.4; }
+        .forecast-control-loading { padding:28px;text-align:center;color:#718597;font-size:9px; }
+        .forecast-lock-inline {
+            display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 6px;border-radius:999px;
+            background:#E3F2EE;color:#2D746B;font-size:6.5px;font-weight:900;vertical-align:middle;
+        }
+        @media (max-width:800px) {
+            .forecast-control-toolbar { grid-template-columns:1fr; }
+            .forecast-control-cards { grid-template-columns:1fr; }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -3633,6 +3723,11 @@
                 <button id="btnTabChat" onclick="setModeWFM('chat')" class="mode-tab"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 18.5 3.5 21V6.8A1.8 1.8 0 0 1 5.3 5h13.4a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H7Z"/><path d="M8 10h8M8 13h5"/></svg></span><span>Chat</span></button>
                 <button id="btnTabGeneral" onclick="setModeWFM('general')" class="mode-tab"><span class="mode-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="7" height="6" rx="1.3"/><rect x="13" y="5" width="7" height="6" rx="1.3"/><rect x="4" y="13" width="7" height="6" rx="1.3"/><rect x="13" y="13" width="7" height="6" rx="1.3"/></svg></span><span>Consolidado</span></button>
             </div>
+            <button id="btnForecastControl" type="button" class="forecast-control-nav" onclick="openForecastControl()" title="Control mensual del forecast">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h6M9 16h3"/><path d="M17 4v4"/></svg>
+                <span>Control forecast</span>
+                <span id="forecastControlHeaderBadge" class="forecast-control-nav-badge">Mensual</span>
+            </button>
             <button id="btnRosterManager" type="button" class="roster-nav-btn" onclick="openRosterManager()" title="Gestionar horarios">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 3v6M17 3v6M5 10h14v10H5z"/><path d="M8 14h3M13 14h3M8 17h3"/></svg>
                 <span>Gestión de horarios</span>
@@ -5202,6 +5297,9 @@
             const key = `${canal}|${campana}|${fecha}|${intervalo}`;
             const row = lookup.get(key);
             if (!row) return null;
+            // Cuando el mes está cerrado, el FTE/HC acordado prevalece aunque
+            // el usuario cambie parámetros de simulación en la barra lateral.
+            if (row.locked) return row.fte;
             const objetivos = getCampaignTargets(campana, canal);
             const sameSl = Math.abs(row.targetSl - objetivos.targetSl) < 1e-9;
             const sameAsa = Math.abs(row.targetAsa - objetivos.targetTime) < 1e-9;
@@ -5245,6 +5343,29 @@
             let totalCallsGlobal = 0;
             let totalHTGlobal = 0;
             const backendFteLookup = new Map();
+            const staffingPolicyByCampaign = new Map();
+
+            // Un cierre mensual congela también los supuestos que produjeron el HC.
+            // Sólo usamos esos supuestos cuando toda la selección de esa campaña/canal
+            // pertenece a filas bloqueadas; selecciones mixtas siguen siendo analíticas.
+            dfFiltered.forEach(r=>{
+                const canal = r.Canal || (forecastMode === 'chat' ? 'Chat' : 'Llamadas');
+                const camp = String(getProp(r,['Campaña','Campana'],'General'));
+                const key = `${canal}|${camp}`;
+                const current = staffingPolicyByCampaign.get(key) || {total:0,locked:0,params:null};
+                current.total += 1;
+                if(!!getProp(r,['HC_Bloqueado'],false)){
+                    current.locked += 1;
+                    if(!current.params){
+                        current.params = {
+                            jornada:Number(getProp(r,['Lock_Jornada_Horas'],durJornada))||durJornada,
+                            factorDescanso:Number(getProp(r,['Lock_Factor_Descanso'],factorDescanso))||factorDescanso,
+                            factorAsistencia:Number(getProp(r,['Lock_Factor_Asistencia'],factorAsistencia))||factorAsistencia
+                        };
+                    }
+                }
+                staffingPolicyByCampaign.set(key,current);
+            });
 
             for (let i = 0; i < dfFiltered.length; i++) {
                 let r = dfFiltered[i];
@@ -5263,7 +5384,13 @@
                 if (Number.isFinite(backendFte) && Number.isFinite(backendSl) && Number.isFinite(backendAsa)) {
                     const fteKey = `${canalRow}|${c}|${d}|${inv}`;
                     if (!backendFteLookup.has(fteKey)) {
-                        backendFteLookup.set(fteKey, { fte: backendFte, targetSl: backendSl, targetAsa: backendAsa, concurrency: backendConcurrency });
+                        backendFteLookup.set(fteKey, {
+                            fte: backendFte,
+                            targetSl: backendSl,
+                            targetAsa: backendAsa,
+                            concurrency: backendConcurrency,
+                            locked: !!getProp(r,['HC_Bloqueado'],false)
+                        });
                     } else {
                         // Si hubiera duplicados, es más seguro usar el cálculo local agregado.
                         backendFteLookup.set(fteKey, null);
@@ -5366,7 +5493,12 @@
                     
                     let hcCanal = 0;
                     for (let c in ftePorCampanaGeneral) {
-                        hcCanal += Math.ceil((((ftePorCampanaGeneral[c] * 0.5) / durJornada) * factorDescanso) / factorAsistencia);
+                        const policy=staffingPolicyByCampaign.get(`${ch}|${c}`);
+                        const useLocked=policy&&policy.total>0&&policy.locked===policy.total&&policy.params;
+                        const jornadaUse=useLocked?policy.params.jornada:durJornada;
+                        const descansoUse=useLocked?policy.params.factorDescanso:factorDescanso;
+                        const asistenciaUse=useLocked?policy.params.factorAsistencia:factorAsistencia;
+                        hcCanal += Math.ceil((((ftePorCampanaGeneral[c] * 0.5) / jornadaUse) * descansoUse) / asistenciaUse);
                     }
                     hcReqDict[ch] = hcCanal;
                     
@@ -5388,7 +5520,9 @@
                 const totalReqGlobal = hcReqDict['Llamadas'] + hcReqDict['Chat'];
                 const totalDispGlobal = hcDispDict['Llamadas'] + hcDispDict['Chat'];
 
-                document.getElementById('kpiHcRequerido').innerText = totalReqGlobal.toLocaleString() + ' HC';
+                const hcReqGeneralEl=document.getElementById('kpiHcRequerido');
+                const allGeneralLocked=dfFiltered.length>0&&dfFiltered.every(r=>!!getProp(r,['HC_Bloqueado'],false));
+                if(hcReqGeneralEl)hcReqGeneralEl.innerHTML=totalReqGlobal.toLocaleString()+' HC'+(allGeneralLocked?'<span class="forecast-lock-inline">🔒 Cerrado</span>':'');
                 document.getElementById('kpiHcRoster').innerText = totalDispGlobal.toLocaleString() + ' HC';
 
                 const gapTotal = totalDispGlobal - totalReqGlobal;
@@ -5638,10 +5772,18 @@
 
             let hcNominaCalculado = 0;
             for (let c in ftePorCampanaParaKPI) {
-                hcNominaCalculado += Math.ceil((((ftePorCampanaParaKPI[c] * 0.5) / durJornada) * factorDescanso) / factorAsistencia);
+                const canalActual=forecastMode==='chat'?'Chat':'Llamadas';
+                const policy=staffingPolicyByCampaign.get(`${canalActual}|${c}`);
+                const useLocked=policy&&policy.total>0&&policy.locked===policy.total&&policy.params;
+                const jornadaUse=useLocked?policy.params.jornada:durJornada;
+                const descansoUse=useLocked?policy.params.factorDescanso:factorDescanso;
+                const asistenciaUse=useLocked?policy.params.factorAsistencia:factorAsistencia;
+                hcNominaCalculado += Math.ceil((((ftePorCampanaParaKPI[c] * 0.5) / jornadaUse) * descansoUse) / asistenciaUse);
             }
             
-            document.getElementById('kpiHcRequerido').innerText = hcNominaCalculado.toLocaleString() + ' HC';
+            const hcReqEl=document.getElementById('kpiHcRequerido');
+            const allRowsLocked=dfFiltered.length>0&&dfFiltered.every(r=>!!getProp(r,['HC_Bloqueado'],false));
+            if(hcReqEl)hcReqEl.innerHTML=hcNominaCalculado.toLocaleString()+' HC'+(allRowsLocked?'<span class="forecast-lock-inline">🔒 Cerrado</span>':'');
             document.getElementById('kpiHcRoster').innerText = totalRosterKPI.toLocaleString() + ' HC';
 
             const gapTotal = totalRosterKPI - hcNominaCalculado;
@@ -5950,6 +6092,228 @@
             a.click();
         }
     
+
+        // ================================================================
+        // V6.7 · CONTROL MENSUAL DEL FORECAST
+        // ================================================================
+        let forecastControlStatusCache = {};
+
+        function forecastControlChannels(){
+            if(forecastMode==='general')return ['llamadas','chat'];
+            return [forecastMode==='chat'?'chat':'llamadas'];
+        }
+
+        function forecastChannelLabel(channel){
+            return channel==='chat'?'Chat':'Llamadas';
+        }
+
+        function forecastControlMonthKey(label){
+            const months={enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',julio:'07',agosto:'08',septiembre:'09',setiembre:'09',octubre:'10',noviembre:'11',diciembre:'12'};
+            const parts=String(label||'').trim().split(/\s+/);
+            if(parts.length<2)return '';
+            const month=months[parts[0].toLowerCase()];
+            const year=parts[parts.length-1];
+            return month&&/^\d{4}$/.test(year)?`${year}-${month}`:'';
+        }
+
+        function forecastControlNumber(value){
+            const n=Number(value||0);
+            return Number.isFinite(n)?Math.round(n).toLocaleString():'0';
+        }
+
+        function openForecastControl(){
+            const overlay=document.getElementById('forecastControlOverlay');
+            overlay?.classList.remove('hidden');
+            document.body.style.overflow='hidden';
+
+            const select=document.getElementById('forecastControlMonth');
+            if(select){
+                const previous=select.value;
+                const months=allMesesOptions.length?allMesesOptions:[...new Set((globalData||[]).map(r=>String(r.Mes||'')).filter(Boolean))];
+                select.innerHTML=months.map(m=>`<option value="${rosterSafe(m)}">${rosterSafe(m)}</option>`).join('');
+                const selected=selectedMeses.size===1?Array.from(selectedMeses)[0]:'';
+                if(selected&&months.includes(selected))select.value=selected;
+                else if(previous&&months.includes(previous))select.value=previous;
+                else if(months.length)select.value=months[0];
+            }
+            document.getElementById('forecastControlReason').value='';
+            loadForecastControl();
+        }
+
+        function closeForecastControl(){
+            document.getElementById('forecastControlOverlay')?.classList.add('hidden');
+            document.body.style.overflow='';
+        }
+
+        async function fetchForecastControlStatus(monthLabel,channel){
+            const monthKey=forecastControlMonthKey(monthLabel);
+            const response=await fetch(`/api/forecast-control/status?monthKey=${encodeURIComponent(monthKey)}&channel=${encodeURIComponent(channel)}`,{cache:'no-store'});
+            const data=await response.json();
+            if(!response.ok)throw new Error(data.error||'No se pudo consultar el control del forecast.');
+            return data;
+        }
+
+        function renderForecastControlCard(status){
+            const closed=status.status==='closed';
+            const delta=Number(status.officialForecastTotal||0)-Number(status.forecastAtCloseTotal||0);
+            const deltaText=delta===0?'Sin ajuste':`${delta>0?'+':''}${forecastControlNumber(delta)}`;
+            return `<article class="forecast-control-card ${closed?'closed':''}">
+                <div class="forecast-control-card-head">
+                    <div>
+                        <div class="forecast-control-channel">${forecastChannelLabel(status.channel)}</div>
+                        <div class="forecast-control-meta">${rosterSafe(status.monthLabel||status.monthKey||'')}</div>
+                    </div>
+                    <span class="forecast-control-state ${closed?'closed':''}">${closed?'🔒 Cerrado':'↻ Rolling'}</span>
+                </div>
+                <div class="forecast-control-metrics">
+                    <div class="forecast-control-metric"><span>${closed?'Forecast al cierre':'Forecast rolling'}</span><strong>${forecastControlNumber(closed?status.forecastAtCloseTotal:status.rollingForecastTotal)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Forecast oficial':'HC pico rolling'}</span><strong>${closed?forecastControlNumber(status.officialForecastTotal):forecastControlNumber(status.rollingPeakRequiredHC)+' HC'}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'HC requerido cerrado':'Filas disponibles'}</span><strong>${closed?forecastControlNumber(status.lockedPeakRequiredHC)+' HC':forecastControlNumber(status.availableRows)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Variación post-cierre':'Última versión'}</span><strong>${closed?deltaText:'V'+forecastControlNumber(status.latestVersion||0)}</strong></div>
+                </div>
+                <div class="forecast-control-meta" style="margin-top:8px">
+                    ${closed
+                        ? `Versión LOCK-${rosterSafe(status.monthKey||'')}-V${Number(status.version||0)} · cerrado ${rosterSafe(String(status.closedAt||'').replace('T',' '))}<br>Protegido: ${Number(status.protectedRows||0)} filas pasadas/hoy · Reforecast elegible: ${Number(status.futureRows||0)} filas futuras`
+                        : status.previousVersion
+                            ? `Rolling tras reapertura de V${Number(status.previousVersion)} · ${rosterSafe(status.reopenReason||'')}`
+                            : 'Mes abierto: Forecast y HC requerido continúan siendo rolling.'}
+                </div>
+                <div class="forecast-control-actions">
+                    ${closed
+                        ? `<button type="button" class="forecast-control-action primary" onclick="reforecastForecastMonth('${rosterSafe(status.channel)}')">Reforecast futuro</button>
+                           <button type="button" class="forecast-control-action danger" onclick="reopenForecastMonth('${rosterSafe(status.channel)}')">Reabrir mes</button>`
+                        : `<button type="button" class="forecast-control-action primary" onclick="closeForecastMonth('${rosterSafe(status.channel)}')">🔒 Cerrar mes</button>`}
+                </div>
+            </article>`;
+        }
+
+        async function loadForecastControl(){
+            const monthLabel=document.getElementById('forecastControlMonth')?.value||'';
+            const cards=document.getElementById('forecastControlCards');
+            const history=document.getElementById('forecastControlHistory');
+            if(!monthLabel||!forecastControlMonthKey(monthLabel)){
+                if(cards)cards.innerHTML='<div class="forecast-control-loading">No hay un mes disponible en el forecast actual.</div>';
+                return;
+            }
+
+            if(cards)cards.innerHTML='<div class="forecast-control-loading">Consultando control mensual…</div>';
+            try{
+                const channels=forecastControlChannels();
+                const statuses=await Promise.all(channels.map(ch=>fetchForecastControlStatus(monthLabel,ch)));
+                forecastControlStatusCache={};
+                statuses.forEach(s=>forecastControlStatusCache[s.channel]=s);
+                if(cards)cards.innerHTML=statuses.map(renderForecastControlCard).join('');
+
+                const anyClosed=statuses.some(s=>s.status==='closed');
+                const badge=document.getElementById('forecastControlHeaderBadge');
+                if(badge){
+                    badge.textContent=anyClosed?'Cierre activo':'Mensual';
+                    badge.classList.toggle('closed',anyClosed);
+                }
+                await loadForecastControlHistory();
+            }catch(error){
+                if(cards)cards.innerHTML=`<div class="forecast-control-loading">${rosterSafe(error.message)}</div>`;
+                if(history)history.innerHTML='';
+            }
+        }
+
+        async function closeForecastMonth(channel){
+            const month=document.getElementById('forecastControlMonth')?.value||'';
+            const reason=String(document.getElementById('forecastControlReason')?.value||'').trim();
+            if(!reason){alert('Escribe un comentario de cierre para dejar trazabilidad.');return;}
+            if(!confirm(`Cerrar ${month} · ${forecastChannelLabel(channel)}?\n\nEl HC requerido quedará bloqueado. El cierre no se realizará automáticamente en ningún otro mes.`))return;
+            try{
+                const response=await fetch('/api/forecast-control/close',{
+                    method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({month,channel,comment:reason,actorMode:currentMode})
+                });
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudo cerrar el mes.');
+                document.getElementById('forecastControlReason').value='';
+                modeDataCache.llamadas=null;modeDataCache.chat=null;
+                await fetchLatestData(forecastMode,true);
+                await loadForecastControl();
+            }catch(error){alert(error.message);}
+        }
+
+        async function reforecastForecastMonth(channel){
+            const month=document.getElementById('forecastControlMonth')?.value||'';
+            const reason=String(document.getElementById('forecastControlReason')?.value||'').trim();
+            if(!reason){alert('Indica la anomalía o motivo del reforecast.');return;}
+            if(!confirm(`Aplicar reforecast de ML a ${month} · ${forecastChannelLabel(channel)}?\n\nSolo cambiará el forecast de fechas posteriores a hoy. El pasado, hoy y el HC requerido cerrado NO se modificarán.`))return;
+            const cards=document.getElementById('forecastControlCards');
+            if(cards)cards.innerHTML='<div class="forecast-control-loading">Ejecutando ML y aplicando únicamente cambios futuros…</div>';
+            try{
+                const response=await fetch('/api/forecast-control/reforecast',{
+                    method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({month,channel,reason,actorMode:currentMode})
+                });
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudo aplicar el reforecast.');
+                const info=data.status?.reforecast||{};
+                alert(`Reforecast aplicado: ${Number(info.affectedRows||0)} filas futuras actualizadas.\nHC requerido modificado: NO.`);
+                document.getElementById('forecastControlReason').value='';
+                modeDataCache.llamadas=null;modeDataCache.chat=null;
+                await fetchLatestData(forecastMode,true);
+                await loadForecastControl();
+            }catch(error){
+                alert(error.message);
+                await loadForecastControl();
+            }
+        }
+
+        async function reopenForecastMonth(channel){
+            const month=document.getElementById('forecastControlMonth')?.value||'';
+            const reason=String(document.getElementById('forecastControlReason')?.value||'').trim();
+            if(!reason){alert('La reapertura requiere un motivo.');return;}
+            if(!confirm(`Reabrir ${month} · ${forecastChannelLabel(channel)}?\n\nEl mes volverá a Rolling y el HC requerido podrá recalcularse. El historial del cierre se conservará.`))return;
+            try{
+                const response=await fetch('/api/forecast-control/reopen',{
+                    method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({month,channel,reason,actorMode:currentMode})
+                });
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudo reabrir el mes.');
+                document.getElementById('forecastControlReason').value='';
+                modeDataCache.llamadas=null;modeDataCache.chat=null;
+                await fetchLatestData(forecastMode,true);
+                await loadForecastControl();
+            }catch(error){alert(error.message);}
+        }
+
+        async function loadForecastControlHistory(){
+            const month=document.getElementById('forecastControlMonth')?.value||'';
+            const monthKey=forecastControlMonthKey(month);
+            const wrap=document.getElementById('forecastControlHistory');
+            if(!wrap||!monthKey)return;
+            try{
+                const channels=forecastControlChannels();
+                const results=await Promise.all(channels.map(async channel=>{
+                    const r=await fetch(`/api/forecast-control/history?monthKey=${encodeURIComponent(monthKey)}&channel=${encodeURIComponent(channel)}`,{cache:'no-store'});
+                    const d=await r.json();
+                    if(!r.ok)throw new Error(d.error||'Error de historial');
+                    return {channel,history:d.history||[]};
+                }));
+
+                const items=[];
+                results.forEach(group=>{
+                    group.history.forEach(entry=>{
+                        const lock=entry.lock||{};
+                        (entry.revisions||[]).forEach(rev=>{
+                            const label=rev.event_type==='close'?'Cierre mensual':rev.event_type==='reforecast'?'Reforecast futuro':'Reapertura';
+                            items.push({
+                                at:rev.created_at||lock.closed_at||'',
+                                html:`<div class="forecast-control-history-item"><strong>${forecastChannelLabel(group.channel)} · V${Number(lock.version||0)} · ${label}</strong><span>${rosterSafe(String(rev.created_at||'').replace('T',' '))} · ${rosterSafe(rev.created_by||'')} · ${rosterSafe(rev.reason||'')}</span><span>Forecast ${forecastControlNumber(rev.forecast_before)} → ${forecastControlNumber(rev.forecast_after)} · ${Number(rev.affected_rows||0)} filas afectadas</span></div>`
+                            });
+                        });
+                    });
+                });
+                items.sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+                wrap.innerHTML=items.length?items.map(x=>x.html).join(''):'<div class="forecast-control-loading">Sin cierres ni revisiones para este mes.</div>';
+            }catch(error){
+                wrap.innerHTML=`<div class="forecast-control-loading">${rosterSafe(error.message)}</div>`;
+            }
+        }
 
         // ================================================================
         // V6 · GESTIÓN DE HORARIOS / ROSTER OPERATIVO
@@ -8514,6 +8878,47 @@
                     </div>
                     <div class="roster-editor-actions"><button type="button" class="roster-cancel-btn" onclick="closeRosterBulkEditor()">Cancelar</button><button type="button" class="roster-save-btn" onclick="saveRosterBulkEdit()">Aplicar cambios</button></div>
                 </aside>
+            </div>
+        </div>
+    </div>
+
+    <!-- V6.7 · CONTROL MENSUAL DEL FORECAST -->
+    <div id="forecastControlOverlay" class="roster-overlay hidden" role="dialog" aria-modal="true" aria-label="Control mensual del forecast">
+        <div class="forecast-control-shell">
+            <div class="forecast-control-head">
+                <div>
+                    <div class="forecast-control-title">Lock & Rolling Forecast mensual</div>
+                    <div class="forecast-control-subtitle">El cierre siempre es manual. HC requerido cerrado no cambia; un reforecast solo puede modificar forecast futuro.</div>
+                </div>
+                <button type="button" class="roster-head-btn" onclick="closeForecastControl()" aria-label="Cerrar">✕</button>
+            </div>
+            <div class="forecast-control-body">
+                <div class="forecast-control-toolbar">
+                    <div class="forecast-control-field">
+                        <label>Mes de control</label>
+                        <select id="forecastControlMonth" class="forecast-control-input" onchange="loadForecastControl()"></select>
+                    </div>
+                    <div class="forecast-control-field">
+                        <label>Motivo / comentario de auditoría</label>
+                        <input id="forecastControlReason" class="forecast-control-input" placeholder="Ej. Cierre acordado con Operaciones / anomalía detectada">
+                    </div>
+                    <button type="button" class="forecast-control-refresh" onclick="loadForecastControl()">Actualizar estado</button>
+                </div>
+
+                <div class="forecast-control-rule">
+                    <strong>Regla de gobierno:</strong> el mes no se cierra automáticamente. Al cerrar, el HC requerido queda bloqueado. Si después se requiere reforecast, únicamente se actualizan fechas posteriores a hoy; el pasado y el día actual no se reescriben.
+                </div>
+
+                <div id="forecastControlCards" class="forecast-control-cards">
+                    <div class="forecast-control-loading">Selecciona un mes para consultar su estado.</div>
+                </div>
+
+                <div class="forecast-control-history">
+                    <div class="forecast-control-history-title">Historial mensual</div>
+                    <div id="forecastControlHistory" class="forecast-control-history-list">
+                        <div class="forecast-control-loading">Sin consulta todavía.</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
