@@ -3066,7 +3066,7 @@
         .roster-head-btn.primary { background:rgba(126,217,204,.13); border-color:rgba(126,217,204,.28); color:#C9F4EC; }
 
         .roster-kpis {
-            flex:0 0 auto; display:grid; grid-template-columns:repeat(5,minmax(0,1fr));
+            flex:0 0 auto; display:grid; grid-template-columns:repeat(6,minmax(0,1fr));
             gap:8px; padding:11px 14px 0;
         }
         .roster-kpi { padding:10px 11px; border-radius:13px; border:1px solid #D8E2EA; background:#FFF; min-width:0; }
@@ -3082,7 +3082,7 @@
         .roster-tab.is-active { background:#FFF; border-color:#D6E1E9; color:#27465B; box-shadow:0 7px 18px -17px rgba(31,53,73,.42); }
 
         .roster-toolbar {
-            flex:0 0 auto; display:grid; grid-template-columns:minmax(220px,1.5fr) repeat(4,minmax(130px,.8fr)) auto;
+            flex:0 0 auto; display:grid; grid-template-columns:minmax(220px,1.5fr) repeat(5,minmax(125px,.75fr)) auto;
             gap:7px; padding:0 14px 9px;
         }
         .roster-input,.roster-select {
@@ -5529,6 +5529,7 @@
         let rosterStats = {};
         let rosterCampaigns = [];
         let rosterSupervisors = [];
+        let rosterCoordinators = [];
         let rosterSelectedIds = new Set();
         let rosterEditingId = null;
         let rosterCurrentView = 'agents';
@@ -5554,7 +5555,7 @@
 
         async function loadRosterData() {
             const tbody = document.getElementById('rosterTableBody');
-            if (tbody) tbody.innerHTML = '<tr><td colspan="15" style="padding:30px;text-align:center;color:#7D8FA1">Cargando roster operativo…</td></tr>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="16" style="padding:30px;text-align:center;color:#7D8FA1">Cargando roster operativo…</td></tr>';
             try {
                 const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
                 const data = await response.json();
@@ -5563,11 +5564,12 @@
                 rosterStats = data.stats || {};
                 rosterCampaigns = data.campaigns || [];
                 rosterSupervisors = data.supervisors || [];
+                rosterCoordinators = data.coordinators || [];
                 updateRosterKpis();
                 populateRosterFilters();
                 renderRosterTable();
             } catch (error) {
-                if (tbody) tbody.innerHTML = `<tr><td colspan="15" style="padding:30px;text-align:center;color:#A75264">${rosterSafe(error.message)}</td></tr>`;
+                if (tbody) tbody.innerHTML = `<tr><td colspan="16" style="padding:30px;text-align:center;color:#A75264">${rosterSafe(error.message)}</td></tr>`;
             }
         }
 
@@ -5576,30 +5578,46 @@
             set('rosterKpiActive',Number(rosterStats.active||0).toLocaleString());
             set('rosterKpiCampaigns',Number(rosterStats.campaigns||0).toLocaleString());
             set('rosterKpiSupervisors',Number(rosterStats.supervisors||0).toLocaleString());
+            set('rosterKpiCoordinators',Number(rosterStats.coordinators||0).toLocaleString());
             set('rosterKpiPendingFrank',Number(wfmDecisionStats?.pendingApplication||0).toLocaleString());
             const updated=String(rosterStats.lastUpdate||'');
             set('rosterKpiUpdated',updated?updated.replace('T',' ').slice(0,16):'—');
         }
 
         function populateRosterFilters() {
-            const c=document.getElementById('rosterFilterCampaign'), s=document.getElementById('rosterFilterSupervisor');
-            const cv=c?.value||'', sv=s?.value||'';
-            if(c){c.innerHTML='<option value="">Todas las campañas</option>'+rosterCampaigns.map(x=>`<option>${rosterSafe(x)}</option>`).join('');c.value=rosterCampaigns.includes(cv)?cv:'';}
-            if(s){s.innerHTML='<option value="">Todos los supervisores</option>'+rosterSupervisors.map(x=>`<option>${rosterSafe(x)}</option>`).join('');s.value=rosterSupervisors.includes(sv)?sv:'';}
+            const c=document.getElementById('rosterFilterCampaign');
+            const s=document.getElementById('rosterFilterSupervisor');
+            const o=document.getElementById('rosterFilterCoordinator');
+            const cv=c?.value||'', sv=s?.value||'', ov=o?.value||'';
+
+            if(c){
+                c.innerHTML='<option value="">Todas las campañas</option>'+rosterCampaigns.map(x=>`<option>${rosterSafe(x)}</option>`).join('');
+                c.value=rosterCampaigns.includes(cv)?cv:'';
+            }
+            if(s){
+                s.innerHTML='<option value="">Todos los supervisores</option>'+rosterSupervisors.map(x=>`<option>${rosterSafe(x)}</option>`).join('');
+                s.value=rosterSupervisors.includes(sv)?sv:'';
+            }
+            if(o){
+                o.innerHTML='<option value="">Todos los coordinadores</option>'+rosterCoordinators.map(x=>`<option>${rosterSafe(x)}</option>`).join('');
+                o.value=rosterCoordinators.includes(ov)?ov:'';
+            }
         }
 
         function rosterFilteredAgents() {
             const q=String(document.getElementById('rosterSearch')?.value||'').trim().toLowerCase();
             const campaign=document.getElementById('rosterFilterCampaign')?.value||'';
             const supervisor=document.getElementById('rosterFilterSupervisor')?.value||'';
+            const coordinator=document.getElementById('rosterFilterCoordinator')?.value||'';
             const channel=document.getElementById('rosterFilterChannel')?.value||'';
             const status=document.getElementById('rosterFilterStatus')?.value||'';
             return rosterAgents.filter(a=>{
                 if(campaign&&a.campaign!==campaign)return false;
                 if(supervisor&&a.supervisor!==supervisor)return false;
+                if(coordinator&&a.coordinator!==coordinator)return false;
                 if(channel&&a.channel!==channel)return false;
                 if(status&&a.status!==status)return false;
-                if(q&&!`${a.agentId} ${a.fullName} ${a.supervisor} ${a.campaign}`.toLowerCase().includes(q))return false;
+                if(q&&!`${a.agentId} ${a.fullName} ${a.supervisor} ${a.coordinator} ${a.campaign}`.toLowerCase().includes(q))return false;
                 return true;
             });
         }
@@ -5607,14 +5625,14 @@
         function renderRosterTable() {
             const tbody=document.getElementById('rosterTableBody'); if(!tbody)return;
             const rows=rosterFilteredAgents(), days=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
-            if(!rows.length){tbody.innerHTML='<tr><td colspan="15"><div class="roster-empty"><strong>Sin agentes para estos filtros</strong><span>Ajusta la búsqueda o carga una nueva plantilla.</span></div></td></tr>';updateRosterBulkBar();return;}
+            if(!rows.length){tbody.innerHTML='<tr><td colspan="16"><div class="roster-empty"><strong>Sin agentes para estos filtros</strong><span>Ajusta la búsqueda o carga una nueva plantilla.</span></div></td></tr>';updateRosterBulkBar();return;}
             tbody.innerHTML=rows.map(a=>{
                 const schedules=days.map(day=>{const v=a.schedules?.[day]||'DD-DD';return `<td><span class="roster-schedule ${v==='DD-DD'?'off':''}">${rosterSafe(v)}</span></td>`}).join('');
                 return `<tr>
                     <td><input type="checkbox" ${rosterSelectedIds.has(a.agentId)?'checked':''} onchange="toggleRosterSelection('${rosterSafe(a.agentId)}',this.checked)"></td>
                     <td><span class="roster-agent-id">${rosterSafe(a.agentId)}</span></td>
                     <td><div class="roster-agent-name" title="${rosterSafe(a.fullName||'')}">${rosterSafe(a.fullName||'Sin nombre registrado')}</div></td>
-                    <td>${rosterSafe(a.supervisor||'Sin supervisor')}</td><td>${rosterSafe(a.campaign)}</td><td>${rosterSafe(a.channel)}</td>
+                    <td>${rosterSafe(a.supervisor||'Sin supervisor')}</td><td>${rosterSafe(a.coordinator||'Sin coordinador')}</td><td>${rosterSafe(a.campaign)}</td><td>${rosterSafe(a.channel)}</td>
                     ${schedules}
                     <td><span class="roster-status ${a.status==='Activo'?'active':'inactive'}">${rosterSafe(a.status)}</span></td>
                     <td><button type="button" class="roster-edit-btn" onclick="openRosterEditor('${rosterSafe(a.agentId)}')">Editar</button></td>
@@ -5627,7 +5645,7 @@
         function toggleRosterSelectAll(checked){rosterFilteredAgents().forEach(a=>checked?rosterSelectedIds.add(a.agentId):rosterSelectedIds.delete(a.agentId));renderRosterTable();}
         function clearRosterSelection(){rosterSelectedIds.clear();const el=document.getElementById('rosterSelectAll');if(el)el.checked=false;renderRosterTable();}
         function updateRosterBulkBar(){const b=document.getElementById('rosterBulkBar'),c=document.getElementById('rosterBulkCopy');if(!b||!c)return;b.classList.toggle('hidden',!rosterSelectedIds.size);c.textContent=`${rosterSelectedIds.size} agente${rosterSelectedIds.size===1?'':'s'} seleccionado${rosterSelectedIds.size===1?'':'s'}`;}
-        function resetRosterFilters(){['rosterSearch','rosterFilterCampaign','rosterFilterSupervisor','rosterFilterChannel','rosterFilterStatus'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});renderRosterTable();}
+        function resetRosterFilters(){['rosterSearch','rosterFilterCampaign','rosterFilterSupervisor','rosterFilterCoordinator','rosterFilterChannel','rosterFilterStatus'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});renderRosterTable();}
 
         function openRosterEditor(agentId=null){
             rosterEditingId=agentId||null;const a=agentId?rosterAgents.find(x=>x.agentId===agentId):null;
@@ -5636,6 +5654,7 @@
             const idEl=document.getElementById('rosterEditId');idEl.value=a?.agentId||'';idEl.disabled=!!a;
             document.getElementById('rosterEditName').value=a?.fullName||'';
             document.getElementById('rosterEditSupervisor').value=a?.supervisor||'';
+            document.getElementById('rosterEditCoordinator').value=a?.coordinator||'';
             document.getElementById('rosterEditCampaign').value=a?.campaign||'';
             document.getElementById('rosterEditChannel').value=a?.channel||'Llamadas';
             document.getElementById('rosterEditStatus').value=a?.status||'Activo';
@@ -5645,7 +5664,7 @@
 
         async function saveRosterAgent(){
             const btn=document.getElementById('rosterSaveAgentBtn');
-            const payload={agentId:String(document.getElementById('rosterEditId')?.value||'').trim(),fullName:String(document.getElementById('rosterEditName')?.value||'').trim(),supervisor:String(document.getElementById('rosterEditSupervisor')?.value||'').trim(),campaign:String(document.getElementById('rosterEditCampaign')?.value||'').trim(),channel:document.getElementById('rosterEditChannel')?.value||'Llamadas',status:document.getElementById('rosterEditStatus')?.value||'Activo',schedules:{},actorMode:currentMode,reason:rosterEditingId?'Edición desde Gestión de horarios':'Alta desde Gestión de horarios'};
+            const payload={agentId:String(document.getElementById('rosterEditId')?.value||'').trim(),fullName:String(document.getElementById('rosterEditName')?.value||'').trim(),supervisor:String(document.getElementById('rosterEditSupervisor')?.value||'').trim(),coordinator:String(document.getElementById('rosterEditCoordinator')?.value||'').trim(),campaign:String(document.getElementById('rosterEditCampaign')?.value||'').trim(),channel:document.getElementById('rosterEditChannel')?.value||'Llamadas',status:document.getElementById('rosterEditStatus')?.value||'Activo',schedules:{},actorMode:currentMode,reason:rosterEditingId?'Edición desde Gestión de horarios':'Alta desde Gestión de horarios'};
             ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>payload.schedules[d]=String(document.getElementById(`rosterDay${d}`)?.value||'DD-DD').trim());
             if(!payload.agentId||!payload.campaign){alert('ID del agente y Campaña son obligatorios.');return;}
             if(btn){btn.disabled=true;btn.textContent='Guardando…';}
@@ -5656,11 +5675,11 @@
             }catch(error){alert(error.message)}finally{if(btn){btn.disabled=false;btn.textContent='Guardar cambios';}}
         }
 
-        function openRosterBulkEditor(){if(!rosterSelectedIds.size)return;document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');['rosterBulkSupervisor','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>document.getElementById(id).value='');}
+        function openRosterBulkEditor(){if(!rosterSelectedIds.size)return;document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');['rosterBulkSupervisor','rosterBulkCoordinator','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>document.getElementById(id).value='');}
         function closeRosterBulkEditor(){document.getElementById('rosterBulkBackdrop')?.classList.add('hidden');}
         async function saveRosterBulkEdit(){
-            const changes={},sup=String(document.getElementById('rosterBulkSupervisor')?.value||'').trim(),camp=String(document.getElementById('rosterBulkCampaign')?.value||'').trim(),ch=document.getElementById('rosterBulkChannel')?.value||'',st=document.getElementById('rosterBulkStatus')?.value||'';
-            if(sup)changes.supervisor=sup;if(camp)changes.campaign=camp;if(ch)changes.channel=ch;if(st)changes.status=st;
+            const changes={},sup=String(document.getElementById('rosterBulkSupervisor')?.value||'').trim(),coord=String(document.getElementById('rosterBulkCoordinator')?.value||'').trim(),camp=String(document.getElementById('rosterBulkCampaign')?.value||'').trim(),ch=document.getElementById('rosterBulkChannel')?.value||'',st=document.getElementById('rosterBulkStatus')?.value||'';
+            if(sup)changes.supervisor=sup;if(coord)changes.coordinator=coord;if(camp)changes.campaign=camp;if(ch)changes.channel=ch;if(st)changes.status=st;
             if(!Object.keys(changes).length){alert('Completa al menos un campo para modificar.');return;}
             try{
                 const response=await fetch('/api/roster/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentIds:Array.from(rosterSelectedIds),changes,actorMode:currentMode})});
@@ -5671,7 +5690,7 @@
 
         async function importRosterFile(event){
             const file=event.target.files?.[0];if(!file)return;
-            if(!confirm(`Se cargarán/actualizarán los agentes incluidos en ${file.name}. ¿Continuar?`)){event.target.value='';return;}
+            if(!confirm(`Carga masiva de roster\n\n${file.name}\n\nLos IDs nuevos se agregarán y los IDs existentes se actualizarán. ¿Continuar?`)){event.target.value='';return;}
             try{
                 const form=new FormData();form.append('file',file);form.append('actorMode',currentMode);
                 const response=await fetch('/api/roster/import',{method:'POST',body:form});const data=await response.json();
@@ -5682,7 +5701,7 @@
         }
 
         function exportRosterCsv(){window.location.href='/api/roster/export.csv';}
-        function downloadRosterTemplate(){window.location.href='/api/roster/template.csv';}
+        function downloadRosterTemplate(){window.location.href='/api/roster/template.xlsx';}
 
         async function setRosterView(view){
             rosterCurrentView=view;
@@ -6706,7 +6725,7 @@
                     return `
                         <article class="wfm-action-card${cls}" data-action-card="${wfmEsc(move.actionId)}">
                             <div class="wfm-action-top">
-                                <div><div class="wfm-action-agent">${wfmEsc(move.agentId || move.agent || 'Agente')} · ${wfmEsc(move.fullName || move.agent || 'Sin nombre registrado')}</div><div class="wfm-action-campaign">${move.supervisor ? `Sup. ${wfmEsc(move.supervisor)} · ` : ''}${wfmEsc(move.campaign || '')} · ${wfmEsc(move.date || '')} · ${wfmEsc(move.day || '')}</div></div>
+                                <div><div class="wfm-action-agent">${wfmEsc(move.agentId || move.agent || 'Agente')} · ${wfmEsc(move.fullName || move.agent || 'Sin nombre registrado')}</div><div class="wfm-action-campaign">${move.supervisor ? `Sup. ${wfmEsc(move.supervisor)} · ` : ''}${move.coordinator ? `Coord. ${wfmEsc(move.coordinator)} · ` : ''}${wfmEsc(move.campaign || '')} · ${wfmEsc(move.date || '')} · ${wfmEsc(move.day || '')}</div></div>
                                 ${decisionBadge}
                             </div>
                             <div class="wfm-action-schedule"><span>${wfmEsc(move.currentSchedule || '—')}</span><span>→</span><strong>${wfmEsc(move.proposedSchedule || '—')}</strong><span>(${Number(move.deltaMinutes||0) > 0 ? '+' : ''}${Number(move.deltaMinutes||0)} min)</span></div>
@@ -7243,8 +7262,8 @@
                 </div>
                 <div class="roster-head-actions">
                     <button type="button" class="roster-head-btn" onclick="downloadRosterTemplate()"><span>Plantilla</span></button>
-                    <button type="button" class="roster-head-btn" onclick="document.getElementById('rosterImportFile').click()"><span>Cargar</span></button>
-                    <input id="rosterImportFile" type="file" class="hidden" accept=".csv,.xlsx" onchange="importRosterFile(event)">
+                    <button type="button" class="roster-head-btn primary" onclick="document.getElementById('rosterImportFile').click()" title="Carga inicial o actualización masiva"><span>Carga masiva Excel</span></button>
+                    <input id="rosterImportFile" type="file" class="hidden" accept=".xlsx,.csv" onchange="importRosterFile(event)">
                     <button type="button" class="roster-head-btn" onclick="exportRosterCsv()"><span>Exportar</span></button>
                     <button type="button" class="roster-head-btn primary" onclick="openRosterEditor()"><span>+ Agente</span></button>
                     <button type="button" class="roster-head-btn" onclick="closeRosterManager()" aria-label="Cerrar">✕</button>
@@ -7255,6 +7274,7 @@
                 <div class="roster-kpi"><div class="roster-kpi-label">Agentes activos</div><div id="rosterKpiActive" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
                 <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div id="rosterKpiCampaigns" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Con roster asignado</div></div>
                 <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div id="rosterKpiSupervisors" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Registrados</div></div>
+                <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div id="rosterKpiCoordinators" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Registrados</div></div>
                 <div class="roster-kpi"><div class="roster-kpi-label">Pendientes Frank</div><div id="rosterKpiPendingFrank" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Aprobadas no aplicadas</div></div>
                 <div class="roster-kpi"><div class="roster-kpi-label">Última actualización</div><div id="rosterKpiUpdated" class="roster-kpi-value" style="font-size:10px">—</div><div class="roster-kpi-detail">Roster operativo</div></div>
             </div>
@@ -7264,11 +7284,16 @@
                 <button id="rosterTabHistory" type="button" class="roster-tab" onclick="setRosterView('history')">Historial de cambios</button>
             </div>
 
+            <div style="margin:0 14px 8px;padding:8px 10px;border:1px solid #D7E3EA;border-radius:11px;background:#F7FAFC;color:#647A8E;font-size:8px;line-height:1.45">
+                <strong style="color:#35546A">Carga inicial recomendada:</strong> descarga la plantilla Excel, carga la plantilla completa una sola vez y después administra altas o cambios directamente desde esta pantalla. La misma carga también puede actualizar agentes existentes usando su ID.
+            </div>
+
             <div id="rosterAgentsView" class="contents">
                 <div class="roster-toolbar">
-                    <input id="rosterSearch" class="roster-input" placeholder="Buscar por ID, nombre, supervisor o campaña…" oninput="renderRosterTable()">
+                    <input id="rosterSearch" class="roster-input" placeholder="Buscar por ID, nombre, supervisor, coordinador o campaña…" oninput="renderRosterTable()">
                     <select id="rosterFilterCampaign" class="roster-select" onchange="renderRosterTable()"><option value="">Todas las campañas</option></select>
                     <select id="rosterFilterSupervisor" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los supervisores</option></select>
+                    <select id="rosterFilterCoordinator" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los coordinadores</option></select>
                     <select id="rosterFilterChannel" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
                     <select id="rosterFilterStatus" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los estados</option><option>Activo</option><option>Inactivo</option></select>
                     <button type="button" class="roster-toolbar-btn" onclick="resetRosterFilters()">Limpiar filtros</button>
@@ -7282,7 +7307,7 @@
                         <table class="roster-table">
                             <thead><tr>
                                 <th><input id="rosterSelectAll" type="checkbox" onchange="toggleRosterSelectAll(this.checked)"></th>
-                                <th>ID agente</th><th>Nombre completo</th><th>Supervisor</th><th>Campaña</th><th>Canal</th>
+                                <th>ID agente</th><th>Nombre completo</th><th>Supervisor</th><th>Coordinador</th><th>Campaña</th><th>Canal</th>
                                 <th>Lunes</th><th>Martes</th><th>Miércoles</th><th>Jueves</th><th>Viernes</th><th>Sábado</th><th>Domingo</th><th>Estado</th><th>Acciones</th>
                             </tr></thead>
                             <tbody id="rosterTableBody"></tbody>
@@ -7303,6 +7328,7 @@
                         <div class="roster-field"><label>ID agente</label><input id="rosterEditId" class="roster-input" placeholder="A-00001"></div>
                         <div class="roster-field"><label>Nombre completo</label><input id="rosterEditName" class="roster-input" placeholder="Nombre Apellido"></div>
                         <div class="roster-field"><label>Supervisor</label><input id="rosterEditSupervisor" class="roster-input" placeholder="Supervisor"></div>
+                        <div class="roster-field"><label>Coordinador</label><input id="rosterEditCoordinator" class="roster-input" placeholder="Coordinador"></div>
                         <div class="roster-field"><label>Campaña</label><input id="rosterEditCampaign" class="roster-input" placeholder="Campaña"></div>
                         <div class="roster-field"><label>Canal</label><select id="rosterEditChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
                         <div class="roster-field"><label>Estado</label><select id="rosterEditStatus" class="roster-select"><option>Activo</option><option>Inactivo</option></select></div>
@@ -7325,6 +7351,7 @@
                     <div class="roster-editor-head"><div><div class="roster-editor-title">Edición masiva</div><div class="roster-editor-copy">Solo se modificarán los campos que completes.</div></div><button type="button" class="roster-close-editor" onclick="closeRosterBulkEditor()">✕</button></div>
                     <div class="roster-form-grid">
                         <div class="roster-field full"><label>Supervisor</label><input id="rosterBulkSupervisor" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
+                        <div class="roster-field full"><label>Coordinador</label><input id="rosterBulkCoordinator" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
                         <div class="roster-field full"><label>Campaña</label><input id="rosterBulkCampaign" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
                         <div class="roster-field"><label>Canal</label><select id="rosterBulkChannel" class="roster-select"><option value="">Sin cambio</option><option>Llamadas</option><option>Chat</option></select></div>
                         <div class="roster-field"><label>Estado</label><select id="rosterBulkStatus" class="roster-select"><option value="">Sin cambio</option><option>Activo</option><option>Inactivo</option></select></div>
