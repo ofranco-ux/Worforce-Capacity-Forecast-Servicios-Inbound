@@ -1286,8 +1286,9 @@ def _forecast_actual_cache_paths(mode):
 
 def _forecast_actual_source_2026(channel):
     """
-    Reads actual 2026 volume/AHT already present in historico.xlsx.
-    Uses a disk cache instead of the in-process Excel info cache.
+    Fast/low-memory actual 2026 extractor.
+    Streams the Excel sheet row-by-row with openpyxl read_only and aggregates
+    directly into a dict. No pandas DataFrame is created for the raw history.
     """
     mode = _forecast_channel_norm(channel)
     excel_path = buscar_archivo_excel()
@@ -1310,119 +1311,117 @@ def _forecast_actual_source_2026(channel):
     except Exception:
         pass
 
-    xls = pd.ExcelFile(excel_path, engine='openpyxl')
-    sheet = None
-    if mode == 'chat':
-        for sh in xls.sheet_names:
-            low = sh.lower()
-            if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ('plantilla','roster','platilla')):
-                sheet = sh
-                break
-    else:
-        sheet = xls.sheet_names[0]
-        for sh in xls.sheet_names:
-            low = sh.lower()
-            if 'llam' in low or 'hist' in low or 'datos' in low:
-                sheet = sh
-                break
-    if not sheet:
-        return []
-
-    # Read header first, then only the columns required for actual history.
-    header = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl', nrows=0)
-    col_calls = encontrar_columna(
-        header,
-        ['recibidos','recibidas','llamadas','calls','volumen','ofrecidas','entrada','chats','mensajes']
-    )
-    col_aht = encontrar_columna(header, ['aht','tmo','handle','duracion'])
-    col_camp = encontrar_columna(header, ['campaña','campana','skill','servicio','ring group'])
-    col_inter = encontrar_columna(header, ['intervalo','hora','time'])
-    col_fecha = encontrar_columna(header, ['fecha','date'])
-
-    cols = list(header.columns)
-    if not col_camp: col_camp = cols[0]
-    if not col_fecha: col_fecha = cols[1]
-    if not col_inter: col_inter = cols[2]
-    if not col_calls: col_calls = cols[3]
-
-    usecols = []
-    for c in [col_camp,col_fecha,col_inter,col_calls,col_aht]:
-        if c and c not in usecols:
-            usecols.append(c)
-
-    df_raw = pd.read_excel(
-        xls, sheet_name=sheet, engine='openpyxl', usecols=usecols
-    )
+    wb = load_workbook(excel_path, read_only=True, data_only=True)
     try:
-        xls.close()
-    except Exception:
-        pass
+        sheet = None
+        if mode == 'chat':
+            for sh in wb.sheetnames:
+                low = sh.lower()
+                if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ('plantilla','roster','platilla')):
+                    sheet = sh
+                    break
+        else:
+            sheet = wb.sheetnames[0] if wb.sheetnames else None
+            for sh in wb.sheetnames:
+                low = sh.lower()
+                if 'llam' in low or 'hist' in low or 'datos' in low:
+                    sheet = sh
+                    break
+        if not sheet:
+            return []
 
-    df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
-    df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
-    df_raw = df_raw.dropna(subset=[col_fecha])
-    today_ts = pd.Timestamp(today)
-    df_raw = df_raw[
-        (df_raw[col_fecha].dt.year == FORECAST_ANNUAL_YEAR) &
-        (df_raw[col_fecha] <= today_ts)
-    ].copy()
-    if df_raw.empty:
-        return []
+        ws = wb[sheet]
+        header = next(ws.iter_rows(min_row=1,max_row=1,values_only=True), ())
+        col_calls = _header_index(header, ['recibidos','recibidas','llamadas','calls','volumen','ofrecidas','entrada','chats','mensajes'])
+        col_aht = _header_index(header, ['aht','tmo','handle','duracion'])
+        col_camp = _header_index(header, ['campaña','campana','skill','servicio','ring group'])
+        col_inter = _header_index(header, ['intervalo','hora','time'])
+        col_fecha = _header_index(header, ['fecha','date'])
 
-    df_raw[col_calls] = [clean_num(x,0.0) for x in df_raw[col_calls]]
-    if col_aht:
-        df_raw['_AHT_SECONDS_'] = [parse_aht_to_seconds(x) for x in df_raw[col_aht]]
-    else:
-        df_raw['_AHT_SECONDS_'] = 600.0 if mode == 'chat' else 180.0
+        if col_camp is None: col_camp = 0
+        if col_fecha is None: col_fecha = 1
+        if col_inter is None: col_inter = 2
+        if col_calls is None: col_calls = 3
 
-    df_raw['_INTERVAL_'] = df_raw[col_inter].apply(clean_interval_str)
-    df_raw['_HANDLE_SECONDS_'] = df_raw[col_calls] * df_raw['_AHT_SECONDS_']
+        today_ts = pd.Timestamp(today)
+        agg = {}
 
-    grouped = (
-        df_raw.groupby([col_fecha,col_camp,'_INTERVAL_'], dropna=False)
-        .agg(volume=(col_calls,'sum'), handle=('_HANDLE_SECONDS_','sum'))
-        .reset_index()
-    )
-    del df_raw
-    gc.collect()
+        for values in ws.iter_rows(min_row=2, values_only=True):
+            try:
+                if col_fecha >= len(values):
+                    continue
+                raw_date = values[col_fecha]
+                if raw_date is None:
+                    continue
+                dt = pd.to_datetime(raw_date, dayfirst=True, errors='coerce')
+                if pd.isna(dt):
+                    continue
+                dt = pd.Timestamp(dt).normalize()
+                if dt.year != FORECAST_ANNUAL_YEAR or dt > today_ts:
+                    continue
 
-    grouped = grouped[grouped['volume'] > 0].copy()
-    grouped['aht'] = np.where(
-        grouped['volume'] > 0,
-        grouped['handle'] / grouped['volume'],
-        0.0
-    )
+                campaign = ''
+                if col_camp < len(values) and values[col_camp] is not None:
+                    campaign = str(values[col_camp]).strip().title()
+                if not campaign or campaign.lower() == 'nan':
+                    continue
 
-    result = []
+                interval = clean_interval_str(values[col_inter] if col_inter < len(values) else '')
+                volume = clean_num(values[col_calls] if col_calls < len(values) else 0, 0.0)
+                if volume <= 0:
+                    continue
+
+                if col_aht is not None and col_aht < len(values):
+                    aht = parse_aht_to_seconds(values[col_aht])
+                else:
+                    aht = 600.0 if mode == 'chat' else 180.0
+
+                key = (dt.strftime('%Y-%m-%d'), campaign, interval)
+                current = agg.get(key)
+                handle = volume * aht
+                if current is None:
+                    agg[key] = [float(volume), float(handle)]
+                else:
+                    current[0] += float(volume)
+                    current[1] += float(handle)
+            except Exception:
+                continue
+    finally:
+        wb.close()
+
     meses = ['', 'Enero','Febrero','Marzo','Abril','Mayo','Junio',
              'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
     dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-    for _,r in grouped.iterrows():
-        fecha = pd.Timestamp(r[col_fecha])
+
+    result = []
+    for (date,campaign,interval),(volume,handle) in agg.items():
+        dt = pd.Timestamp(date)
+        aht = (handle / volume) if volume > 0 else 0.0
         result.append({
-            'Campaña': str(r[col_camp]).strip().title(),
-            'Fecha': fecha.strftime('%Y-%m-%d'),
-            'Mes': f"{meses[fecha.month]} {fecha.year}",
-            'Día_Semana': dias[fecha.weekday()],
-            'Intervalo': str(r['_INTERVAL_']),
-            'Llamadas': int(round(float(r['volume'] or 0))),
-            'AHT_Segundos': int(round(float(r['aht'] or 0))),
-            'AHT': format_aht_str(float(r['aht'] or 0))
+            'Campaña': campaign,
+            'Fecha': date,
+            'Mes': f"{meses[dt.month]} {dt.year}",
+            'Día_Semana': dias[dt.weekday()],
+            'Intervalo': interval,
+            'Llamadas': int(round(volume)),
+            'AHT_Segundos': int(round(aht)),
+            'AHT': format_aht_str(aht)
         })
-    del grouped
-    gc.collect()
 
     result.sort(key=lambda x:(x['Fecha'],x['Campaña'],x['Intervalo']))
 
     try:
-        encoder = json.JSONEncoder(ensure_ascii=False, separators=(',', ':'))
+        encoder = json.JSONEncoder(ensure_ascii=False,separators=(',',':'))
         tmp = data_path + '.tmp'
         with open(tmp,'w',encoding='utf-8') as f:
             for chunk in encoder.iterencode(result):
                 f.write(chunk)
         os.replace(tmp,data_path)
         with open(meta_path,'w',encoding='utf-8') as f:
-            json.dump({'signature':signature,'today':today},f,ensure_ascii=False,separators=(',',':'))
+            json.dump(
+                {'signature':signature,'today':today,'rows':len(result)},
+                f,ensure_ascii=False,separators=(',',':')
+            )
     except Exception as e:
         print(f"No se pudo guardar cache real 2026 {mode}: {e}")
 
@@ -3421,63 +3420,56 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
 @app.route('/api/campaigns', methods=['GET'])
 def get_campaigns():
-    mode = request.args.get('mode', 'llamadas').lower()
-    excel_path = buscar_archivo_excel()
-    if not excel_path:
-        return jsonify([]), 200
+    mode = _forecast_channel_norm(request.args.get('mode','llamadas'))
+    campaigns = set()
 
-    cached = _cache_excel_info_get(excel_path, f'campaigns:{mode}')
-    if cached is not None:
-        return jsonify(cached), 200
-
+    # Current real-data cache, if already built.
     try:
-        wb = load_workbook(excel_path, read_only=True, data_only=True)
+        data_path, _ = _forecast_actual_cache_paths(mode)
+        if os.path.exists(data_path):
+            with open(data_path,'r',encoding='utf-8') as f:
+                data = json.load(f)
+            for row in data if isinstance(data,list) else []:
+                value = str(row.get('Campaña') or row.get('Campana') or '').strip()
+                if value:
+                    campaigns.add(value)
+            data = None
+    except Exception:
+        pass
+
+    # Persisted rolling cache, if it exists.
+    try:
+        cache_data = _leer_cache_forecast(mode)
+        if isinstance(cache_data,list):
+            for row in cache_data:
+                value = str(row.get('Campaña') or row.get('Campana') or '').strip()
+                if value:
+                    campaigns.add(value)
+        cache_data = None
+    except Exception:
+        pass
+
+    # Operational roster is fast and usually contains the full campaign catalog.
+    try:
+        _roster_db_init()
+        conn = _roster_conn()
         try:
-            sheet = None
-            if mode == 'chat':
-                for sh in wb.sheetnames:
-                    low = sh.lower()
-                    if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ('plantilla','roster','platilla')):
-                        sheet = sh
-                        break
-            else:
-                sheet = wb.sheetnames[0] if wb.sheetnames else None
-                for sh in wb.sheetnames:
-                    low = sh.lower()
-                    if 'llam' in low or 'hist' in low or 'datos' in low:
-                        sheet = sh
-                        break
-
-            if not sheet:
-                return jsonify([]), 200
-
-            ws = wb[sheet]
-            header = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
-            camp_idx = _header_index(
-                header,
-                ['campaña','campana','skill','servicio','ring group']
-            )
-            if camp_idx is None:
-                camp_idx = 0
-
-            campaigns = set()
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                if camp_idx >= len(row):
-                    continue
-                value = row[camp_idx]
-                if value is None:
-                    continue
-                text = str(value).strip()
-                if text and text.lower() != 'nan':
-                    campaigns.add(text.title())
-
-            result = sorted(campaigns)
-            _cache_excel_info_set(excel_path, f'campaigns:{mode}', result)
-            return jsonify(result), 200
+            rows = conn.execute(
+                """SELECT DISTINCT campaign FROM roster_agents
+                   WHERE trim(campaign)<>'' AND lower(channel)=lower(?)
+                   ORDER BY campaign""",
+                ('Chat' if mode=='chat' else 'Llamadas',)
+            ).fetchall()
+            for r in rows:
+                value = str(r['campaign'] or '').strip()
+                if value:
+                    campaigns.add(value)
         finally:
-            wb.close()
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            conn.close()
+    except Exception:
+        pass
+
+    return jsonify(sorted(campaigns)), 200
 
 
 @app.route('/api/status', methods=['GET'])
@@ -3485,61 +3477,36 @@ def get_forecast_status():
     excel_path = buscar_archivo_excel()
     if not excel_path:
         return jsonify({
-            'archivo': None,
-            'ultimo_dato': None,
-            'actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }), 200
-
-    cached = _cache_excel_info_get(excel_path, 'status')
-    if cached is not None:
-        return jsonify(cached), 200
+            'archivo':None,
+            'ultimo_dato':None,
+            'actualizacion':datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }),200
 
     ultimo_dato = None
     try:
-        wb = load_workbook(excel_path, read_only=True, data_only=True)
-        try:
-            sheet = wb.sheetnames[0] if wb.sheetnames else None
-            for sh in wb.sheetnames:
-                low = sh.lower()
-                if 'llam' in low or 'hist' in low or 'datos' in low:
-                    sheet = sh
-                    break
-
-            if sheet:
-                ws = wb[sheet]
-                header = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
-                fecha_idx = _header_index(header, ['fecha','date'])
-                if fecha_idx is not None:
-                    max_date = None
-                    for row in ws.iter_rows(min_row=2, values_only=True):
-                        if fecha_idx >= len(row):
-                            continue
-                        value = row[fecha_idx]
-                        if value is None:
-                            continue
-                        try:
-                            dt = pd.to_datetime(value, dayfirst=True, errors='coerce')
-                            if pd.isna(dt):
-                                continue
-                            dt = pd.Timestamp(dt).normalize()
-                            if max_date is None or dt > max_date:
-                                max_date = dt
-                        except Exception:
-                            continue
-                    if max_date is not None:
-                        ultimo_dato = max_date.strftime('%Y-%m-%d')
-        finally:
-            wb.close()
+        # Prefer the already-built real cache. No Excel scan required.
+        dates = []
+        for mode in ('llamadas','chat'):
+            data_path,_ = _forecast_actual_cache_paths(mode)
+            if not os.path.exists(data_path):
+                continue
+            with open(data_path,'r',encoding='utf-8') as f:
+                data = json.load(f)
+            for row in data if isinstance(data,list) else []:
+                value = str(row.get('Fecha') or '')[:10]
+                if value:
+                    dates.append(value)
+            data = None
+        if dates:
+            ultimo_dato = max(dates)
     except Exception:
-        pass
+        ultimo_dato = None
 
-    payload = {
-        'archivo': os.path.basename(excel_path),
-        'ultimo_dato': ultimo_dato,
-        'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S')
-    }
-    _cache_excel_info_set(excel_path, 'status', payload)
-    return jsonify(payload), 200
+    return jsonify({
+        'archivo':os.path.basename(excel_path),
+        'ultimo_dato':ultimo_dato,
+        'actualizacion':datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S')
+    }),200
 
 
 
@@ -4815,4 +4782,3 @@ _roster_db_init()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-

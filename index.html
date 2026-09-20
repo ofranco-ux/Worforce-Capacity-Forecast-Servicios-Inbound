@@ -4288,6 +4288,7 @@
             const previous = select.value;
             const msg = document.getElementById('campaignTargetMessage');
             let campanas = [];
+            select.innerHTML = '<option value="">Buscando campañas…</option>';
 
             // Si el forecast ya está cargado, usarlo primero. Así el selector no
             // depende de otra lectura del Excel y aparece de inmediato.
@@ -4301,7 +4302,7 @@
             // Si aún no hay forecast, pedir únicamente el catálogo de campañas.
             if (!campanas.length) {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000);
+                const timeoutId = setTimeout(() => controller.abort(), 3000);
                 try {
                     const response = await fetch('/api/campaigns?mode=' + forecastMode + '&t=' + new Date().getTime(), {
                         signal: controller.signal,
@@ -4328,7 +4329,7 @@
 
             select.innerHTML = '';
             if (!campanas.length) {
-                select.innerHTML = '<option value="">Sin campañas disponibles</option>';
+                select.innerHTML = '<option value="">Campañas no disponibles aún</option>';
                 if (msg && !msg.innerText) msg.innerText = 'Genera el forecast o verifica el archivo histórico para cargar las campañas.';
                 return;
             }
@@ -4951,7 +4952,22 @@
             if (modeFetchPromises[mode]) return modeFetchPromises[mode];
 
             const promise = (async () => {
-                const response = await fetch('/api/latest?mode=' + mode, { cache: force ? 'no-cache' : 'default' });
+                const controller = new AbortController();
+                const timeoutId = setTimeout(()=>controller.abort(), 45000);
+                let response;
+                try{
+                    response = await fetch('/api/latest?mode=' + mode, {
+                        cache: force ? 'no-cache' : 'default',
+                        signal: controller.signal
+                    });
+                }catch(error){
+                    if(error.name==='AbortError'){
+                        throw new Error('La lectura del histórico superó 45 segundos. Revisa el tamaño de historico.xlsx o reinicia el servicio.');
+                    }
+                    throw error;
+                }finally{
+                    clearTimeout(timeoutId);
+                }
                 let data = null;
                 try { data = await response.json(); } catch (_) { data = null; }
                 if (!response.ok) {
@@ -5003,8 +5019,11 @@
                         inicializarFiltrosMultiples();
                         applySavedFilters();
                     }
-                    if (mode !== 'general') await cargarCampanasConfiguracion();
+                    // Render immediately. Campaign configuration must never block KPIs.
                     debouncedActualizarGrafica();
+                    if (mode !== 'general') {
+                        cargarCampanasConfiguracion().catch(err=>console.warn('Catálogo campañas:',err));
+                    }
 
                     const hasFutureForecast=globalData.some(r=>{
                         const t=String(getProp(r,['Dato_Tipo','Forecast_Tipo'],'')).toLowerCase();
@@ -5025,7 +5044,9 @@
                     if (!isBackground) scheduleModeWarmup(mode);
                 } else if (!isBackground) {
                     limpiarPantalla();
-                    if (mode !== 'general') await cargarCampanasConfiguracion();
+                    if (mode !== 'general') {
+                        cargarCampanasConfiguracion().catch(err=>console.warn('Catálogo campañas:',err));
+                    }
                     const box = document.getElementById('dashboardError');
                     if (box) {
                         box.innerText = 'No hay un forecast disponible todavía. Presiona GENERAR FORECAST para generarlo.';
@@ -5345,6 +5366,7 @@
                     return; 
                 }
             }
+            setRunStatus('Cargando histórico real…','amber');
             fetchLatestData(forecastMode).finally(() => loadSourceMeta());
 
             if (mode === 'ops' || mode === 'operaciones') {
