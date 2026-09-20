@@ -4965,12 +4965,10 @@
         }
 
         function scheduleModeWarmup(activeMode) {
-            if (warmupScheduled || activeMode === 'general') return;
-            warmupScheduled = true;
-            const otherMode = activeMode === 'chat' ? 'llamadas' : 'chat';
-            const run = () => fetchModeData(otherMode, false).catch(() => {});
-            if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 2500 });
-            else setTimeout(run, 800);
+            // Disabled intentionally on 512 MB instances.
+            // The old warmup could start Chat while Llamadas was still occupying
+            // pandas/openpyxl memory on the server.
+            return;
         }
 
         async function fetchLatestData(mode, isBackground = false) {
@@ -4979,16 +4977,18 @@
                 const force = !!isBackground;
 
                 if (mode === 'general') {
-                    const [inData, chatData] = await Promise.all([
-                        fetchModeData('llamadas', force),
-                        fetchModeData('chat', force)
-                    ]);
+                    const inData = await fetchModeData('llamadas', force);
+                    const chatData = await fetchModeData('chat', force);
                     nextData = [...inData, ...chatData];
                 } else {
                     nextData = await fetchModeData(mode, force);
                 }
 
                 globalData = nextData;
+                if(mode !== 'general'){
+                    const otherMode = mode === 'chat' ? 'llamadas' : 'chat';
+                    modeDataCache[otherMode] = null;
+                }
                 wfmDataVersion += 1;
 
                 if (globalData.length > 0) {
