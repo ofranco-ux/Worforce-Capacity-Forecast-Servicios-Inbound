@@ -3177,6 +3177,214 @@
             .roster-form-grid,.roster-days-grid { grid-template-columns:1fr; }
         }
 
+
+        /* ================================================================
+           V6.2 · KPIs DINÁMICOS + CRONOGRAMA POR FRANJA
+           ================================================================ */
+        .roster-kpi.is-filtered {
+            border-color:#C9D9E4;
+            background:linear-gradient(145deg,#FFFFFF,#F7FAFC);
+        }
+        .roster-kpi-filter-note {
+            display:inline-flex;
+            align-items:center;
+            gap:4px;
+            margin-left:5px;
+            color:#5A7B91;
+            font-size:6px;
+            font-weight:900;
+            letter-spacing:.04em;
+        }
+        .roster-agents-scroll {
+            max-height:330px;
+            overflow:auto;
+            border:1px solid #D4DFE8;
+            border-radius:14px;
+            background:#FFF;
+        }
+        .roster-agents-scroll .roster-table-wrap {
+            height:auto;
+            overflow:visible;
+            border:0;
+            border-radius:0;
+        }
+        .roster-content {
+            overflow:auto;
+        }
+
+        .roster-schedule-section {
+            margin-top:11px;
+            padding:12px;
+            border:1px solid #D4DFE8;
+            border-radius:15px;
+            background:linear-gradient(180deg,#FFFFFF,#F8FAFC);
+        }
+        .roster-schedule-head {
+            display:flex;
+            align-items:flex-start;
+            justify-content:space-between;
+            gap:14px;
+            margin-bottom:9px;
+        }
+        .roster-schedule-title {
+            color:#24465C;
+            font-size:10px;
+            font-weight:900;
+            letter-spacing:-.01em;
+        }
+        .roster-schedule-copy {
+            margin-top:3px;
+            color:#7B8D9E;
+            font-size:7.7px;
+            line-height:1.45;
+        }
+        .roster-day-tabs {
+            display:flex;
+            gap:4px;
+            flex-wrap:wrap;
+            justify-content:flex-end;
+        }
+        .roster-day-tab {
+            min-height:28px;
+            padding:0 9px;
+            border-radius:8px;
+            border:1px solid #D4DFE7;
+            background:#F8FAFC;
+            color:#667C90;
+            font-size:7.5px;
+            font-weight:900;
+        }
+        .roster-day-tab.is-active {
+            border-color:#BFD5D0;
+            background:#EAF6F3;
+            color:#2C746B;
+        }
+        .roster-schedule-summary {
+            display:grid;
+            grid-template-columns:repeat(4,minmax(0,1fr));
+            gap:6px;
+            margin-bottom:9px;
+        }
+        .roster-schedule-stat {
+            min-width:0;
+            padding:8px 9px;
+            border-radius:10px;
+            border:1px solid #E0E7ED;
+            background:#F8FAFB;
+        }
+        .roster-schedule-stat-label {
+            color:#8998A6;
+            font-size:6.4px;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.06em;
+        }
+        .roster-schedule-stat-value {
+            margin-top:3px;
+            color:#2D4A60;
+            font-family:'JetBrains Mono',monospace;
+            font-size:10px;
+            font-weight:900;
+            white-space:nowrap;
+            overflow:hidden;
+            text-overflow:ellipsis;
+        }
+        .roster-timeline-scroll {
+            overflow-x:auto;
+            overflow-y:hidden;
+            padding:3px 2px 2px;
+        }
+        .roster-timeline {
+            min-width:760px;
+            display:flex;
+            align-items:flex-end;
+            gap:4px;
+            height:175px;
+            padding:18px 6px 26px;
+            border-radius:11px;
+            background:
+                repeating-linear-gradient(
+                    to top,
+                    transparent 0,
+                    transparent 34px,
+                    rgba(116,137,155,.10) 35px
+                );
+            border:1px solid #E2E8ED;
+        }
+        .roster-franja {
+            position:relative;
+            flex:1 0 28px;
+            min-width:28px;
+            height:100%;
+            display:flex;
+            align-items:flex-end;
+            justify-content:center;
+        }
+        .roster-franja-bar {
+            width:min(20px,78%);
+            min-height:2px;
+            border-radius:6px 6px 3px 3px;
+            background:linear-gradient(180deg,#4F8AA0,#317873);
+            transition:height .18s ease;
+        }
+        .roster-franja-count {
+            position:absolute;
+            bottom:calc(var(--bar-height, 0px) + 5px);
+            left:50%;
+            transform:translateX(-50%);
+            color:#3D596E;
+            font-family:'JetBrains Mono',monospace;
+            font-size:6.5px;
+            font-weight:900;
+        }
+        .roster-franja-label {
+            position:absolute;
+            left:50%;
+            bottom:-20px;
+            transform:translateX(-50%);
+            color:#8A99A7;
+            font-size:6.4px;
+            font-family:'JetBrains Mono',monospace;
+            white-space:nowrap;
+        }
+        .roster-franja-label.minor {
+            opacity:.25;
+        }
+        .roster-timeline-empty {
+            width:100%;
+            min-height:140px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            flex-direction:column;
+            gap:4px;
+            text-align:center;
+            color:#7C8E9F;
+        }
+        .roster-timeline-empty strong {
+            color:#355066;
+            font-size:10px;
+        }
+        .roster-filter-scope {
+            display:inline-flex;
+            align-items:center;
+            min-height:24px;
+            margin-left:7px;
+            padding:0 8px;
+            border-radius:999px;
+            background:#EFF4F7;
+            color:#597286;
+            font-size:6.8px;
+            font-weight:900;
+            white-space:nowrap;
+        }
+
+        @media (max-width:900px) {
+            .roster-schedule-head { flex-direction:column; }
+            .roster-day-tabs { justify-content:flex-start; }
+            .roster-schedule-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -5533,6 +5741,7 @@
         let rosterSelectedIds = new Set();
         let rosterEditingId = null;
         let rosterCurrentView = 'agents';
+        let rosterScheduleDay = 'Lunes';
 
         function rosterSafe(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -5573,15 +5782,55 @@
             }
         }
 
-        function updateRosterKpis() {
+        function rosterFiltersAreActive() {
+            return [
+                'rosterSearch','rosterFilterCampaign','rosterFilterSupervisor',
+                'rosterFilterCoordinator','rosterFilterChannel','rosterFilterStatus'
+            ].some(id => String(document.getElementById(id)?.value || '').trim() !== '');
+        }
+
+        function updateRosterKpis(rows = null) {
+            const filtered = Array.isArray(rows) ? rows : rosterFilteredAgents();
+            const activeRows = filtered.filter(a => a.status === 'Activo');
+            const campaigns = new Set(filtered.map(a=>a.campaign).filter(Boolean));
+            const supervisors = new Set(filtered.map(a=>a.supervisor).filter(Boolean));
+            const coordinators = new Set(filtered.map(a=>a.coordinator).filter(Boolean));
+            const filteredIds = new Set(filtered.map(a=>String(a.agentId || '')));
+
+            const pendingFrank = (wfmDecisionLog || []).filter(r => {
+                if (r?.decision !== 'accepted' || r?.implementationStatus === 'applied') return false;
+                const move = r.move || {};
+                const id = String(move.agentId || move.agent || '');
+                return filteredIds.has(id);
+            }).length;
+
+            const lastUpdate = [...filtered]
+                .map(a=>String(a.updatedAt || ''))
+                .filter(Boolean)
+                .sort()
+                .pop() || '';
+
             const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val;};
-            set('rosterKpiActive',Number(rosterStats.active||0).toLocaleString());
-            set('rosterKpiCampaigns',Number(rosterStats.campaigns||0).toLocaleString());
-            set('rosterKpiSupervisors',Number(rosterStats.supervisors||0).toLocaleString());
-            set('rosterKpiCoordinators',Number(rosterStats.coordinators||0).toLocaleString());
-            set('rosterKpiPendingFrank',Number(wfmDecisionStats?.pendingApplication||0).toLocaleString());
-            const updated=String(rosterStats.lastUpdate||'');
-            set('rosterKpiUpdated',updated?updated.replace('T',' ').slice(0,16):'—');
+            set('rosterKpiActive', activeRows.length.toLocaleString());
+            set('rosterKpiCampaigns', campaigns.size.toLocaleString());
+            set('rosterKpiSupervisors', supervisors.size.toLocaleString());
+            set('rosterKpiCoordinators', coordinators.size.toLocaleString());
+            set('rosterKpiPendingFrank', pendingFrank.toLocaleString());
+            set('rosterKpiUpdated', lastUpdate ? lastUpdate.replace('T',' ').slice(0,16) : '—');
+
+            const filteredScope = rosterFiltersAreActive();
+            set('rosterKpiActiveDetail', filteredScope ? `${filtered.length} registros visibles` : 'Plantilla vigente');
+            set('rosterKpiCampaignsDetail', filteredScope ? 'En selección actual' : 'Con roster asignado');
+            set('rosterKpiSupervisorsDetail', filteredScope ? 'En selección actual' : 'Registrados');
+            set('rosterKpiCoordinatorsDetail', filteredScope ? 'En selección actual' : 'Registrados');
+            set('rosterKpiPendingDetail', filteredScope ? 'De agentes visibles' : 'Aprobadas no aplicadas');
+            set('rosterKpiUpdatedDetail', filteredScope ? 'Dentro de selección' : 'Roster operativo');
+
+            ['Active','Campaigns','Supervisors','Coordinators','Pending','Updated'].forEach(name => {
+                document.getElementById(`rosterKpiCard${name}`)?.classList.toggle('is-filtered', filteredScope);
+            });
+            const scopeEl = document.getElementById('rosterKpiScopeActive');
+            if (scopeEl) scopeEl.textContent = filteredScope ? '· FILTRADO' : '';
         }
 
         function populateRosterFilters() {
@@ -5622,17 +5871,151 @@
             });
         }
 
+
+        function rosterTimeToMinutes(value) {
+            const raw = String(value || '').trim();
+            const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+            if (!match) return null;
+            const h = Number(match[1]), m = Number(match[2]);
+            if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 24 || m < 0 || m > 59) return null;
+            return h * 60 + m;
+        }
+
+        function rosterParseScheduleRange(value) {
+            const raw = String(value || '').trim().toUpperCase();
+            if (!raw || raw === 'DD-DD' || !raw.includes('-')) return null;
+            const [startRaw,endRaw] = raw.split('-',2).map(x=>x.trim());
+            const start = rosterTimeToMinutes(startRaw);
+            let end = rosterTimeToMinutes(endRaw);
+            if (start === null || end === null) return null;
+            if (end <= start) end += 24 * 60;
+            return {start,end,startLabel:startRaw,endLabel:endRaw};
+        }
+
+        function rosterMinutesLabel(minutes) {
+            const normalized = ((minutes % 1440) + 1440) % 1440;
+            const h = Math.floor(normalized / 60);
+            const m = normalized % 60;
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+        }
+
+        function setRosterScheduleDay(day) {
+            rosterScheduleDay = day;
+            renderRosterScheduleTimeline();
+        }
+
+        function renderRosterScheduleDayTabs() {
+            const wrap = document.getElementById('rosterScheduleDayTabs');
+            if (!wrap) return;
+            const days = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+            wrap.innerHTML = days.map(day => `
+                <button type="button"
+                    class="roster-day-tab ${day===rosterScheduleDay?'is-active':''}"
+                    onclick="setRosterScheduleDay('${day}')">${day.slice(0,3)}</button>
+            `).join('');
+        }
+
+        function renderRosterScheduleTimeline(rows = null) {
+            const timeline = document.getElementById('rosterScheduleTimeline');
+            if (!timeline) return;
+
+            renderRosterScheduleDayTabs();
+
+            const filtered = (Array.isArray(rows) ? rows : rosterFilteredAgents())
+                .filter(a => a.status === 'Activo');
+
+            const working = [];
+            filtered.forEach(agent => {
+                const range = rosterParseScheduleRange(agent.schedules?.[rosterScheduleDay]);
+                if (range) working.push({agent, ...range});
+            });
+
+            const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val;};
+            set('rosterScheduleWorking', working.length.toLocaleString());
+
+            const scope = document.getElementById('rosterScheduleFilterScope');
+            if (scope) {
+                scope.textContent = rosterFiltersAreActive()
+                    ? `${filtered.length} activos · filtros actuales`
+                    : `${filtered.length} activos · plantilla total`;
+            }
+
+            if (!working.length) {
+                set('rosterSchedulePeak','0 HC');
+                set('rosterScheduleFirst','—');
+                set('rosterScheduleLast','—');
+                timeline.innerHTML = `
+                    <div class="roster-timeline-empty">
+                        <strong>Sin jornadas para ${rosterSafe(rosterScheduleDay)}</strong>
+                        <span>No hay agentes activos con horario dentro de los filtros actuales.</span>
+                    </div>`;
+                return;
+            }
+
+            const earliest = Math.min(...working.map(x=>x.start));
+            const latest = Math.max(...working.map(x=>x.end));
+
+            // Mantener el cronograma legible: una franja antes y una después.
+            let startWindow = Math.max(0, Math.floor(earliest / 30) * 30 - 30);
+            let endWindow = Math.min(2880, Math.ceil(latest / 30) * 30 + 30);
+
+            const slots = [];
+            for (let t=startWindow; t<endWindow; t+=30) {
+                let count = 0;
+                working.forEach(x => {
+                    // Para turnos nocturnos, t puede continuar después de 24h.
+                    if (t >= x.start && t < x.end) count += 1;
+                });
+                slots.push({minutes:t,count});
+            }
+
+            const peak = Math.max(...slots.map(x=>x.count),0);
+            set('rosterSchedulePeak', `${peak} HC`);
+            set('rosterScheduleFirst', rosterMinutesLabel(earliest));
+            set('rosterScheduleLast', rosterMinutesLabel(latest));
+
+            const chartHeight = 118;
+            timeline.style.minWidth = `${Math.max(760, slots.length * 34)}px`;
+            timeline.innerHTML = slots.map((slot,index) => {
+                const height = peak > 0 ? Math.max(2, Math.round((slot.count / peak) * chartHeight)) : 2;
+                const showHour = slot.minutes % 60 === 0;
+                const labelClass = showHour ? '' : 'minor';
+                return `
+                    <div class="roster-franja" title="${rosterMinutesLabel(slot.minutes)} · ${slot.count} agentes activos">
+                        <span class="roster-franja-count" style="--bar-height:${height}px">${slot.count}</span>
+                        <div class="roster-franja-bar" style="height:${height}px"></div>
+                        <span class="roster-franja-label ${labelClass}">${rosterMinutesLabel(slot.minutes)}</span>
+                    </div>`;
+            }).join('');
+        }
+
         function renderRosterTable() {
             const tbody=document.getElementById('rosterTableBody'); if(!tbody)return;
-            const rows=rosterFilteredAgents(), days=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
-            if(!rows.length){tbody.innerHTML='<tr><td colspan="16"><div class="roster-empty"><strong>Sin agentes para estos filtros</strong><span>Ajusta la búsqueda o carga una nueva plantilla.</span></div></td></tr>';updateRosterBulkBar();return;}
+            const rows=rosterFilteredAgents();
+            const days=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+
+            updateRosterKpis(rows);
+            renderRosterScheduleTimeline(rows);
+
+            if(!rows.length){
+                tbody.innerHTML='<tr><td colspan="16"><div class="roster-empty"><strong>Sin agentes para estos filtros</strong><span>Ajusta la búsqueda o carga una nueva plantilla.</span></div></td></tr>';
+                updateRosterBulkBar();
+                return;
+            }
+
             tbody.innerHTML=rows.map(a=>{
-                const schedules=days.map(day=>{const v=a.schedules?.[day]||'DD-DD';return `<td><span class="roster-schedule ${v==='DD-DD'?'off':''}">${rosterSafe(v)}</span></td>`}).join('');
+                const schedules=days.map(day=>{
+                    const v=a.schedules?.[day]||'DD-DD';
+                    return `<td><span class="roster-schedule ${v==='DD-DD'?'off':''}">${rosterSafe(v)}</span></td>`;
+                }).join('');
                 return `<tr>
                     <td><input type="checkbox" ${rosterSelectedIds.has(a.agentId)?'checked':''} onchange="toggleRosterSelection('${rosterSafe(a.agentId)}',this.checked)"></td>
                     <td><span class="roster-agent-id">${rosterSafe(a.agentId)}</span></td>
                     <td><div class="roster-agent-name" title="${rosterSafe(a.fullName||'')}">${rosterSafe(a.fullName||'Sin nombre registrado')}</div></td>
-                    <td>${rosterSafe(a.supervisor||'Sin supervisor')}</td><td>${rosterSafe(a.coordinator||'Sin coordinador')}</td><td>${rosterSafe(a.campaign)}</td><td>${rosterSafe(a.channel)}</td>
+                    <td>${rosterSafe(a.supervisor||'Sin supervisor')}</td>
+                    <td>${rosterSafe(a.coordinator||'Sin coordinador')}</td>
+                    <td>${rosterSafe(a.campaign)}</td>
+                    <td>${rosterSafe(a.channel)}</td>
                     ${schedules}
                     <td><span class="roster-status ${a.status==='Activo'?'active':'inactive'}">${rosterSafe(a.status)}</span></td>
                     <td><button type="button" class="roster-edit-btn" onclick="openRosterEditor('${rosterSafe(a.agentId)}')">Editar</button></td>
@@ -6818,7 +7201,7 @@
                 if (!response.ok) throw new Error('No se pudo cargar la bitácora.');
                 wfmDecisionLog = Array.isArray(data.records) ? data.records : [];
                 wfmDecisionStats = data.stats || wfmDecisionStats;
-                updateRosterKpis();
+                updateRosterKpis(rosterFilteredAgents());
                 const count = document.getElementById('wfmLogCount');
                 if (count) count.textContent = String(wfmDecisionLog.length);
                 if (wfmAssistantView === 'log') renderWfmDecisionLog();
@@ -7271,12 +7654,12 @@
             </div>
 
             <div class="roster-kpis">
-                <div class="roster-kpi"><div class="roster-kpi-label">Agentes activos</div><div id="rosterKpiActive" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
-                <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div id="rosterKpiCampaigns" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Con roster asignado</div></div>
-                <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div id="rosterKpiSupervisors" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Registrados</div></div>
-                <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div id="rosterKpiCoordinators" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Registrados</div></div>
-                <div class="roster-kpi"><div class="roster-kpi-label">Pendientes Frank</div><div id="rosterKpiPendingFrank" class="roster-kpi-value">0</div><div class="roster-kpi-detail">Aprobadas no aplicadas</div></div>
-                <div class="roster-kpi"><div class="roster-kpi-label">Última actualización</div><div id="rosterKpiUpdated" class="roster-kpi-value" style="font-size:10px">—</div><div class="roster-kpi-detail">Roster operativo</div></div>
+                <div id="rosterKpiCardActive" class="roster-kpi"><div class="roster-kpi-label">Agentes activos <span id="rosterKpiScopeActive" class="roster-kpi-filter-note"></span></div><div id="rosterKpiActive" class="roster-kpi-value">0</div><div id="rosterKpiActiveDetail" class="roster-kpi-detail">Plantilla vigente</div></div>
+                <div id="rosterKpiCardCampaigns" class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div id="rosterKpiCampaigns" class="roster-kpi-value">0</div><div id="rosterKpiCampaignsDetail" class="roster-kpi-detail">Con roster asignado</div></div>
+                <div id="rosterKpiCardSupervisors" class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div id="rosterKpiSupervisors" class="roster-kpi-value">0</div><div id="rosterKpiSupervisorsDetail" class="roster-kpi-detail">Registrados</div></div>
+                <div id="rosterKpiCardCoordinators" class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div id="rosterKpiCoordinators" class="roster-kpi-value">0</div><div id="rosterKpiCoordinatorsDetail" class="roster-kpi-detail">Registrados</div></div>
+                <div id="rosterKpiCardPending" class="roster-kpi"><div class="roster-kpi-label">Pendientes Frank</div><div id="rosterKpiPendingFrank" class="roster-kpi-value">0</div><div id="rosterKpiPendingDetail" class="roster-kpi-detail">Aprobadas no aplicadas</div></div>
+                <div id="rosterKpiCardUpdated" class="roster-kpi"><div class="roster-kpi-label">Última actualización</div><div id="rosterKpiUpdated" class="roster-kpi-value" style="font-size:10px">—</div><div id="rosterKpiUpdatedDetail" class="roster-kpi-detail">Roster operativo</div></div>
             </div>
 
             <div class="roster-tabs">
@@ -7303,7 +7686,8 @@
                     <div class="roster-bulk-actions"><button type="button" class="roster-bulk-btn" onclick="openRosterBulkEditor()">Editar selección</button><button type="button" class="roster-bulk-btn" onclick="clearRosterSelection()">Cancelar selección</button></div>
                 </div>
                 <div class="roster-content">
-                    <div class="roster-table-wrap">
+                    <div class="roster-agents-scroll">
+                        <div class="roster-table-wrap">
                         <table class="roster-table">
                             <thead><tr>
                                 <th><input id="rosterSelectAll" type="checkbox" onchange="toggleRosterSelectAll(this.checked)"></th>
@@ -7312,7 +7696,32 @@
                             </tr></thead>
                             <tbody id="rosterTableBody"></tbody>
                         </table>
+                        </div>
                     </div>
+
+                    <section class="roster-schedule-section" aria-labelledby="rosterScheduleTitle">
+                        <div class="roster-schedule-head">
+                            <div>
+                                <div id="rosterScheduleTitle" class="roster-schedule-title">
+                                    Distribución de horarios por franja
+                                    <span id="rosterScheduleFilterScope" class="roster-filter-scope">Filtros actuales</span>
+                                </div>
+                                <div class="roster-schedule-copy">Agentes activos cubriendo cada intervalo de 30 minutos con los filtros actuales. No incluye break/lunch.</div>
+                            </div>
+                            <div id="rosterScheduleDayTabs" class="roster-day-tabs" aria-label="Día del cronograma"></div>
+                        </div>
+
+                        <div class="roster-schedule-summary">
+                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Con jornada</div><div id="rosterScheduleWorking" class="roster-schedule-stat-value">0</div></div>
+                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Pico simultáneo</div><div id="rosterSchedulePeak" class="roster-schedule-stat-value">0 HC</div></div>
+                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Primera entrada</div><div id="rosterScheduleFirst" class="roster-schedule-stat-value">—</div></div>
+                            <div class="roster-schedule-stat"><div class="roster-schedule-stat-label">Última salida</div><div id="rosterScheduleLast" class="roster-schedule-stat-value">—</div></div>
+                        </div>
+
+                        <div class="roster-timeline-scroll">
+                            <div id="rosterScheduleTimeline" class="roster-timeline"></div>
+                        </div>
+                    </section>
                 </div>
             </div>
 
