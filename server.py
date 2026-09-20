@@ -564,6 +564,9 @@ def _roster_db_init():
                     work_date TEXT NOT NULL,
                     schedule TEXT NOT NULL,
                     source_action_id TEXT,
+                    override_type TEXT NOT NULL DEFAULT 'date',
+                    batch_id TEXT,
+                    reason TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     updated_by TEXT NOT NULL DEFAULT 'wfm',
@@ -580,6 +583,20 @@ def _roster_db_init():
                     changed_at TEXT NOT NULL,
                     changed_by TEXT NOT NULL DEFAULT 'wfm'
                 );
+                CREATE TABLE IF NOT EXISTS roster_absences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_id TEXT NOT NULL,
+                    absence_type TEXT NOT NULL DEFAULT 'vacation',
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'requested',
+                    reason TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT 'wfm',
+                    updated_by TEXT NOT NULL DEFAULT 'wfm',
+                    FOREIGN KEY(agent_id) REFERENCES roster_agents(agent_id) ON DELETE CASCADE
+                );
                 CREATE INDEX IF NOT EXISTS idx_roster_campaign ON roster_agents(campaign);
                 CREATE INDEX IF NOT EXISTS idx_roster_supervisor ON roster_agents(supervisor);
                 CREATE INDEX IF NOT EXISTS idx_roster_channel ON roster_agents(channel);
@@ -589,6 +606,17 @@ def _roster_db_init():
             columns = {row[1] for row in conn.execute("PRAGMA table_info(roster_agents)").fetchall()}
             if 'coordinator' not in columns:
                 conn.execute("ALTER TABLE roster_agents ADD COLUMN coordinator TEXT NOT NULL DEFAULT ''")
+
+            override_columns = {row[1] for row in conn.execute("PRAGMA table_info(roster_overrides)").fetchall()}
+            if 'override_type' not in override_columns:
+                conn.execute("ALTER TABLE roster_overrides ADD COLUMN override_type TEXT NOT NULL DEFAULT 'date'")
+            if 'batch_id' not in override_columns:
+                conn.execute("ALTER TABLE roster_overrides ADD COLUMN batch_id TEXT")
+            if 'reason' not in override_columns:
+                conn.execute("ALTER TABLE roster_overrides ADD COLUMN reason TEXT NOT NULL DEFAULT ''")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_override_batch ON roster_overrides(batch_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_absence_agent ON roster_absences(agent_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_absence_dates ON roster_absences(start_date,end_date,status)")
             conn.commit()
         finally:
             conn.close()
@@ -835,6 +863,13 @@ def _roster_forecast_metrics(xls_file, channel):
         if not df_db.empty:
             cov,total_camp,total_day = procesar_hoja_roster(df_db)
             override_cov,override_day = _roster_override_deltas(channel,df_db)
+            absence_cov,absence_day = _roster_absence_deltas(channel,df_db)
+
+            for key,value in absence_cov.items():
+                override_cov[key] = override_cov.get(key,0) + value
+            for key,value in absence_day.items():
+                override_day[key] = override_day.get(key,0) + value
+
             return cov,total_camp,total_day,override_cov,override_day
     except Exception as e:
         print(f'Roster DB fallback ({channel}): {e}')
@@ -856,6 +891,448 @@ def _roster_forecast_metrics(xls_file, channel):
         except Exception:
             pass
     return {},{},{},{},{}
+
+
+
+def _roster_vacations(include_past=False):
+    _roster_db_init()
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = _roster_conn()
+    try:
+        sql = """
+            SELECT
+                v.id, v.agent_id, v.start_date, v.end_date, v.status, v.reason,
+                v.created_at, v.updated_at, v.created_by, v.updated_by,
+                a.full_name, a.supervisor, a.coordinator, a.campaign, a.channel
+            FROM roster_absences v
+            JOIN roster_agents a ON a.agent_id=v.agent_id
+            WHERE v.absence_type='vacation'
+        """
+        args = []
+        if not include_past:
+            sql += " AND v.end_date >= ?"
+            args.append(today)
+        sql += " ORDER BY v.start_date ASC, a.full_name ASC, v.agent_id ASC"
+        rows = conn.execute(sql, args).fetchall()
+        result = []
+        for r in rows:
+            start = str(r['start_date'] or '')
+            end = str(r['end_date'] or '')
+            status = str(r['status'] or 'requested')
+            if status == 'cancelled':
+                state = 'cancelled'
+            elif status == 'rejected':
+                state = 'rejected'
+            elif start <= today <= end:
+                state = 'active'
+            elif start > today:
+                state = 'upcoming'
+            else:
+                state = 'expired'
+            result.append({
+                'id': int(r['id']),
+                'agentId': r['agent_id'],
+                'fullName': r['full_name'] or '',
+                'supervisor': r['supervisor'] or '',
+                'coordinator': r['coordinator'] or '',
+                'campaign': r['campaign'] or '',
+                'channel': r['channel'] or '',
+                'startDate': start,
+                'endDate': end,
+                'status': status,
+                'state': state,
+                'reason': r['reason'] or '',
+                'createdAt': r['created_at'] or '',
+                'updatedAt': r['updated_at'] or '',
+                'createdBy': r['created_by'] or '',
+                'updatedBy': r['updated_by'] or ''
+            })
+        return result
+    finally:
+        conn.close()
+
+def _roster_save_vacation(agent_id, start_date, end_date, status='requested', reason='', actor='wfm'):
+    _roster_db_init()
+    agent = _roster_get_agent(agent_id)
+    if not agent:
+        raise ValueError('No se encontró el agente.')
+
+    try:
+        start_dt = datetime.strptime(str(start_date)[:10], '%Y-%m-%d')
+        end_dt = datetime.strptime(str(end_date)[:10], '%Y-%m-%d')
+    except Exception:
+        raise ValueError('Fecha inicio y fecha fin son obligatorias.')
+
+    if end_dt < start_dt:
+        raise ValueError('La fecha fin no puede ser anterior a la fecha inicio.')
+
+    days = (end_dt.date() - start_dt.date()).days + 1
+    if days > 366:
+        raise ValueError('El periodo de vacaciones no puede exceder 366 días.')
+
+    status = _assistant_norm(status or 'requested')
+    if status not in ('requested','approved'):
+        status = 'requested'
+
+    now = datetime.now().isoformat(timespec='seconds')
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            # Evitar duplicar vacaciones aprobadas que se traslapen.
+            overlap = conn.execute(
+                """SELECT id FROM roster_absences
+                   WHERE agent_id=? AND absence_type='vacation'
+                     AND status='approved'
+                     AND NOT (end_date < ? OR start_date > ?)
+                   LIMIT 1""",
+                (agent_id, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'))
+            ).fetchone()
+            if overlap and status == 'approved':
+                raise ValueError('El agente ya tiene vacaciones aprobadas que se cruzan con ese periodo.')
+
+            cur = conn.execute(
+                """INSERT INTO roster_absences
+                   (agent_id,absence_type,start_date,end_date,status,reason,created_at,updated_at,created_by,updated_by)
+                   VALUES (?,'vacation',?,?,?,?,?,?,?,?)""",
+                (
+                    agent_id,
+                    start_dt.strftime('%Y-%m-%d'),
+                    end_dt.strftime('%Y-%m-%d'),
+                    status,
+                    str(reason or '')[:500],
+                    now, now, actor, actor
+                )
+            )
+            vacation_id = int(cur.lastrowid)
+            after = {
+                'vacationId': vacation_id,
+                'startDate': start_dt.strftime('%Y-%m-%d'),
+                'endDate': end_dt.strftime('%Y-%m-%d'),
+                'status': status,
+                'days': days
+            }
+            _roster_history_add(
+                conn, agent_id, 'vacation_created',
+                None, after, reason or 'Vacaciones', actor
+            )
+            conn.execute(
+                "UPDATE roster_agents SET updated_at=?, updated_by=? WHERE agent_id=?",
+                (now, actor, agent_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    _invalidate_roster_dependent_caches()
+    return after
+
+def _roster_update_vacation_status(vacation_id, status, actor='wfm', reason=''):
+    _roster_db_init()
+    status = _assistant_norm(status or '')
+    if status not in ('approved','requested','rejected','cancelled'):
+        raise ValueError('Estado de vacaciones inválido.')
+
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM roster_absences WHERE id=? AND absence_type='vacation'",
+                (int(vacation_id),)
+            ).fetchone()
+            if not row:
+                raise ValueError('No se encontró la solicitud de vacaciones.')
+
+            if status == 'approved':
+                overlap = conn.execute(
+                    """SELECT id FROM roster_absences
+                       WHERE agent_id=? AND absence_type='vacation' AND status='approved' AND id<>?
+                         AND NOT (end_date < ? OR start_date > ?)
+                       LIMIT 1""",
+                    (row['agent_id'], int(vacation_id), row['start_date'], row['end_date'])
+                ).fetchone()
+                if overlap:
+                    raise ValueError('El agente ya tiene vacaciones aprobadas que se cruzan con ese periodo.')
+
+            before = {
+                'vacationId': int(row['id']),
+                'status': row['status'],
+                'startDate': row['start_date'],
+                'endDate': row['end_date']
+            }
+            now = datetime.now().isoformat(timespec='seconds')
+            conn.execute(
+                """UPDATE roster_absences
+                   SET status=?, reason=CASE WHEN ?<>'' THEN ? ELSE reason END,
+                       updated_at=?, updated_by=?
+                   WHERE id=?""",
+                (status, str(reason or ''), str(reason or '')[:500], now, actor, int(vacation_id))
+            )
+            after = dict(before)
+            after['status'] = status
+            _roster_history_add(
+                conn, row['agent_id'], 'vacation_status_changed',
+                before, after, reason or f'Vacaciones: {status}', actor
+            )
+            conn.execute(
+                "UPDATE roster_agents SET updated_at=?, updated_by=? WHERE agent_id=?",
+                (now, actor, row['agent_id'])
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    _invalidate_roster_dependent_caches()
+    return after
+
+def _roster_absence_deltas(channel, df_roster):
+    """
+    Approved vacations remove the agent from capacity for each vacation date.
+    Requested/rejected/cancelled vacations do not affect forecast.
+    """
+    coverage_delta, day_delta = {}, {}
+    if df_roster is None or df_roster.empty:
+        return coverage_delta, day_delta
+
+    by_agent = {str(r.get('Agente','')).strip(): r for _, r in df_roster.iterrows()}
+
+    def intervals(schedule):
+        schedule = str(schedule or 'DD-DD').strip().upper()
+        if schedule == 'DD-DD' or '-' not in schedule:
+            return set()
+        p = schedule.split('-',1)
+        s, e = parse_time_str(p[0].strip()), parse_time_str(p[1].strip())
+        return set(generar_intervalos_cobertura(s,e)) if s is not None and e is not None else set()
+
+    _roster_db_init()
+    conn = _roster_conn()
+    try:
+        vacations = conn.execute(
+            """SELECT v.agent_id,v.start_date,v.end_date,a.campaign
+               FROM roster_absences v
+               JOIN roster_agents a ON a.agent_id=v.agent_id
+               WHERE v.absence_type='vacation'
+                 AND v.status='approved'
+                 AND lower(a.status)='activo'
+                 AND lower(a.channel)=lower(?)""",
+            (channel,)
+        ).fetchall()
+
+        overrides = {
+            (str(r['agent_id']), str(r['work_date'])[:10]): str(r['schedule'])
+            for r in conn.execute(
+                """SELECT o.agent_id,o.work_date,o.schedule
+                   FROM roster_overrides o
+                   JOIN roster_agents a ON a.agent_id=o.agent_id
+                   WHERE lower(a.status)='activo'
+                     AND lower(a.channel)=lower(?)""",
+                (channel,)
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+
+    # Protect against overlapping vacation records causing double subtraction.
+    processed_dates = set()
+
+    for vac in vacations:
+        agent_id = str(vac['agent_id'])
+        base_row = by_agent.get(agent_id)
+        if base_row is None:
+            continue
+        try:
+            current = datetime.strptime(str(vac['start_date'])[:10], '%Y-%m-%d')
+            end_dt = datetime.strptime(str(vac['end_date'])[:10], '%Y-%m-%d')
+        except Exception:
+            continue
+
+        camp = str(vac['campaign']).strip().title()
+        while current <= end_dt:
+            date = current.strftime('%Y-%m-%d')
+            unique_key = (agent_id, date)
+            if unique_key in processed_dates:
+                current += timedelta(days=1)
+                continue
+            processed_dates.add(unique_key)
+
+            day = _ROSTER_DAYS[current.weekday()]
+            effective_schedule = overrides.get((agent_id,date), base_row.get(day,'DD-DD'))
+            covered = intervals(effective_schedule)
+
+            for inv in covered:
+                key = (camp,date,inv)
+                coverage_delta[key] = coverage_delta.get(key,0) - 1
+
+            if covered:
+                key_day = (camp,date)
+                day_delta[key_day] = day_delta.get(key_day,0) - 1
+
+            current += timedelta(days=1)
+
+    return coverage_delta, day_delta
+
+def _roster_temporary_changes(include_expired=False):
+    _roster_db_init()
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = _roster_conn()
+    try:
+        sql = """
+            SELECT
+                o.batch_id,
+                o.agent_id,
+                MIN(o.work_date) AS start_date,
+                MAX(o.work_date) AS end_date,
+                COUNT(*) AS day_count,
+                MAX(o.updated_at) AS updated_at,
+                MAX(o.updated_by) AS updated_by,
+                MAX(o.reason) AS reason,
+                a.full_name,
+                a.supervisor,
+                a.coordinator,
+                a.campaign,
+                a.channel
+            FROM roster_overrides o
+            JOIN roster_agents a ON a.agent_id=o.agent_id
+            WHERE o.override_type='temporary'
+              AND o.batch_id IS NOT NULL
+        """
+        args = []
+        sql += """
+            GROUP BY o.batch_id,o.agent_id,a.full_name,a.supervisor,a.coordinator,a.campaign,a.channel
+        """
+        if not include_expired:
+            sql += " HAVING MAX(o.work_date) >= ?"
+            args.append(today)
+        sql += """
+            ORDER BY start_date ASC, a.full_name ASC, o.agent_id ASC
+        """
+        rows = conn.execute(sql, args).fetchall()
+        result = []
+        for r in rows:
+            start = str(r['start_date'] or '')
+            end = str(r['end_date'] or '')
+            if start <= today <= end:
+                state = 'active'
+            elif start > today:
+                state = 'upcoming'
+            else:
+                state = 'expired'
+            result.append({
+                'batchId': r['batch_id'],
+                'agentId': r['agent_id'],
+                'fullName': r['full_name'] or '',
+                'supervisor': r['supervisor'] or '',
+                'coordinator': r['coordinator'] or '',
+                'campaign': r['campaign'] or '',
+                'channel': r['channel'] or '',
+                'startDate': start,
+                'endDate': end,
+                'dayCount': int(r['day_count'] or 0),
+                'reason': r['reason'] or '',
+                'updatedAt': r['updated_at'] or '',
+                'updatedBy': r['updated_by'] or '',
+                'state': state
+            })
+        return result
+    finally:
+        conn.close()
+
+def _roster_create_temporary_schedule(agent_id, schedules, start_date, end_date, actor='wfm', reason='Cambio temporal'):
+    _roster_db_init()
+    agent = _roster_get_agent(agent_id)
+    if not agent:
+        raise ValueError('No se encontró el agente.')
+
+    try:
+        start_dt = datetime.strptime(str(start_date)[:10], '%Y-%m-%d')
+        end_dt = datetime.strptime(str(end_date)[:10], '%Y-%m-%d')
+    except Exception:
+        raise ValueError('Fecha inicio y fecha fin son obligatorias para un cambio temporal.')
+
+    if end_dt < start_dt:
+        raise ValueError('La fecha fin no puede ser anterior a la fecha inicio.')
+
+    days = (end_dt.date() - start_dt.date()).days + 1
+    if days > 366:
+        raise ValueError('Un cambio temporal no puede exceder 366 días.')
+
+    normalized = {
+        day: _roster_normalize_schedule((schedules or {}).get(day, agent['schedules'].get(day, 'DD-DD')))
+        for day in _ROSTER_DAYS
+    }
+
+    now = datetime.now().isoformat(timespec='seconds')
+    raw_batch = f"{agent_id}|{start_date}|{end_date}|{now}"
+    batch_id = hashlib.sha1(raw_batch.encode('utf-8')).hexdigest()[:18]
+    applied = 0
+    skipped_conflicts = 0
+
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            current = start_dt
+            while current <= end_dt:
+                work_date = current.strftime('%Y-%m-%d')
+                day_name = _ROSTER_DAYS[current.weekday()]
+                schedule = normalized[day_name]
+
+                existing = conn.execute(
+                    """SELECT source_action_id, override_type, batch_id
+                       FROM roster_overrides
+                       WHERE agent_id=? AND work_date=?""",
+                    (agent_id, work_date)
+                ).fetchone()
+
+                # Una recomendación específica de Frank tiene prioridad sobre
+                # un rango temporal manual para esa misma fecha.
+                if existing and existing['source_action_id']:
+                    skipped_conflicts += 1
+                    current += timedelta(days=1)
+                    continue
+
+                conn.execute(
+                    """INSERT INTO roster_overrides
+                       (agent_id, work_date, schedule, source_action_id, override_type, batch_id, reason, created_at, updated_at, updated_by)
+                       VALUES (?, ?, ?, NULL, 'temporary', ?, ?, ?, ?, ?)
+                       ON CONFLICT(agent_id, work_date) DO UPDATE SET
+                         schedule=excluded.schedule,
+                         source_action_id=NULL,
+                         override_type='temporary',
+                         batch_id=excluded.batch_id,
+                         reason=excluded.reason,
+                         updated_at=excluded.updated_at,
+                         updated_by=excluded.updated_by""",
+                    (agent_id, work_date, schedule, batch_id, str(reason or '')[:500], now, now, actor)
+                )
+                applied += 1
+                current += timedelta(days=1)
+
+            conn.execute(
+                "UPDATE roster_agents SET updated_at=?, updated_by=? WHERE agent_id=?",
+                (now, actor, agent_id)
+            )
+            after = {
+                'batchId': batch_id,
+                'startDate': start_dt.strftime('%Y-%m-%d'),
+                'endDate': end_dt.strftime('%Y-%m-%d'),
+                'schedules': normalized,
+                'appliedDates': applied,
+                'skippedConflicts': skipped_conflicts
+            }
+            _roster_history_add(
+                conn,
+                agent_id,
+                'temporary_schedule_created',
+                {'baseSchedules': agent.get('schedules') or {}},
+                after,
+                reason,
+                actor
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    _invalidate_roster_dependent_caches()
+    return after
 
 def _roster_validate_payload(payload, existing=None):
     payload, existing = payload or {}, existing or {}
@@ -924,13 +1401,38 @@ def _roster_save_agent(payload, actor='wfm', reason='Edición manual', allow_cre
 def roster_list():
     try:
         agents = _roster_fetch_agents(request.args.get('channel'), str(request.args.get('includeInactive','true')).lower()!='false')
+        temporary_changes = _roster_temporary_changes(include_expired=False)
+        vacations = _roster_vacations(include_past=False)
+        temp_by_agent = {}
+        for change in temporary_changes:
+            current = temp_by_agent.get(change['agentId'])
+            if current is None or (current.get('state') != 'active' and change.get('state') == 'active'):
+                temp_by_agent[change['agentId']] = change
+        vacation_by_agent = {}
+        for vacation in vacations:
+            if vacation.get('status') not in ('requested','approved'):
+                continue
+            current = vacation_by_agent.get(vacation['agentId'])
+            if current is None:
+                vacation_by_agent[vacation['agentId']] = vacation
+            elif current.get('status') != 'approved' and vacation.get('status') == 'approved':
+                vacation_by_agent[vacation['agentId']] = vacation
+
+        for agent in agents:
+            agent['temporaryChange'] = temp_by_agent.get(agent['agentId'])
+            agent['vacation'] = vacation_by_agent.get(agent['agentId'])
         campaigns = sorted({a['campaign'] for a in agents if a['campaign']})
         supervisors = sorted({a['supervisor'] for a in agents if a['supervisor']})
         coordinators = sorted({a['coordinator'] for a in agents if a['coordinator']})
         active = sum(1 for a in agents if a['status']=='Activo')
         last_update = max([a['updatedAt'] for a in agents if a.get('updatedAt')] or [''])
-        return jsonify({'agents':agents,'campaigns':campaigns,'supervisors':supervisors,'coordinators':coordinators,'days':_ROSTER_DAYS,'stats':{
-            'total':len(agents),'active':active,'inactive':len(agents)-active,'campaigns':len(campaigns),'supervisors':len(supervisors),'coordinators':len(coordinators),'lastUpdate':last_update
+        approved_vacations = sum(1 for v in vacations if v.get('status')=='approved')
+        requested_vacations = sum(1 for v in vacations if v.get('status')=='requested')
+        return jsonify({'agents':agents,'campaigns':campaigns,'supervisors':supervisors,'coordinators':coordinators,
+            'temporaryChanges':temporary_changes,'vacations':vacations,'days':_ROSTER_DAYS,'stats':{
+            'total':len(agents),'active':active,'inactive':len(agents)-active,'campaigns':len(campaigns),
+            'supervisors':len(supervisors),'coordinators':len(coordinators),'temporaryChanges':len(temporary_changes),
+            'approvedVacations':approved_vacations,'requestedVacations':requested_vacations,'lastUpdate':last_update
         }}),200
     except Exception as e:
         return jsonify({'error':f'No se pudo cargar el roster: {str(e)}'}),500
@@ -946,6 +1448,114 @@ def roster_save_agent():
         return jsonify({'error':'Ya existe un agente con ese ID.'}),409
     except Exception as e:
         return jsonify({'error':str(e)}),400
+
+
+
+@app.route('/api/roster/vacations', methods=['GET'])
+def roster_vacations():
+    include_past = str(request.args.get('includePast','false')).lower() == 'true'
+    return jsonify({'vacations': _roster_vacations(include_past=include_past)}), 200
+
+@app.route('/api/roster/vacations', methods=['POST'])
+def roster_create_vacation():
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        result = _roster_save_vacation(
+            str(payload.get('agentId') or '').strip(),
+            payload.get('startDate'),
+            payload.get('endDate'),
+            status=payload.get('status') or 'requested',
+            reason=payload.get('reason') or '',
+            actor=str(payload.get('actorMode') or 'wfm')[:80]
+        )
+        return jsonify({'ok': True, 'vacation': result}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/roster/vacation/<int:vacation_id>/status', methods=['POST'])
+def roster_vacation_status(vacation_id):
+    try:
+        payload = request.get_json(force=True, silent=True) or {}
+        result = _roster_update_vacation_status(
+            vacation_id,
+            payload.get('status'),
+            actor=str(payload.get('actorMode') or 'wfm')[:80],
+            reason=payload.get('reason') or ''
+        )
+        return jsonify({'ok': True, 'vacation': result}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/roster/temporary-schedule', methods=['POST'])
+def roster_temporary_schedule():
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        agent_id = str(payload.get('agentId') or '').strip()
+        actor = str(payload.get('actorMode') or 'wfm')[:80]
+        reason = str(payload.get('reason') or 'Cambio temporal de horario')[:500]
+        result = _roster_create_temporary_schedule(
+            agent_id,
+            payload.get('schedules') or {},
+            payload.get('startDate'),
+            payload.get('endDate'),
+            actor=actor,
+            reason=reason
+        )
+        return jsonify({'ok': True, 'change': result}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/roster/temporary-changes', methods=['GET'])
+def roster_temporary_changes():
+    include_expired = str(request.args.get('includeExpired','false')).lower() == 'true'
+    return jsonify({'changes': _roster_temporary_changes(include_expired=include_expired)}), 200
+
+@app.route('/api/roster/temporary-change/<batch_id>/cancel', methods=['POST'])
+def roster_cancel_temporary_change(batch_id):
+    _roster_db_init()
+    payload = request.get_json(force=True, silent=True) or {}
+    actor = str(payload.get('actorMode') or 'wfm')[:80]
+    reason = str(payload.get('reason') or 'Cambio temporal cancelado')[:500]
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            rows = conn.execute(
+                """SELECT agent_id, MIN(work_date) AS start_date, MAX(work_date) AS end_date, COUNT(*) AS cnt
+                   FROM roster_overrides
+                   WHERE batch_id=? AND override_type='temporary'
+                   GROUP BY agent_id""",
+                (batch_id,)
+            ).fetchall()
+            if not rows:
+                return jsonify({'error': 'No se encontró el cambio temporal.'}), 404
+
+            now = datetime.now().isoformat(timespec='seconds')
+            for r in rows:
+                agent_id = r['agent_id']
+                before = {
+                    'batchId': batch_id,
+                    'startDate': r['start_date'],
+                    'endDate': r['end_date'],
+                    'dates': int(r['cnt'] or 0)
+                }
+                conn.execute(
+                    "DELETE FROM roster_overrides WHERE batch_id=? AND override_type='temporary' AND agent_id=?",
+                    (batch_id, agent_id)
+                )
+                conn.execute(
+                    "UPDATE roster_agents SET updated_at=?, updated_by=? WHERE agent_id=?",
+                    (now, actor, agent_id)
+                )
+                _roster_history_add(
+                    conn, agent_id, 'temporary_schedule_cancelled',
+                    before, {'cancelled': True}, reason, actor
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    _invalidate_roster_dependent_caches()
+    return jsonify({'ok': True, 'batchId': batch_id}), 200
 
 @app.route('/api/roster/bulk', methods=['POST'])
 def roster_bulk_update():
@@ -1115,10 +1725,16 @@ def roster_apply_recommendation():
                 effective_before=old['schedule'] if old else base_schedule
                 now=datetime.now().isoformat(timespec='seconds')
                 conn.execute(
-                    """INSERT INTO roster_overrides(agent_id,work_date,schedule,source_action_id,created_at,updated_at,updated_by)
-                    VALUES(?,?,?,?,?,?,?) ON CONFLICT(agent_id,work_date) DO UPDATE SET
-                    schedule=excluded.schedule,source_action_id=excluded.source_action_id,updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
-                    (agent_id,work_date,proposed,action_id,now,now,actor))
+                    """INSERT INTO roster_overrides(agent_id,work_date,schedule,source_action_id,override_type,batch_id,reason,created_at,updated_at,updated_by)
+                    VALUES(?,?,?,?,'frank',?,?,?, ?, ?) ON CONFLICT(agent_id,work_date) DO UPDATE SET
+                    schedule=excluded.schedule,
+                    source_action_id=excluded.source_action_id,
+                    override_type='frank',
+                    batch_id=excluded.batch_id,
+                    reason=excluded.reason,
+                    updated_at=excluded.updated_at,
+                    updated_by=excluded.updated_by""",
+                    (agent_id,work_date,proposed,action_id,action_id,f'Recomendación Frank {action_id}',now,now,actor))
                 _roster_history_add(conn,agent_id,'frank_recommendation_applied',
                     {'date':work_date,'day':day,'schedule':effective_before},
                     {'date':work_date,'day':day,'schedule':proposed},f'Recomendación Frank {action_id}',actor)
