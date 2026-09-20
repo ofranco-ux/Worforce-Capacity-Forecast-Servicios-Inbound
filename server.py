@@ -542,6 +542,7 @@ def _roster_db_init():
                     agent_id TEXT PRIMARY KEY,
                     full_name TEXT NOT NULL DEFAULT '',
                     supervisor TEXT NOT NULL DEFAULT '',
+                    coordinator TEXT NOT NULL DEFAULT '',
                     campaign TEXT NOT NULL,
                     channel TEXT NOT NULL DEFAULT 'Llamadas',
                     status TEXT NOT NULL DEFAULT 'Activo',
@@ -584,6 +585,10 @@ def _roster_db_init():
                 CREATE INDEX IF NOT EXISTS idx_roster_channel ON roster_agents(channel);
                 CREATE INDEX IF NOT EXISTS idx_roster_override_date ON roster_overrides(work_date);
             """)
+            # Migración compatible con bases V6 existentes.
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(roster_agents)").fetchall()}
+            if 'coordinator' not in columns:
+                conn.execute("ALTER TABLE roster_agents ADD COLUMN coordinator TEXT NOT NULL DEFAULT ''")
             conn.commit()
         finally:
             conn.close()
@@ -609,6 +614,7 @@ def _roster_row_dict(row):
         'agentId': row['agent_id'],
         'fullName': row['full_name'] or '',
         'supervisor': row['supervisor'] or '',
+        'coordinator': row['coordinator'] or '',
         'campaign': row['campaign'] or '',
         'channel': row['channel'] or 'Llamadas',
         'status': row['status'] or 'Activo',
@@ -674,6 +680,7 @@ def _roster_seed_from_excel_if_empty():
         col_id = encontrar_columna(df, ['id agente','agent id','agent_id','id','agente'])
         col_name = encontrar_columna(df, ['nombre completo','full name','nombre','asesor','ejecutivo'])
         col_supervisor = encontrar_columna(df, ['supervisor','team leader','tl','jefe'])
+        col_coordinator = encontrar_columna(df, ['coordinador','coordinator','coord','coordinadora'])
         col_channel = encontrar_columna(df, ['canal','channel'])
         if not col_campaign:
             continue
@@ -702,6 +709,9 @@ def _roster_seed_from_excel_if_empty():
             supervisor = str(row.get(col_supervisor, '')).strip() if col_supervisor else ''
             if supervisor.lower() == 'nan':
                 supervisor = ''
+            coordinator = str(row.get(col_coordinator, '')).strip() if col_coordinator else ''
+            if coordinator.lower() == 'nan':
+                coordinator = ''
             channel = str(row.get(col_channel, '')).strip() if col_channel else default_channel
             if not channel or channel.lower() == 'nan':
                 channel = default_channel
@@ -713,7 +723,7 @@ def _roster_seed_from_excel_if_empty():
                     schedules[day] = _roster_normalize_schedule(raw)
                 except Exception:
                     schedules[day] = 'DD-DD'
-            migrated.append((agent_id, full_name, supervisor, campaign.title(), channel, schedules))
+            migrated.append((agent_id, full_name, supervisor, coordinator, campaign.title(), channel, schedules))
 
     if not migrated:
         return
@@ -721,12 +731,12 @@ def _roster_seed_from_excel_if_empty():
     with _WFM_ROSTER_LOCK:
         conn = _roster_conn()
         try:
-            for agent_id, full_name, supervisor, campaign, channel, s in migrated:
+            for agent_id, full_name, supervisor, coordinator, campaign, channel, s in migrated:
                 conn.execute(
                     """INSERT OR IGNORE INTO roster_agents
-                    (agent_id,full_name,supervisor,campaign,channel,status,lunes,martes,miercoles,jueves,viernes,sabado,domingo,source,created_at,updated_at,updated_by)
-                    VALUES (?,?,?,?,?,'Activo',?,?,?,?,?,?,?,'excel_migration',?,?,?)""",
-                    (agent_id,full_name,supervisor,campaign,channel,
+                    (agent_id,full_name,supervisor,coordinator,campaign,channel,status,lunes,martes,miercoles,jueves,viernes,sabado,domingo,source,created_at,updated_at,updated_by)
+                    VALUES (?,?,?,?,?,?,'Activo',?,?,?,?,?,?,?,'excel_migration',?,?,?)""",
+                    (agent_id,full_name,supervisor,coordinator,campaign,channel,
                      s['Lunes'],s['Martes'],s['Miércoles'],s['Jueves'],s['Viernes'],s['Sábado'],s['Domingo'],
                      now,now,'system')
                 )
@@ -769,7 +779,7 @@ def _roster_fetch_agents(channel=None, include_inactive=True):
 def _roster_dataframe(channel):
     agents = _roster_fetch_agents(channel=channel, include_inactive=False)
     return pd.DataFrame([{
-        'Agente': a['agentId'], 'Nombre Completo': a['fullName'], 'Supervisor': a['supervisor'],
+        'Agente': a['agentId'], 'Nombre Completo': a['fullName'], 'Supervisor': a['supervisor'], 'Coordinador': a['coordinator'],
         'Campaña': a['campaign'], 'Canal': a['channel'], 'Estado': a['status'], **a['schedules']
     } for a in agents]) if agents else pd.DataFrame()
 
@@ -854,6 +864,7 @@ def _roster_validate_payload(payload, existing=None):
         raise ValueError('El ID del agente es obligatorio.')
     full_name = str(payload.get('fullName',existing.get('fullName','')) or '').strip()
     supervisor = str(payload.get('supervisor',existing.get('supervisor','')) or '').strip()
+    coordinator = str(payload.get('coordinator',existing.get('coordinator','')) or '').strip()
     campaign = str(payload.get('campaign',existing.get('campaign','')) or '').strip()
     if not campaign:
         raise ValueError('La campaña es obligatoria.')
@@ -863,7 +874,7 @@ def _roster_validate_payload(payload, existing=None):
         status = 'Activo'
     incoming, old_sched = payload.get('schedules') or {}, existing.get('schedules') or {}
     schedules = {d:_roster_normalize_schedule(incoming.get(d,old_sched.get(d,'DD-DD'))) for d in _ROSTER_DAYS}
-    return {'agentId':agent_id,'fullName':full_name,'supervisor':supervisor,'campaign':campaign.title(),'channel':channel,'status':status,'schedules':schedules}
+    return {'agentId':agent_id,'fullName':full_name,'supervisor':supervisor,'coordinator':coordinator,'campaign':campaign.title(),'channel':channel,'status':status,'schedules':schedules}
 
 def _roster_get_agent(agent_id):
     _roster_db_init()
@@ -886,18 +897,18 @@ def _roster_save_agent(payload, actor='wfm', reason='Edición manual', allow_cre
         try:
             if before:
                 conn.execute(
-                    """UPDATE roster_agents SET full_name=?,supervisor=?,campaign=?,channel=?,status=?,
+                    """UPDATE roster_agents SET full_name=?,supervisor=?,coordinator=?,campaign=?,channel=?,status=?,
                     lunes=?,martes=?,miercoles=?,jueves=?,viernes=?,sabado=?,domingo=?,updated_at=?,updated_by=? WHERE agent_id=?""",
-                    (clean['fullName'],clean['supervisor'],clean['campaign'],clean['channel'],clean['status'],
+                    (clean['fullName'],clean['supervisor'],clean['coordinator'],clean['campaign'],clean['channel'],clean['status'],
                      s['Lunes'],s['Martes'],s['Miércoles'],s['Jueves'],s['Viernes'],s['Sábado'],s['Domingo'],now,actor,clean['agentId'])
                 )
                 change_type='agent_updated'
             else:
                 conn.execute(
                     """INSERT INTO roster_agents
-                    (agent_id,full_name,supervisor,campaign,channel,status,lunes,martes,miercoles,jueves,viernes,sabado,domingo,source,created_at,updated_at,updated_by)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'manual',?,?,?)""",
-                    (clean['agentId'],clean['fullName'],clean['supervisor'],clean['campaign'],clean['channel'],clean['status'],
+                    (agent_id,full_name,supervisor,coordinator,campaign,channel,status,lunes,martes,miercoles,jueves,viernes,sabado,domingo,source,created_at,updated_at,updated_by)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'manual',?,?,?)""",
+                    (clean['agentId'],clean['fullName'],clean['supervisor'],clean['coordinator'],clean['campaign'],clean['channel'],clean['status'],
                      s['Lunes'],s['Martes'],s['Miércoles'],s['Jueves'],s['Viernes'],s['Sábado'],s['Domingo'],now,now,actor)
                 )
                 change_type='agent_created'
@@ -915,10 +926,11 @@ def roster_list():
         agents = _roster_fetch_agents(request.args.get('channel'), str(request.args.get('includeInactive','true')).lower()!='false')
         campaigns = sorted({a['campaign'] for a in agents if a['campaign']})
         supervisors = sorted({a['supervisor'] for a in agents if a['supervisor']})
+        coordinators = sorted({a['coordinator'] for a in agents if a['coordinator']})
         active = sum(1 for a in agents if a['status']=='Activo')
         last_update = max([a['updatedAt'] for a in agents if a.get('updatedAt')] or [''])
-        return jsonify({'agents':agents,'campaigns':campaigns,'supervisors':supervisors,'days':_ROSTER_DAYS,'stats':{
-            'total':len(agents),'active':active,'inactive':len(agents)-active,'campaigns':len(campaigns),'supervisors':len(supervisors),'lastUpdate':last_update
+        return jsonify({'agents':agents,'campaigns':campaigns,'supervisors':supervisors,'coordinators':coordinators,'days':_ROSTER_DAYS,'stats':{
+            'total':len(agents),'active':active,'inactive':len(agents)-active,'campaigns':len(campaigns),'supervisors':len(supervisors),'coordinators':len(coordinators),'lastUpdate':last_update
         }}),200
     except Exception as e:
         return jsonify({'error':f'No se pudo cargar el roster: {str(e)}'}),500
@@ -951,6 +963,7 @@ def roster_bulk_update():
             merged=dict(before)
             if str(changes.get('campaign','')).strip(): merged['campaign']=str(changes['campaign']).strip()
             if 'supervisor' in changes: merged['supervisor']=str(changes['supervisor']).strip()
+            if 'coordinator' in changes: merged['coordinator']=str(changes['coordinator']).strip()
             if changes.get('status') in ('Activo','Inactivo'): merged['status']=changes['status']
             if changes.get('channel') in ('Llamadas','Chat'): merged['channel']=changes['channel']
             _roster_save_agent(merged,actor,'Edición masiva',False); updated+=1
@@ -963,6 +976,7 @@ def _roster_import_columns(df):
         'id':encontrar_columna(df,['id agente','agent id','agent_id','id','agente']),
         'name':encontrar_columna(df,['nombre completo','full name','nombre','asesor','ejecutivo']),
         'supervisor':encontrar_columna(df,['supervisor','team leader','tl','jefe']),
+        'coordinator':encontrar_columna(df,['coordinador','coordinator','coord','coordinadora']),
         'campaign':encontrar_columna(df,['campaña','campana','skill','servicio']),
         'channel':encontrar_columna(df,['canal','channel']),
         'status':encontrar_columna(df,['estado','status'])
@@ -1000,6 +1014,7 @@ def roster_import():
                 payload={
                     'agentId':agent_id,'fullName':safe(cols['name'],existing.get('fullName','')),
                     'supervisor':safe(cols['supervisor'],existing.get('supervisor','')),
+                    'coordinator':safe(cols['coordinator'],existing.get('coordinator','')),
                     'campaign':campaign,'channel':safe(cols['channel'],existing.get('channel','Llamadas')) or 'Llamadas',
                     'status':(safe(cols['status'],existing.get('status','Activo')) or 'Activo').title(),
                     'schedules':schedules
@@ -1016,17 +1031,47 @@ def roster_import():
 def roster_export_csv():
     agents=_roster_fetch_agents(include_inactive=True)
     output=io.StringIO(); writer=csv.writer(output)
-    writer.writerow(['ID Agente','Nombre Completo','Supervisor','Campaña','Canal','Estado',*_ROSTER_DAYS])
+    writer.writerow(['ID Agente','Nombre Completo','Supervisor','Coordinador','Campaña','Canal','Estado',*_ROSTER_DAYS])
     for a in agents:
-        writer.writerow([a['agentId'],a['fullName'],a['supervisor'],a['campaign'],a['channel'],a['status'],*[a['schedules'].get(d,'DD-DD') for d in _ROSTER_DAYS]])
+        writer.writerow([a['agentId'],a['fullName'],a['supervisor'],a['coordinator'],a['campaign'],a['channel'],a['status'],*[a['schedules'].get(d,'DD-DD') for d in _ROSTER_DAYS]])
     return send_file(io.BytesIO(output.getvalue().encode('utf-8-sig')),mimetype='text/csv; charset=utf-8',as_attachment=True,download_name='roster_operativo.csv')
 
 @app.route('/api/roster/template.csv', methods=['GET'])
 def roster_template_csv():
     output=io.StringIO(); writer=csv.writer(output)
-    writer.writerow(['ID Agente','Nombre Completo','Supervisor','Campaña','Canal','Estado',*_ROSTER_DAYS])
-    writer.writerow(['A-00001','Nombre Apellido','Supervisor 1','Coppel Servicios','Llamadas','Activo','08:00-17:00','08:00-17:00','08:00-17:00','08:00-17:00','08:00-17:00','DD-DD','DD-DD'])
+    writer.writerow(['ID Agente','Nombre Completo','Supervisor','Coordinador','Campaña','Canal','Estado',*_ROSTER_DAYS])
+    writer.writerow(['A-00001','Nombre Apellido','Supervisor 1','Coordinador 1','Coppel Servicios','Llamadas','Activo','08:00-17:00','08:00-17:00','08:00-17:00','08:00-17:00','08:00-17:00','DD-DD','DD-DD'])
     return send_file(io.BytesIO(output.getvalue().encode('utf-8-sig')),mimetype='text/csv; charset=utf-8',as_attachment=True,download_name='plantilla_carga_roster.csv')
+
+
+@app.route('/api/roster/template.xlsx', methods=['GET'])
+def roster_template_xlsx():
+    columns = ['ID Agente','Nombre Completo','Supervisor','Coordinador','Campaña','Canal','Estado',*_ROSTER_DAYS]
+    example = [[
+        'A-00001','Nombre Apellido','Supervisor 1','Coordinador 1','Coppel Servicios',
+        'Llamadas','Activo','08:00-17:00','08:00-17:00','08:00-17:00',
+        '08:00-17:00','08:00-17:00','DD-DD','DD-DD'
+    ]]
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        pd.DataFrame(example, columns=columns).to_excel(writer, sheet_name='Carga roster', index=False)
+        pd.DataFrame([
+            ['ID Agente','Obligatorio. Debe ser único.'],
+            ['Nombre Completo','Nombre y apellidos del agente.'],
+            ['Supervisor','Supervisor actual. Puede modificarse después.'],
+            ['Coordinador','Coordinador actual. Puede modificarse después.'],
+            ['Campaña','Obligatorio. Campaña/skill del agente.'],
+            ['Canal','Llamadas o Chat.'],
+            ['Estado','Activo o Inactivo.'],
+            ['Lunes-Domingo','Usa HH:MM-HH:MM. Para descanso usa DD-DD.']
+        ], columns=['Campo','Regla']).to_excel(writer, sheet_name='Instrucciones', index=False)
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name='plantilla_carga_masiva_roster.xlsx'
+    )
 
 @app.route('/api/roster/history', methods=['GET'])
 def roster_history():
@@ -1709,6 +1754,7 @@ def _assistant_roster_detail(excel_path):
                         'agentId': a.get('agentId'),
                         'fullName': a.get('fullName') or '',
                         'supervisor': a.get('supervisor') or '',
+                        'coordinator': a.get('coordinator') or '',
                         'campaign': a.get('campaign') or '',
                         'channel': a.get('channel') or '',
                         'schedules': schedules
@@ -2153,6 +2199,7 @@ def _assistant_optimize_roster(context, max_moves=6):
                     'agentId': roster_agent.get('agentId') or roster_agent.get('agent', 'Agente'),
                     'fullName': roster_agent.get('fullName', ''),
                     'supervisor': roster_agent.get('supervisor', ''),
+                    'coordinator': roster_agent.get('coordinator', ''),
                     'campaign': roster_agent.get('campaign', ''),
                     'campaignNorm': campaign_norm,
                     'channelNorm': channel_norm,
@@ -2242,6 +2289,7 @@ def _assistant_optimize_roster(context, max_moves=6):
             'agentId': cand.get('agentId', cand['agent']),
             'fullName': cand.get('fullName', ''),
             'supervisor': cand.get('supervisor', ''),
+            'coordinator': cand.get('coordinator', ''),
             'campaign': cand['campaign'],
             'channel': cand['channel'],
             'date': cand['date'],
