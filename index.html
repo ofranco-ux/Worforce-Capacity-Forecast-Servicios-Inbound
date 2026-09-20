@@ -3437,6 +3437,135 @@
             color:#287168;
         }
 
+
+        /* ================================================================
+           V6.4 · VIGENCIA DE HORARIOS
+           ================================================================ */
+        .roster-validity-panel { margin-top:12px; padding:11px; border-radius:13px; border:1px solid #D5E1E9; background:linear-gradient(145deg,#FFFFFF,#F7FAFC); }
+        .roster-validity-title { color:#29485E; font-size:8.5px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; }
+        .roster-validity-copy { margin-top:4px; color:#7B8D9E; font-size:7.7px; line-height:1.5; }
+        .roster-validity-segment { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:9px; padding:4px; border-radius:10px; background:#EDF3F6; }
+        .roster-validity-btn { min-height:32px; border-radius:8px; color:#62798C; font-size:8px; font-weight:900; }
+        .roster-validity-btn.is-active { background:#FFF; color:#284B60; border:1px solid #D0DCE5; box-shadow:0 8px 16px -15px rgba(28,52,72,.45); }
+        .roster-validity-btn:disabled { opacity:.45; cursor:not-allowed; }
+        .roster-temp-dates { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:9px; }
+        .roster-temp-dates.hidden { display:none !important; }
+        .roster-validity-note { margin-top:8px; padding:7px 8px; border-radius:9px; background:#EEF6F4; border:1px solid #D5E6E2; color:#4D756E; font-size:7.2px; line-height:1.45; }
+        .roster-temp-chip { display:inline-flex; min-height:23px; padding:0 7px; align-items:center; border-radius:999px; font-size:6.8px; font-weight:900; white-space:nowrap; }
+        .roster-temp-chip.base { background:#EEF2F5; color:#718395; }
+        .roster-temp-chip.active { background:#DDF1EC; color:#28756B; }
+        .roster-temp-chip.upcoming { background:#E9EEF9; color:#526DA3; }
+        .roster-temp-list { height:100%; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+        .roster-temp-card { padding:11px; border-radius:12px; border:1px solid #D9E3EA; background:#FFF; }
+        .roster-temp-card-top { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+        .roster-temp-name { color:#29485E; font-size:9px; font-weight:900; }
+        .roster-temp-meta { margin-top:3px; color:#8192A2; font-size:7.5px; line-height:1.45; }
+        .roster-temp-reason { margin-top:7px; color:#5D7487; font-size:8px; line-height:1.45; }
+        .roster-temp-actions { display:flex; justify-content:flex-end; gap:6px; margin-top:9px; }
+        .roster-temp-cancel { min-height:29px; padding:0 9px; border-radius:8px; border:1px solid #E2CDD2; background:#FCF7F8; color:#A45163; font-size:7.5px; font-weight:900; }
+        .roster-tab-count { display:inline-flex; min-width:18px; height:18px; margin-left:5px; align-items:center; justify-content:center; border-radius:999px; background:#E7EDF2; color:#657B8E; font-size:6.5px; font-weight:900; }
+        .roster-tab.is-active .roster-tab-count { background:#DDEFEA; color:#2F746B; }
+
+
+        /* ================================================================
+           V6.5 · VACACIONES / AUSENCIAS PLANIFICADAS
+           ================================================================ */
+        .roster-vacation-chip {
+            display:inline-flex;
+            min-height:23px;
+            padding:0 7px;
+            align-items:center;
+            border-radius:999px;
+            font-size:6.8px;
+            font-weight:900;
+            white-space:nowrap;
+        }
+        .roster-vacation-chip.none { background:#EEF2F5; color:#7A8B99; }
+        .roster-vacation-chip.requested { background:#FFF1D8; color:#8D6727; }
+        .roster-vacation-chip.approved { background:#DFF1EC; color:#28756B; }
+        .roster-vacation-chip.cancelled,
+        .roster-vacation-chip.rejected { background:#F3E7EA; color:#9B5362; }
+
+        .roster-row-actions { display:flex; gap:5px; align-items:center; }
+        .roster-vacation-btn {
+            min-height:27px;
+            padding:0 8px;
+            border-radius:8px;
+            border:1px solid #C9DDD8;
+            color:#34756C;
+            background:#F3FAF8;
+            font-size:7.5px;
+            font-weight:900;
+        }
+
+        .roster-vacation-list {
+            height:100%;
+            overflow:auto;
+            display:flex;
+            flex-direction:column;
+            gap:8px;
+        }
+        .roster-vacation-card {
+            padding:11px;
+            border-radius:12px;
+            border:1px solid #D9E3EA;
+            background:#FFF;
+        }
+        .roster-vacation-card.is-approved { border-color:#C9DED8; background:linear-gradient(145deg,#FFFFFF,#F4FAF8); }
+        .roster-vacation-card.is-requested { border-color:#E6D9BF; background:linear-gradient(145deg,#FFFFFF,#FFFBF3); }
+        .roster-vacation-card-top {
+            display:flex;
+            align-items:flex-start;
+            justify-content:space-between;
+            gap:10px;
+        }
+        .roster-vacation-name { color:#29485E; font-size:9px; font-weight:900; }
+        .roster-vacation-meta { margin-top:3px; color:#8192A2; font-size:7.5px; line-height:1.45; }
+        .roster-vacation-reason { margin-top:7px; color:#5D7487; font-size:8px; line-height:1.45; }
+        .roster-vacation-actions { display:flex; justify-content:flex-end; gap:6px; margin-top:9px; flex-wrap:wrap; }
+        .roster-vacation-action {
+            min-height:29px; padding:0 9px; border-radius:8px;
+            border:1px solid #CFDBE4; background:#FFF; color:#4D687C;
+            font-size:7.5px; font-weight:900;
+        }
+        .roster-vacation-action.approve { border-color:#BED9D2; background:#EEF8F5; color:#2D746B; }
+        .roster-vacation-action.reject { border-color:#E3CDD3; background:#FCF7F8; color:#A45163; }
+
+        .roster-vacation-editor {
+            width:min(450px,100%);
+            height:auto;
+            max-height:92%;
+            overflow:auto;
+            padding:16px;
+            background:#F7FAFC;
+            border-left:1px solid #CAD7E1;
+            box-shadow:-24px 0 55px -42px rgba(26,49,67,.6);
+        }
+        .roster-vacation-agent {
+            padding:9px 10px;
+            border-radius:10px;
+            border:1px solid #D7E2E9;
+            background:#FFF;
+            margin-top:12px;
+        }
+        .roster-vacation-agent strong { color:#29485E; font-size:9px; }
+        .roster-vacation-agent span { display:block; margin-top:2px; color:#7D8FA0; font-size:7.5px; }
+        .roster-vacation-warning {
+            margin-top:9px;
+            padding:8px 9px;
+            border-radius:9px;
+            border:1px solid #D7E5E1;
+            background:#EEF7F5;
+            color:#46766F;
+            font-size:7.4px;
+            line-height:1.45;
+        }
+        .roster-vacation-warning.requested {
+            border-color:#E8DCC4;
+            background:#FFF8EA;
+            color:#84652E;
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -5793,6 +5922,10 @@
         let rosterSelectedIds = new Set();
         let rosterEditingId = null;
         let rosterCurrentView = 'agents';
+        let rosterTemporaryChanges = [];
+        let rosterVacations = [];
+        let rosterVacationAgentId = null;
+        let rosterScheduleValidity = 'permanent';
         let rosterScheduleDay = 'Lunes';
 
         function rosterSafe(value) {
@@ -5811,12 +5944,13 @@
             document.getElementById('rosterManagerOverlay')?.classList.add('hidden');
             document.body.style.overflow = '';
             closeRosterEditor();
+            closeRosterVacationEditor();
             closeRosterBulkEditor();
         }
 
         async function loadRosterData() {
             const tbody = document.getElementById('rosterTableBody');
-            if (tbody) tbody.innerHTML = '<tr><td colspan="16" style="padding:30px;text-align:center;color:#7D8FA1">Cargando roster operativo…</td></tr>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="18" style="padding:30px;text-align:center;color:#7D8FA1">Cargando roster operativo…</td></tr>';
             try {
                 const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
                 const data = await response.json();
@@ -5826,11 +5960,17 @@
                 rosterCampaigns = data.campaigns || [];
                 rosterSupervisors = data.supervisors || [];
                 rosterCoordinators = data.coordinators || [];
+                rosterTemporaryChanges = Array.isArray(data.temporaryChanges) ? data.temporaryChanges : [];
+                rosterVacations = Array.isArray(data.vacations) ? data.vacations : [];
+                const tempCount=document.getElementById('rosterTempTabCount');
+                if(tempCount) tempCount.textContent=String(rosterTemporaryChanges.length);
+                const vacationCount=document.getElementById('rosterVacationTabCount');
+                if(vacationCount) vacationCount.textContent=String(rosterVacations.filter(v=>['requested','approved'].includes(v.status)).length);
                 updateRosterKpis();
                 populateRosterFilters();
                 renderRosterTable();
             } catch (error) {
-                if (tbody) tbody.innerHTML = `<tr><td colspan="16" style="padding:30px;text-align:center;color:#A75264">${rosterSafe(error.message)}</td></tr>`;
+                if (tbody) tbody.innerHTML = `<tr><td colspan="18" style="padding:30px;text-align:center;color:#A75264">${rosterSafe(error.message)}</td></tr>`;
             }
         }
 
@@ -6105,7 +6245,7 @@
             renderRosterScheduleTimeline(rows);
 
             if(!rows.length){
-                tbody.innerHTML='<tr><td colspan="16"><div class="roster-empty"><strong>Sin agentes para estos filtros</strong><span>Ajusta la búsqueda o carga una nueva plantilla.</span></div></td></tr>';
+                tbody.innerHTML='<tr><td colspan="18"><div class="roster-empty"><strong>Sin agentes para estos filtros</strong><span>Ajusta la búsqueda o carga una nueva plantilla.</span></div></td></tr>';
                 updateRosterBulkBar();
                 return;
             }
@@ -6125,7 +6265,16 @@
                     <td>${rosterSafe(a.channel)}</td>
                     ${schedules}
                     <td><span class="roster-status ${a.status==='Activo'?'active':'inactive'}">${rosterSafe(a.status)}</span></td>
-                    <td><button type="button" class="roster-edit-btn" onclick="openRosterEditor('${rosterSafe(a.agentId)}')">Editar</button></td>
+                    <td>${a.temporaryChange
+                        ? `<span class="roster-temp-chip ${a.temporaryChange.state==='active'?'active':'upcoming'}">${a.temporaryChange.state==='active'?'Temporal activo':'Temporal próximo'} · ${rosterSafe(a.temporaryChange.startDate)} → ${rosterSafe(a.temporaryChange.endDate)}</span>`
+                        : '<span class="roster-temp-chip base">Permanente / base</span>'}</td>
+                    <td>${a.vacation
+                        ? `<span class="roster-vacation-chip ${rosterSafe(a.vacation.status)}">${a.vacation.status==='approved'?'Aprobadas':'Solicitadas'} · ${rosterSafe(a.vacation.startDate)} → ${rosterSafe(a.vacation.endDate)}</span>`
+                        : '<span class="roster-vacation-chip none">Sin vacaciones</span>'}</td>
+                    <td><div class="roster-row-actions">
+                        <button type="button" class="roster-edit-btn" onclick="openRosterEditor('${rosterSafe(a.agentId)}')">Editar</button>
+                        <button type="button" class="roster-vacation-btn" onclick="openRosterVacationEditor('${rosterSafe(a.agentId)}')">Vacaciones</button>
+                    </div></td>
                 </tr>`;
             }).join('');
             updateRosterBulkBar();
@@ -6137,32 +6286,150 @@
         function updateRosterBulkBar(){const b=document.getElementById('rosterBulkBar'),c=document.getElementById('rosterBulkCopy');if(!b||!c)return;b.classList.toggle('hidden',!rosterSelectedIds.size);c.textContent=`${rosterSelectedIds.size} agente${rosterSelectedIds.size===1?'':'s'} seleccionado${rosterSelectedIds.size===1?'':'s'}`;}
         function resetRosterFilters(){['rosterSearch','rosterFilterCampaign','rosterFilterSupervisor','rosterFilterCoordinator','rosterFilterChannel','rosterFilterStatus'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});renderRosterTable();}
 
+        function rosterTodayIso(){
+            const d=new Date();
+            const local=new Date(d.getTime()-d.getTimezoneOffset()*60000);
+            return local.toISOString().slice(0,10);
+        }
+
+        function setRosterScheduleValidity(mode){
+            rosterScheduleValidity=mode==='temporary'?'temporary':'permanent';
+            document.getElementById('rosterValidityPermanent')?.classList.toggle('is-active',rosterScheduleValidity==='permanent');
+            document.getElementById('rosterValidityTemporary')?.classList.toggle('is-active',rosterScheduleValidity==='temporary');
+            document.getElementById('rosterTemporaryDates')?.classList.toggle('hidden',rosterScheduleValidity!=='temporary');
+            const note=document.getElementById('rosterValidityNote');
+            if(note){
+                note.textContent=rosterScheduleValidity==='temporary'
+                    ? 'Temporal: el horario base no cambia. Este patrón solo aplica entre fecha inicio y fecha fin. Supervisor, Coordinador, Campaña, Canal y Estado se guardan como datos permanentes.'
+                    : 'Permanente: el horario semanal se convierte en el horario base del agente desde ahora en adelante. Los cambios temporales ya existentes mantienen prioridad durante su vigencia.';
+            }
+        }
+
         function openRosterEditor(agentId=null){
-            rosterEditingId=agentId||null;const a=agentId?rosterAgents.find(x=>x.agentId===agentId):null;
+            rosterEditingId=agentId||null;
+            const a=agentId?rosterAgents.find(x=>x.agentId===agentId):null;
             document.getElementById('rosterEditorBackdrop')?.classList.remove('hidden');
             document.getElementById('rosterEditorTitle').textContent=a?`Editar · ${a.agentId}`:'Nuevo agente';
-            const idEl=document.getElementById('rosterEditId');idEl.value=a?.agentId||'';idEl.disabled=!!a;
+
+            const idEl=document.getElementById('rosterEditId');
+            idEl.value=a?.agentId||'';
+            idEl.disabled=!!a;
+
             document.getElementById('rosterEditName').value=a?.fullName||'';
             document.getElementById('rosterEditSupervisor').value=a?.supervisor||'';
             document.getElementById('rosterEditCoordinator').value=a?.coordinator||'';
             document.getElementById('rosterEditCampaign').value=a?.campaign||'';
             document.getElementById('rosterEditChannel').value=a?.channel||'Llamadas';
             document.getElementById('rosterEditStatus').value=a?.status||'Activo';
-            ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>document.getElementById(`rosterDay${d}`).value=a?.schedules?.[d]||'DD-DD');
+
+            ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>{
+                document.getElementById(`rosterDay${d}`).value=a?.schedules?.[d]||'DD-DD';
+            });
+
+            document.getElementById('rosterValidityReason').value='';
+            document.getElementById('rosterTempStart').value=rosterTodayIso();
+            document.getElementById('rosterTempEnd').value=rosterTodayIso();
+
+            const tempBtn=document.getElementById('rosterValidityTemporary');
+            if(tempBtn){
+                tempBtn.disabled=!a;
+                tempBtn.title=a?'Crear un cambio temporal':'Primero crea el agente con un horario permanente';
+            }
+            setRosterScheduleValidity('permanent');
         }
-        function closeRosterEditor(){document.getElementById('rosterEditorBackdrop')?.classList.add('hidden');rosterEditingId=null;}
+
+        function closeRosterEditor(){
+            document.getElementById('rosterEditorBackdrop')?.classList.add('hidden');
+            rosterEditingId=null;
+            setRosterScheduleValidity('permanent');
+        }
 
         async function saveRosterAgent(){
             const btn=document.getElementById('rosterSaveAgentBtn');
-            const payload={agentId:String(document.getElementById('rosterEditId')?.value||'').trim(),fullName:String(document.getElementById('rosterEditName')?.value||'').trim(),supervisor:String(document.getElementById('rosterEditSupervisor')?.value||'').trim(),coordinator:String(document.getElementById('rosterEditCoordinator')?.value||'').trim(),campaign:String(document.getElementById('rosterEditCampaign')?.value||'').trim(),channel:document.getElementById('rosterEditChannel')?.value||'Llamadas',status:document.getElementById('rosterEditStatus')?.value||'Activo',schedules:{},actorMode:currentMode,reason:rosterEditingId?'Edición desde Gestión de horarios':'Alta desde Gestión de horarios'};
-            ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>payload.schedules[d]=String(document.getElementById(`rosterDay${d}`)?.value||'DD-DD').trim());
-            if(!payload.agentId||!payload.campaign){alert('ID del agente y Campaña son obligatorios.');return;}
+            const existing=rosterEditingId?rosterAgents.find(x=>x.agentId===rosterEditingId):null;
+            const savingValidity=rosterScheduleValidity;
+
+            const editedSchedules={};
+            ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>{
+                editedSchedules[d]=String(document.getElementById(`rosterDay${d}`)?.value||'DD-DD').trim();
+            });
+
+            const reason=String(document.getElementById('rosterValidityReason')?.value||'').trim();
+            const payload={
+                agentId:String(document.getElementById('rosterEditId')?.value||'').trim(),
+                fullName:String(document.getElementById('rosterEditName')?.value||'').trim(),
+                supervisor:String(document.getElementById('rosterEditSupervisor')?.value||'').trim(),
+                coordinator:String(document.getElementById('rosterEditCoordinator')?.value||'').trim(),
+                campaign:String(document.getElementById('rosterEditCampaign')?.value||'').trim(),
+                channel:document.getElementById('rosterEditChannel')?.value||'Llamadas',
+                status:document.getElementById('rosterEditStatus')?.value||'Activo',
+                schedules:savingValidity==='temporary'&&existing?(existing.schedules||{}):editedSchedules,
+                actorMode:currentMode,
+                reason:reason||(savingValidity==='temporary'?'Datos del agente actualizados durante cambio temporal':'Cambio permanente desde Gestión de horarios')
+            };
+
+            if(!payload.agentId||!payload.campaign){
+                alert('ID del agente y Campaña son obligatorios.');
+                return;
+            }
+
+            const startDate=document.getElementById('rosterTempStart')?.value||'';
+            const endDate=document.getElementById('rosterTempEnd')?.value||'';
+            if(savingValidity==='temporary'){
+                if(!existing){
+                    alert('Los agentes nuevos deben crearse primero con un horario permanente.');
+                    return;
+                }
+                if(!startDate||!endDate){
+                    alert('Para un cambio temporal debes indicar fecha inicio y fecha fin.');
+                    return;
+                }
+                if(endDate<startDate){
+                    alert('La fecha fin no puede ser anterior a la fecha inicio.');
+                    return;
+                }
+            }
+
             if(btn){btn.disabled=true;btn.textContent='Guardando…';}
             try{
-                const response=await fetch('/api/roster/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-                const data=await response.json();if(!response.ok)throw new Error(data.error||'No se pudo guardar.');
-                closeRosterEditor();await loadRosterData();await refreshForecastAfterRosterChange();
-            }catch(error){alert(error.message)}finally{if(btn){btn.disabled=false;btn.textContent='Guardar cambios';}}
+                const response=await fetch('/api/roster/agent',{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify(payload)
+                });
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudo guardar.');
+
+                if(savingValidity==='temporary'){
+                    const tempResponse=await fetch('/api/roster/temporary-schedule',{
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify({
+                            agentId:payload.agentId,
+                            schedules:editedSchedules,
+                            startDate,
+                            endDate,
+                            reason:reason||'Cambio temporal de horario',
+                            actorMode:currentMode
+                        })
+                    });
+                    const tempData=await tempResponse.json();
+                    if(!tempResponse.ok)throw new Error(tempData.error||'No se pudo crear el cambio temporal.');
+                    const skipped=Number(tempData.change?.skippedConflicts||0);
+                    if(skipped){
+                        alert(`Cambio temporal creado. ${skipped} fecha(s) conservaron una recomendación específica de Frank que ya estaba aplicada.`);
+                    }
+                }
+
+                closeRosterEditor();
+                await loadRosterData();
+                await refreshForecastAfterRosterChange();
+                if(savingValidity==='temporary') setRosterView('temporary');
+            }catch(error){
+                alert(error.message);
+            }finally{
+                if(btn){btn.disabled=false;btn.textContent='Guardar cambios';}
+            }
         }
 
         function openRosterBulkEditor(){if(!rosterSelectedIds.size)return;document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');['rosterBulkSupervisor','rosterBulkCoordinator','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>document.getElementById(id).value='');}
@@ -6193,12 +6460,188 @@
         function exportRosterCsv(){window.location.href='/api/roster/export.csv';}
         function downloadRosterTemplate(){window.location.href='/api/roster/template.xlsx';}
 
+
+        function openRosterVacationEditor(agentId){
+            const agent=rosterAgents.find(a=>a.agentId===agentId);
+            if(!agent)return;
+            rosterVacationAgentId=agentId;
+            document.getElementById('rosterVacationBackdrop')?.classList.remove('hidden');
+            const info=document.getElementById('rosterVacationAgentInfo');
+            if(info){
+                info.innerHTML=`<strong>${rosterSafe(agent.agentId)} · ${rosterSafe(agent.fullName||'Sin nombre registrado')}</strong>
+                    <span>${rosterSafe(agent.campaign||'')} · Sup. ${rosterSafe(agent.supervisor||'—')} · Coord. ${rosterSafe(agent.coordinator||'—')}</span>`;
+            }
+            const today=rosterTodayIso();
+            document.getElementById('rosterVacationStart').value=today;
+            document.getElementById('rosterVacationEnd').value=today;
+            document.getElementById('rosterVacationStatus').value='requested';
+            document.getElementById('rosterVacationReason').value='';
+            updateRosterVacationWarning();
+        }
+
+        function closeRosterVacationEditor(){
+            document.getElementById('rosterVacationBackdrop')?.classList.add('hidden');
+            rosterVacationAgentId=null;
+        }
+
+        function updateRosterVacationWarning(){
+            const status=document.getElementById('rosterVacationStatus')?.value||'requested';
+            const box=document.getElementById('rosterVacationWarning');
+            if(!box)return;
+            box.classList.toggle('requested',status==='requested');
+            box.textContent=status==='approved'
+                ? 'Aprobada: el agente se descontará automáticamente de la capacidad del forecast durante estas fechas.'
+                : 'Solicitada: queda registrada, pero todavía no se descuenta del forecast hasta que sea aprobada.';
+        }
+
+        async function saveRosterVacation(){
+            if(!rosterVacationAgentId)return;
+            const startDate=document.getElementById('rosterVacationStart')?.value||'';
+            const endDate=document.getElementById('rosterVacationEnd')?.value||'';
+            const status=document.getElementById('rosterVacationStatus')?.value||'requested';
+            const reason=String(document.getElementById('rosterVacationReason')?.value||'').trim();
+            if(!startDate||!endDate){alert('Indica fecha inicio y fecha fin.');return;}
+            if(endDate<startDate){alert('La fecha fin no puede ser anterior a la fecha inicio.');return;}
+
+            const btn=document.getElementById('rosterVacationSaveBtn');
+            if(btn){btn.disabled=true;btn.textContent='Guardando…';}
+            try{
+                const response=await fetch('/api/roster/vacations',{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({
+                        agentId:rosterVacationAgentId,
+                        startDate,endDate,status,reason,
+                        actorMode:currentMode
+                    })
+                });
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudieron registrar las vacaciones.');
+                closeRosterVacationEditor();
+                await loadRosterData();
+                if(status==='approved')await refreshForecastAfterRosterChange();
+                setRosterView('vacations');
+            }catch(error){
+                alert(error.message);
+            }finally{
+                if(btn){btn.disabled=false;btn.textContent='Guardar vacaciones';}
+            }
+        }
+
+        function renderRosterVacations(){
+            const list=document.getElementById('rosterVacationList');
+            if(!list)return;
+            const vacations=(rosterVacations||[]).filter(v=>!['cancelled','rejected'].includes(v.status));
+            const count=document.getElementById('rosterVacationTabCount');
+            if(count)count.textContent=String(vacations.length);
+
+            if(!vacations.length){
+                list.innerHTML='<div class="roster-empty"><strong>Sin vacaciones vigentes o futuras</strong><span>Registra vacaciones desde el botón Vacaciones de cada agente.</span></div>';
+                return;
+            }
+
+            list.innerHTML=vacations.map(v=>{
+                const approved=v.status==='approved';
+                const statusLabel=approved?'Aprobadas · excluidas del forecast':'Solicitadas · pendientes';
+                return `<article class="roster-vacation-card ${approved?'is-approved':'is-requested'}">
+                    <div class="roster-vacation-card-top">
+                        <div>
+                            <div class="roster-vacation-name">${rosterSafe(v.agentId)} · ${rosterSafe(v.fullName||'Sin nombre registrado')}</div>
+                            <div class="roster-vacation-meta">${rosterSafe(v.campaign||'')} · Sup. ${rosterSafe(v.supervisor||'—')} · Coord. ${rosterSafe(v.coordinator||'—')}</div>
+                        </div>
+                        <span class="roster-vacation-chip ${approved?'approved':'requested'}">${statusLabel}</span>
+                    </div>
+                    <div class="roster-vacation-meta" style="margin-top:7px"><strong>${rosterSafe(v.startDate)}</strong> → <strong>${rosterSafe(v.endDate)}</strong>${v.state==='active'?' · EN CURSO':''}</div>
+                    <div class="roster-vacation-reason">${rosterSafe(v.reason||'Sin comentario')}</div>
+                    <div class="roster-vacation-actions">
+                        ${!approved?`<button type="button" class="roster-vacation-action approve" onclick="changeRosterVacationStatus(${Number(v.id)},'approved')">Aprobar y excluir</button>`:''}
+                        ${!approved?`<button type="button" class="roster-vacation-action reject" onclick="changeRosterVacationStatus(${Number(v.id)},'rejected')">Rechazar</button>`:''}
+                        ${approved?`<button type="button" class="roster-vacation-action reject" onclick="changeRosterVacationStatus(${Number(v.id)},'cancelled')">Cancelar vacaciones</button>`:''}
+                    </div>
+                </article>`;
+            }).join('');
+        }
+
+        async function changeRosterVacationStatus(vacationId,status){
+            const labels={approved:'aprobar estas vacaciones y excluir al agente del forecast',rejected:'rechazar esta solicitud',cancelled:'cancelar estas vacaciones'};
+            if(!confirm(`¿Confirmas ${labels[status]||'este cambio'}?`))return;
+            try{
+                const response=await fetch(`/api/roster/vacation/${vacationId}/status`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({status,actorMode:currentMode})
+                });
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudo actualizar la solicitud.');
+                await loadRosterData();
+                renderRosterVacations();
+                if(status==='approved'||status==='cancelled')await refreshForecastAfterRosterChange();
+            }catch(error){
+                alert(error.message);
+            }
+        }
+
+        function renderRosterTemporaryChanges(){
+            const list=document.getElementById('rosterTemporaryList');
+            if(!list)return;
+            const changes=rosterTemporaryChanges||[];
+            const count=document.getElementById('rosterTempTabCount');
+            if(count)count.textContent=String(changes.length);
+
+            if(!changes.length){
+                list.innerHTML='<div class="roster-empty"><strong>Sin cambios temporales vigentes o futuros</strong><span>Los temporales aparecerán aquí hasta que termine su vigencia o sean cancelados.</span></div>';
+                return;
+            }
+
+            list.innerHTML=changes.map(change=>{
+                const active=change.state==='active';
+                return `<article class="roster-temp-card">
+                    <div class="roster-temp-card-top">
+                        <div>
+                            <div class="roster-temp-name">${rosterSafe(change.agentId)} · ${rosterSafe(change.fullName||'Sin nombre registrado')}</div>
+                            <div class="roster-temp-meta">${rosterSafe(change.campaign||'')} · Sup. ${rosterSafe(change.supervisor||'—')} · Coord. ${rosterSafe(change.coordinator||'—')}</div>
+                        </div>
+                        <span class="roster-temp-chip ${active?'active':'upcoming'}">${active?'Temporal activo':'Programado'}</span>
+                    </div>
+                    <div class="roster-temp-meta" style="margin-top:7px"><strong>${rosterSafe(change.startDate)}</strong> → <strong>${rosterSafe(change.endDate)}</strong> · ${Number(change.dayCount||0)} día(s)</div>
+                    <div class="roster-temp-reason">${rosterSafe(change.reason||'Sin motivo registrado')}</div>
+                    <div class="roster-temp-actions">
+                        <button type="button" class="roster-temp-cancel" onclick="cancelRosterTemporaryChange('${rosterSafe(change.batchId)}','${rosterSafe(change.agentId)}')">Cancelar temporal</button>
+                    </div>
+                </article>`;
+            }).join('');
+        }
+
+        async function cancelRosterTemporaryChange(batchId,agentId){
+            if(!confirm(`Cancelar el cambio temporal de ${agentId}?\n\nPara las fechas pendientes volverá a utilizar su horario base.`))return;
+            try{
+                const response=await fetch(`/api/roster/temporary-change/${encodeURIComponent(batchId)}/cancel`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({actorMode:currentMode,reason:'Cancelado desde Gestión de horarios'})
+                });
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudo cancelar el temporal.');
+                await loadRosterData();
+                renderRosterTemporaryChanges();
+                await refreshForecastAfterRosterChange();
+            }catch(error){
+                alert(error.message);
+            }
+        }
+
         async function setRosterView(view){
             rosterCurrentView=view;
             document.getElementById('rosterAgentsView')?.classList.toggle('hidden',view!=='agents');
+            document.getElementById('rosterVacationView')?.classList.toggle('hidden',view!=='vacations');
+            document.getElementById('rosterTemporaryView')?.classList.toggle('hidden',view!=='temporary');
             document.getElementById('rosterHistoryView')?.classList.toggle('hidden',view!=='history');
             document.getElementById('rosterTabAgents')?.classList.toggle('is-active',view==='agents');
+            document.getElementById('rosterTabVacation')?.classList.toggle('is-active',view==='vacations');
+            document.getElementById('rosterTabTemporary')?.classList.toggle('is-active',view==='temporary');
             document.getElementById('rosterTabHistory')?.classList.toggle('is-active',view==='history');
+            if(view==='vacations')renderRosterVacations();
+            if(view==='temporary')renderRosterTemporaryChanges();
             if(view==='history')await loadRosterHistory();
         }
 
@@ -6211,7 +6654,7 @@
                 if(!rows.length){list.innerHTML='<div class="roster-empty"><strong>Sin cambios registrados</strong><span>Las modificaciones aparecerán aquí.</span></div>';return;}
                 list.innerHTML=rows.map(r=>{
                     const before=r.before||{},after=r.after||{};let type=r.changeType;
-                    if(type==='agent_updated')type='Horario / datos actualizados';if(type==='agent_created')type='Agente agregado';if(type==='frank_recommendation_applied')type='Recomendación de Frank aplicada';
+                    if(type==='agent_updated')type='Horario / datos actualizados';if(type==='agent_created')type='Agente agregado';if(type==='frank_recommendation_applied')type='Recomendación de Frank aplicada';if(type==='temporary_schedule_created')type='Horario temporal creado';if(type==='temporary_schedule_cancelled')type='Horario temporal cancelado';if(type==='vacation_created')type='Vacaciones registradas';if(type==='vacation_status_changed')type='Estado de vacaciones actualizado';
                     const detail=(before.schedule||after.schedule)?`${before.date||after.date||''} · ${before.schedule||'—'} → ${after.schedule||'—'}`:`${after.fullName||before.fullName||'Sin nombre'} · ${after.campaign||before.campaign||''}`;
                     return `<div class="roster-history-card"><div class="roster-history-title">${rosterSafe(r.agentId||'—')} · ${rosterSafe(type)}</div><div class="roster-history-meta">${rosterSafe(String(r.changedAt||'').replace('T',' '))} · ${rosterSafe(r.changedBy||'')}</div><div class="roster-history-change">${rosterSafe(detail)}${r.reason?` · ${rosterSafe(r.reason)}`:''}</div></div>`;
                 }).join('');
@@ -7771,6 +8214,8 @@
 
             <div class="roster-tabs">
                 <button id="rosterTabAgents" type="button" class="roster-tab is-active" onclick="setRosterView('agents')">Plantilla actual</button>
+                <button id="rosterTabVacation" type="button" class="roster-tab" onclick="setRosterView('vacations')">Vacaciones <span id="rosterVacationTabCount" class="roster-tab-count">0</span></button>
+                <button id="rosterTabTemporary" type="button" class="roster-tab" onclick="setRosterView('temporary')">Cambios temporales <span id="rosterTempTabCount" class="roster-tab-count">0</span></button>
                 <button id="rosterTabHistory" type="button" class="roster-tab" onclick="setRosterView('history')">Historial de cambios</button>
             </div>
 
@@ -7799,7 +8244,7 @@
                             <thead><tr>
                                 <th><input id="rosterSelectAll" type="checkbox" onchange="toggleRosterSelectAll(this.checked)"></th>
                                 <th>ID agente</th><th>Nombre completo</th><th>Supervisor</th><th>Coordinador</th><th>Campaña</th><th>Canal</th>
-                                <th>Lunes</th><th>Martes</th><th>Miércoles</th><th>Jueves</th><th>Viernes</th><th>Sábado</th><th>Domingo</th><th>Estado</th><th>Acciones</th>
+                                <th>Lunes</th><th>Martes</th><th>Miércoles</th><th>Jueves</th><th>Viernes</th><th>Sábado</th><th>Domingo</th><th>Estado</th><th>Vigencia horario</th><th>Vacaciones</th><th>Acciones</th>
                             </tr></thead>
                             <tbody id="rosterTableBody"></tbody>
                         </table>
@@ -7832,6 +8277,13 @@
                 </div>
             </div>
 
+            <div id="rosterVacationView" class="roster-content hidden">
+                <div id="rosterVacationList" class="roster-vacation-list"></div>
+            </div>
+
+            <div id="rosterTemporaryView" class="roster-content hidden">
+                <div id="rosterTemporaryList" class="roster-temp-list"></div>
+            </div>
             <div id="rosterHistoryView" class="roster-content hidden"><div id="rosterHistoryList" class="roster-history-list"></div></div>
 
             <div id="rosterEditorBackdrop" class="roster-editor-backdrop hidden">
@@ -7858,7 +8310,62 @@
                         <div class="roster-day"><label>Sábado</label><input id="rosterDaySábado" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
                         <div class="roster-day"><label>Domingo</label><input id="rosterDayDomingo" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
                     </div>
+
+                    <div class="roster-validity-panel">
+                        <div class="roster-validity-title">Vigencia del horario</div>
+                        <div class="roster-validity-copy">Elige si el horario semanal reemplaza la base permanentemente o si solo aplica durante un periodo específico.</div>
+                        <div class="roster-validity-segment">
+                            <button id="rosterValidityPermanent" type="button" class="roster-validity-btn is-active" onclick="setRosterScheduleValidity('permanent')">Permanente</button>
+                            <button id="rosterValidityTemporary" type="button" class="roster-validity-btn" onclick="setRosterScheduleValidity('temporary')">Temporal</button>
+                        </div>
+                        <div id="rosterTemporaryDates" class="roster-temp-dates hidden">
+                            <div class="roster-field"><label>Fecha inicio</label><input id="rosterTempStart" type="date" class="roster-input"></div>
+                            <div class="roster-field"><label>Fecha fin</label><input id="rosterTempEnd" type="date" class="roster-input"></div>
+                        </div>
+                        <div class="roster-field full" style="margin-top:8px">
+                            <label>Motivo del cambio</label>
+                            <input id="rosterValidityReason" class="roster-input" placeholder="Ej. cobertura temporal, capacitación, cambio de turno…">
+                        </div>
+                        <div id="rosterValidityNote" class="roster-validity-note">Permanente: el horario semanal se convierte en el horario base del agente desde ahora en adelante.</div>
+                    </div>
+
                     <div class="roster-editor-actions"><button type="button" class="roster-cancel-btn" onclick="closeRosterEditor()">Cancelar</button><button id="rosterSaveAgentBtn" type="button" class="roster-save-btn" onclick="saveRosterAgent()">Guardar cambios</button></div>
+                </aside>
+            </div>
+
+            <div id="rosterVacationBackdrop" class="roster-editor-backdrop hidden">
+                <aside class="roster-vacation-editor">
+                    <div class="roster-editor-head">
+                        <div>
+                            <div class="roster-editor-title">Registrar vacaciones</div>
+                            <div class="roster-editor-copy">Solo las vacaciones aprobadas se descuentan de la capacidad y del forecast.</div>
+                        </div>
+                        <button type="button" class="roster-close-editor" onclick="closeRosterVacationEditor()">✕</button>
+                    </div>
+
+                    <div id="rosterVacationAgentInfo" class="roster-vacation-agent"></div>
+
+                    <div class="roster-form-grid">
+                        <div class="roster-field"><label>Fecha inicio</label><input id="rosterVacationStart" type="date" class="roster-input"></div>
+                        <div class="roster-field"><label>Fecha fin</label><input id="rosterVacationEnd" type="date" class="roster-input"></div>
+                        <div class="roster-field full">
+                            <label>Estado</label>
+                            <select id="rosterVacationStatus" class="roster-select" onchange="updateRosterVacationWarning()">
+                                <option value="requested">Solicitada</option>
+                                <option value="approved">Aprobada · excluir del forecast</option>
+                            </select>
+                        </div>
+                        <div class="roster-field full"><label>Motivo / comentario</label><input id="rosterVacationReason" class="roster-input" placeholder="Ej. Vacaciones anuales"></div>
+                    </div>
+
+                    <div id="rosterVacationWarning" class="roster-vacation-warning requested">
+                        Solicitada: queda registrada, pero todavía no se descuenta del forecast hasta que sea aprobada.
+                    </div>
+
+                    <div class="roster-editor-actions">
+                        <button type="button" class="roster-cancel-btn" onclick="closeRosterVacationEditor()">Cancelar</button>
+                        <button id="rosterVacationSaveBtn" type="button" class="roster-save-btn" onclick="saveRosterVacation()">Guardar vacaciones</button>
+                    </div>
                 </aside>
             </div>
 
@@ -8007,3 +8514,4 @@
 
 </body>
 </html>
+
