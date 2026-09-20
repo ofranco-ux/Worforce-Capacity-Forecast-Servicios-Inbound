@@ -13,7 +13,7 @@ import csv
 from functools import lru_cache
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from flask import Flask, request, jsonify, send_from_directory, make_response, send_file
+from flask import Flask, request, jsonify, send_from_directory, make_response, send_file, Response, stream_with_context
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
@@ -32,6 +32,10 @@ CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
 CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
 ANNUAL_BASE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_annual_base_2026_llamadas.json')
 ANNUAL_BASE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_annual_base_2026_chat.json')
+ACTUAL_2026_FILE_LLAMADAS = os.path.join(BASE_DIR, 'actual_2026_llamadas.json')
+ACTUAL_2026_FILE_CHAT = os.path.join(BASE_DIR, 'actual_2026_chat.json')
+ACTUAL_2026_META_LLAMADAS = os.path.join(BASE_DIR, 'actual_2026_llamadas.meta.json')
+ACTUAL_2026_META_CHAT = os.path.join(BASE_DIR, 'actual_2026_chat.meta.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
 EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
 WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
@@ -48,6 +52,7 @@ _WFM_ACTION_LOG_LOCK = threading.RLock()
 _FORECAST_MEMORY_CACHE = {'llamadas': None, 'chat': None}
 _FORECAST_CACHE_GENERATION = {'llamadas': 0, 'chat': 0}
 _FORECAST_CACHE_LOCK = threading.RLock()
+_FORECAST_CALC_LOCK = threading.Lock()
 _ANNUAL_BASE_MEMORY = {'llamadas': None, 'chat': None}
 _ANNUAL_BASE_LOCK = threading.RLock()
 _EXCEL_INFO_CACHE = {}
@@ -95,38 +100,34 @@ def _guardar_annual_base(mode, data):
         os.replace(tmp, target)
 
 def _guardar_cache_forecast(mode, data):
+    """
+    Persist forecast with a streaming JSON encoder.
+    The full dataset is not pinned in _FORECAST_MEMORY_CACHE and no second
+    giant json.dumps() string is created in a background thread.
+    """
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
-    with _FORECAST_CACHE_LOCK:
-        _FORECAST_MEMORY_CACHE[mode] = data
-        _FORECAST_CACHE_GENERATION[mode] += 1
-        generation = _FORECAST_CACHE_GENERATION[mode]
-
-    # Persistir en segundo plano evita que json.dump bloquee la respuesta HTTP.
-    # Si se lanza un cálculo nuevo antes de terminar, el resultado anterior no
-    # sobreescribe al más reciente.
-    def _persistir():
+    target = _cache_path(mode)
+    tmp = target + '.tmp'
+    encoder = json.JSONEncoder(ensure_ascii=False, separators=(',', ':'))
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            for chunk in encoder.iterencode(data):
+                f.write(chunk)
+        os.replace(tmp, target)
+        with _FORECAST_CACHE_LOCK:
+            _FORECAST_MEMORY_CACHE[mode] = None
+            _FORECAST_CACHE_GENERATION[mode] += 1
+    except Exception as e:
         try:
-            payload = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-            with _FORECAST_CACHE_LOCK:
-                if generation != _FORECAST_CACHE_GENERATION[mode]:
-                    return
-                target = _cache_path(mode)
-                tmp = f"{target}.{generation}.tmp"
-                with open(tmp, 'w', encoding='utf-8') as f:
-                    f.write(payload)
-                os.replace(tmp, target)
-        except Exception as e:
-            print(f"No se pudo persistir caché {mode}: {e}")
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        print(f"No se pudo persistir caché {mode}: {e}")
 
-    threading.Thread(target=_persistir, daemon=True, name=f'wfm-cache-{mode}').start()
 
 def _leer_cache_forecast(mode):
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
-    with _FORECAST_CACHE_LOCK:
-        mem = _FORECAST_MEMORY_CACHE.get(mode)
-    if isinstance(mem, list) and mem:
-        return mem
-
     target = _cache_path(mode)
     if not os.path.exists(target):
         return None
@@ -134,12 +135,35 @@ def _leer_cache_forecast(mode):
         with open(target, 'r', encoding='utf-8') as f:
             data = json.load(f)
         if isinstance(data, list) and data:
-            with _FORECAST_CACHE_LOCK:
-                _FORECAST_MEMORY_CACHE[mode] = data
             return data
     except Exception:
         pass
     return None
+
+def _stream_json_rows(rows, status=200):
+    encoder = json.JSONEncoder(ensure_ascii=False, separators=(',', ':'))
+
+    def generate():
+        try:
+            yield '['
+            first = True
+            for row in rows:
+                if not first:
+                    yield ','
+                first = False
+                for chunk in encoder.iterencode(row):
+                    yield chunk
+            yield ']'
+        finally:
+            gc.collect()
+
+    response = Response(
+        stream_with_context(generate()),
+        status=status,
+        mimetype='application/json'
+    )
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 def _excel_signature(excel_path):
     try:
@@ -1106,10 +1130,7 @@ def _forecast_apply_control(channel, data):
     mode = _forecast_channel_norm(channel)
     locks = _forecast_active_locks(mode)
     rows_map = _forecast_lock_rows_map([v['id'] for v in locks.values()]) if locks else {}
-    result = []
-
-    for raw in data:
-        row = dict(raw)
+    for row in data:
         is_real = str(row.get('Dato_Tipo') or row.get('Forecast_Tipo') or '').lower() == 'real'
         month_key = _forecast_month_key_from_date(row.get('Fecha'))
         lock = locks.get((month_key,mode))
@@ -1137,7 +1158,6 @@ def _forecast_apply_control(channel, data):
                 row['Forecast_Oficial'] = current_value
                 row['Forecast_Al_Cierre'] = None
                 row['Lock_Version'] = None
-            result.append(row)
             continue
 
         key = _forecast_row_key(row)
@@ -1162,7 +1182,6 @@ def _forecast_apply_control(channel, data):
                 row['Forecast_Oficial'] = 0
                 row['Llamadas'] = 0
                 row['Forecast_Al_Cierre'] = 0
-            result.append(row)
             continue
 
         official = _forecast_num(snap['official_forecast'],0)
@@ -1195,8 +1214,7 @@ def _forecast_apply_control(channel, data):
             row['Factor_Cobertura_Ambulancia'] = _forecast_num(
                 snap['factor_cobertura'],row.get('Factor_Cobertura_Ambulancia',1)
             )
-        result.append(row)
-    return result
+    return data
 
 
 def _forecast_raw_month_rows(channel, month_key, data=None):
@@ -1227,20 +1245,36 @@ def _forecast_settings(mode):
             pass
     return sl, tt, merma, dias, concurrencia, campaign_settings
 
+def _forecast_actual_cache_paths(mode):
+    if _forecast_channel_norm(mode) == 'chat':
+        return ACTUAL_2026_FILE_CHAT, ACTUAL_2026_META_CHAT
+    return ACTUAL_2026_FILE_LLAMADAS, ACTUAL_2026_META_LLAMADAS
+
 def _forecast_actual_source_2026(channel):
     """
-    Reads the actual 2026 volume/AHT already present in historico.xlsx.
-    This is source data, not a reconstructed forecast.
+    Reads actual 2026 volume/AHT already present in historico.xlsx.
+    Uses a disk cache instead of the in-process Excel info cache.
     """
     mode = _forecast_channel_norm(channel)
     excel_path = buscar_archivo_excel()
     if not excel_path:
         return []
 
-    cache_key = f'actual2026:{mode}:{_forecast_today_iso()}'
-    cached = _cache_excel_info_get(excel_path, cache_key)
-    if isinstance(cached, list):
-        return cached
+    data_path, meta_path = _forecast_actual_cache_paths(mode)
+    signature = list(_excel_signature(excel_path))
+    today = _forecast_today_iso()
+
+    try:
+        if os.path.exists(data_path) and os.path.exists(meta_path):
+            with open(meta_path,'r',encoding='utf-8') as f:
+                meta = json.load(f)
+            if meta.get('signature') == signature and meta.get('today') == today:
+                with open(data_path,'r',encoding='utf-8') as f:
+                    cached = json.load(f)
+                if isinstance(cached,list):
+                    return cached
+    except Exception:
+        pass
 
     xls = pd.ExcelFile(excel_path, engine='openpyxl')
     sheet = None
@@ -1260,31 +1294,45 @@ def _forecast_actual_source_2026(channel):
     if not sheet:
         return []
 
-    df_raw = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
+    # Read header first, then only the columns required for actual history.
+    header = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl', nrows=0)
     col_calls = encontrar_columna(
-        df_raw,
+        header,
         ['recibidos','recibidas','llamadas','calls','volumen','ofrecidas','entrada','chats','mensajes']
     )
-    col_aht = encontrar_columna(df_raw, ['aht','tmo','handle','duracion'])
-    col_camp = encontrar_columna(df_raw, ['campaña','campana','skill','servicio','ring group'])
-    col_inter = encontrar_columna(df_raw, ['intervalo','hora','time'])
-    col_fecha = encontrar_columna(df_raw, ['fecha','date'])
+    col_aht = encontrar_columna(header, ['aht','tmo','handle','duracion'])
+    col_camp = encontrar_columna(header, ['campaña','campana','skill','servicio','ring group'])
+    col_inter = encontrar_columna(header, ['intervalo','hora','time'])
+    col_fecha = encontrar_columna(header, ['fecha','date'])
 
-    if not col_camp: col_camp = df_raw.columns[0]
-    if not col_fecha: col_fecha = df_raw.columns[1]
-    if not col_inter: col_inter = df_raw.columns[2]
-    if not col_calls: col_calls = df_raw.columns[3]
+    cols = list(header.columns)
+    if not col_camp: col_camp = cols[0]
+    if not col_fecha: col_fecha = cols[1]
+    if not col_inter: col_inter = cols[2]
+    if not col_calls: col_calls = cols[3]
+
+    usecols = []
+    for c in [col_camp,col_fecha,col_inter,col_calls,col_aht]:
+        if c and c not in usecols:
+            usecols.append(c)
+
+    df_raw = pd.read_excel(
+        xls, sheet_name=sheet, engine='openpyxl', usecols=usecols
+    )
+    try:
+        xls.close()
+    except Exception:
+        pass
 
     df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
     df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
     df_raw = df_raw.dropna(subset=[col_fecha])
-    today = pd.Timestamp(_forecast_today_iso())
+    today_ts = pd.Timestamp(today)
     df_raw = df_raw[
         (df_raw[col_fecha].dt.year == FORECAST_ANNUAL_YEAR) &
-        (df_raw[col_fecha] <= today)
+        (df_raw[col_fecha] <= today_ts)
     ].copy()
     if df_raw.empty:
-        _cache_excel_info_set(excel_path, cache_key, [])
         return []
 
     df_raw[col_calls] = [clean_num(x,0.0) for x in df_raw[col_calls]]
@@ -1301,6 +1349,10 @@ def _forecast_actual_source_2026(channel):
         .agg(volume=(col_calls,'sum'), handle=('_HANDLE_SECONDS_','sum'))
         .reset_index()
     )
+    del df_raw
+    gc.collect()
+
+    grouped = grouped[grouped['volume'] > 0].copy()
     grouped['aht'] = np.where(
         grouped['volume'] > 0,
         grouped['handle'] / grouped['volume'],
@@ -1323,9 +1375,25 @@ def _forecast_actual_source_2026(channel):
             'AHT_Segundos': int(round(float(r['aht'] or 0))),
             'AHT': format_aht_str(float(r['aht'] or 0))
         })
+    del grouped
+    gc.collect()
 
     result.sort(key=lambda x:(x['Fecha'],x['Campaña'],x['Intervalo']))
-    return _cache_excel_info_set(excel_path, cache_key, result)
+
+    try:
+        encoder = json.JSONEncoder(ensure_ascii=False, separators=(',', ':'))
+        tmp = data_path + '.tmp'
+        with open(tmp,'w',encoding='utf-8') as f:
+            for chunk in encoder.iterencode(result):
+                f.write(chunk)
+        os.replace(tmp,data_path)
+        with open(meta_path,'w',encoding='utf-8') as f:
+            json.dump({'signature':signature,'today':today},f,ensure_ascii=False,separators=(',',':'))
+    except Exception as e:
+        print(f"No se pudo guardar cache real 2026 {mode}: {e}")
+
+    return result
+
 
 def _forecast_actual_2026(channel):
     """
@@ -1360,9 +1428,7 @@ def _forecast_actual_2026(channel):
     except Exception as e:
         print(f'Roster de referencia histórico ({mode}): {e}')
 
-    result = []
-    for base in source:
-        row = dict(base)
+    for row in source:
         camp = row['Campaña']
         fecha = row['Fecha']
         intervalo = row['Intervalo']
@@ -1414,8 +1480,7 @@ def _forecast_actual_2026(channel):
             'Volumen_Real': int(round(calls)),
             'Forecast_Base_Anual': False
         })
-        result.append(row)
-    return result
+    return source
 
 def _forecast_build_annual_baseline(channel):
     """
@@ -1461,42 +1526,32 @@ def _forecast_build_annual_baseline(channel):
 
 def _forecast_annual_view(channel, rolling_data=None):
     """
-    Honest full-year 2026 view:
-    - dates with loaded real data through today => REAL;
-    - dates after today => latest rolling FORECAST;
-    - no past forecast is reconstructed.
-    Monthly locks are applied after this merge.
+    Low-memory full-year 2026 view.
+    Actual and future sets are disjoint, so rows can be concatenated directly.
     """
     mode = _forecast_channel_norm(channel)
     actual = _forecast_actual_2026(mode)
     rolling = rolling_data if isinstance(rolling_data,list) else (_leer_cache_forecast(mode) or [])
     today = _forecast_today_iso()
 
-    merged = {}
-    for raw in actual:
-        row = dict(raw)
+    rows = []
+    for row in actual:
         date = str(row.get('Fecha') or '')[:10]
-        if not date.startswith(f'{FORECAST_ANNUAL_YEAR}-') or date > today:
-            continue
-        row['Dato_Tipo'] = 'real'
-        row['Forecast_Tipo'] = 'real'
-        merged[_forecast_row_key(row)] = row
+        if date.startswith(f'{FORECAST_ANNUAL_YEAR}-') and date <= today:
+            row['Dato_Tipo'] = 'real'
+            row['Forecast_Tipo'] = 'real'
+            rows.append(row)
 
-    for raw in rolling:
-        row = dict(raw)
+    for row in rolling:
         date = str(row.get('Fecha') or '')[:10]
-        if not date.startswith(f'{FORECAST_ANNUAL_YEAR}-'):
-            continue
-        # The past and today are never replaced by a newly generated forecast.
-        if date <= today:
+        if not date.startswith(f'{FORECAST_ANNUAL_YEAR}-') or date <= today:
             continue
         row['Dato_Tipo'] = 'forecast'
         row['Forecast_Tipo'] = 'rolling'
         row['HC_Tipo'] = 'rolling'
         row['Forecast_Base_Anual'] = False
-        merged[_forecast_row_key(row)] = row
+        rows.append(row)
 
-    rows = list(merged.values())
     rows.sort(key=lambda r:(
         str(r.get('Fecha') or ''),
         str(r.get('Campaña') or r.get('Campana') or ''),
@@ -1549,7 +1604,7 @@ def _forecast_month_end(month_key):
     except Exception:
         return None
 
-def _forecast_control_status(month_key, channel):
+def _forecast_control_status(month_key, channel, source_rows=None):
     mode = _forecast_channel_norm(channel)
     _roster_db_init()
     conn = _roster_conn()
@@ -1567,7 +1622,11 @@ def _forecast_control_status(month_key, channel):
             (month_key,mode)
         ).fetchone()
 
-        raw_rows = _forecast_raw_month_rows(mode,month_key)
+        raw_rows = (
+            [dict(r) for r in source_rows if _forecast_month_key_from_date((r or {}).get('Fecha')) == month_key]
+            if isinstance(source_rows,list)
+            else _forecast_raw_month_rows(mode,month_key)
+        )
         rolling_total = sum(_forecast_num(r.get('Llamadas'),0) for r in raw_rows)
         rolling_peak_hc = max([int(round(_forecast_num(r.get('Agentes_Requeridos'),0))) for r in raw_rows] or [0])
         real_rows = [r for r in raw_rows if str(r.get('Dato_Tipo') or '').lower() == 'real']
@@ -3375,10 +3434,13 @@ def forecast_control_year():
     except Exception:
         year = FORECAST_ANNUAL_YEAR
     channel = _forecast_channel_norm(request.args.get('channel'))
+    annual_rows = _forecast_annual_view(channel)
     months = []
     for month in range(1,13):
         month_key = f"{year:04d}-{month:02d}"
-        months.append(_forecast_control_status(month_key,channel))
+        months.append(_forecast_control_status(month_key,channel,source_rows=annual_rows))
+    annual_rows = None
+    gc.collect()
     return jsonify({'year':year,'channel':channel,'months':months}),200
 
 @app.route('/api/forecast-control/status', methods=['GET'])
@@ -3458,7 +3520,9 @@ def get_latest_forecast():
     cache_data = _leer_cache_forecast(mode)
     if isinstance(cache_data, list) and cache_data:
         annual_data = _forecast_annual_view(mode,cache_data)
-        return jsonify(_forecast_apply_control(mode,annual_data)), 200
+        cache_data = None
+        controlled = _forecast_apply_control(mode,annual_data)
+        return _stream_json_rows(controlled), 200
             
     excel_path = buscar_archivo_excel()
     if excel_path:
@@ -3479,11 +3543,25 @@ def get_latest_forecast():
                 except: pass
             
             merma_pct = merma / 100.0
-            if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings, forecast_year=FORECAST_ANNUAL_YEAR)
-            else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings, forecast_year=FORECAST_ANNUAL_YEAR)
-            annual_data = _forecast_annual_view(mode,data)
+            with _FORECAST_CALC_LOCK:
+                if mode == 'chat':
+                    procesar_archivo_chat(
+                        excel_path,target_sl=sl,target_time=tt,merma=merma_pct,
+                        concurrencia=concurrencia,dias_futuros=dias,
+                        campaign_settings=campaign_settings,forecast_year=FORECAST_ANNUAL_YEAR
+                    )
+                else:
+                    procesar_archivo_llamadas(
+                        excel_path,target_sl=sl,target_time=tt,merma=merma_pct,
+                        dias_futuros=dias,campaign_settings=campaign_settings,
+                        forecast_year=FORECAST_ANNUAL_YEAR
+                    )
+            # The processor persisted its result. Release calculation objects before
+            # loading the real-history layer.
             gc.collect()
-            return jsonify(_forecast_apply_control(mode,annual_data)), 200
+            annual_data = _forecast_annual_view(mode)
+            controlled = _forecast_apply_control(mode,annual_data)
+            return _stream_json_rows(controlled), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
@@ -3499,18 +3577,20 @@ def process_data():
             campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
         except Exception:
             campaign_settings = {}
-        data = procesar_archivo_llamadas(
-            excel_path, 
-            float(clean_num(request.form.get('target_sl'), 80.0)), 
-            float(clean_num(request.form.get('target_time'), 20.0)), 
-            float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
-            int(clean_num(request.form.get('dias'), 45)),
-            campaign_settings=campaign_settings,
-            forecast_year=FORECAST_ANNUAL_YEAR
-        )
-        annual_data = _forecast_annual_view('llamadas',data)
+        with _FORECAST_CALC_LOCK:
+            procesar_archivo_llamadas(
+                excel_path, 
+                float(clean_num(request.form.get('target_sl'), 80.0)), 
+                float(clean_num(request.form.get('target_time'), 20.0)), 
+                float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
+                int(clean_num(request.form.get('dias'), 45)),
+                campaign_settings=campaign_settings,
+                forecast_year=FORECAST_ANNUAL_YEAR
+            )
         gc.collect()
-        return jsonify(_forecast_apply_control('llamadas',annual_data))
+        annual_data = _forecast_annual_view('llamadas')
+        controlled = _forecast_apply_control('llamadas',annual_data)
+        return _stream_json_rows(controlled)
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
@@ -3524,19 +3604,21 @@ def process_chat_data():
             campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
         except Exception:
             campaign_settings = {}
-        data = procesar_archivo_chat(
-            excel_path, 
-            float(clean_num(request.form.get('target_sl'), 80.0)),
-            float(clean_num(request.form.get('target_time'), 20.0)),
-            float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
-            float(clean_num(request.form.get('concurrencia'), 3.0)), 
-            int(clean_num(request.form.get('dias'), 45)),
-            campaign_settings=campaign_settings,
-            forecast_year=FORECAST_ANNUAL_YEAR
-        )
-        annual_data = _forecast_annual_view('chat',data)
+        with _FORECAST_CALC_LOCK:
+            procesar_archivo_chat(
+                excel_path, 
+                float(clean_num(request.form.get('target_sl'), 80.0)),
+                float(clean_num(request.form.get('target_time'), 20.0)),
+                float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
+                float(clean_num(request.form.get('concurrencia'), 3.0)), 
+                int(clean_num(request.form.get('dias'), 45)),
+                campaign_settings=campaign_settings,
+                forecast_year=FORECAST_ANNUAL_YEAR
+            )
         gc.collect()
-        return jsonify(_forecast_apply_control('chat',annual_data))
+        annual_data = _forecast_annual_view('chat')
+        controlled = _forecast_apply_control('chat',annual_data)
+        return _stream_json_rows(controlled)
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
