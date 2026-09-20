@@ -3764,6 +3764,13 @@
         }
         .forecast-source-note strong { color:#526B7D; }
 
+
+        .dashboard-info-safe {
+            background:#EEF6F8 !important;
+            border-color:#CCE0E6 !important;
+            color:#466E7D !important;
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -4998,8 +5005,23 @@
                     }
                     if (mode !== 'general') await cargarCampanasConfiguracion();
                     debouncedActualizarGrafica();
+
+                    const hasFutureForecast=globalData.some(r=>{
+                        const t=String(getProp(r,['Dato_Tipo','Forecast_Tipo'],'')).toLowerCase();
+                        return t==='forecast'||t==='rolling';
+                    });
                     const box = document.getElementById('dashboardError');
-                    if (box) box.classList.add('hidden');
+                    if (box) {
+                        if(!hasFutureForecast && mode!=='general'){
+                            box.innerText='Histórico real cargado. El forecast futuro todavía no está generado en caché. Usa GENERAR FORECAST para calcular desde mañana hasta diciembre 2026.';
+                            box.classList.remove('hidden');
+                            box.classList.add('dashboard-info-safe');
+                            setRunStatus('Histórico listo · genera forecast', 'amber');
+                        }else{
+                            box.classList.add('hidden');
+                            box.classList.remove('dashboard-info-safe');
+                        }
+                    }
                     if (!isBackground) scheduleModeWarmup(mode);
                 } else if (!isBackground) {
                     limpiarPantalla();
@@ -5051,6 +5073,11 @@
                 setRunStatus('Calculando campañas…', 'amber');
                 const response = await fetch(url, { method: 'POST', body: formData });
                 globalData = await response.json();
+                const infoBox=document.getElementById('dashboardError');
+                if(infoBox){
+                    infoBox.classList.add('hidden');
+                    infoBox.classList.remove('dashboard-info-safe');
+                }
                 wfmDataVersion += 1;
                 
                 if (response.ok && Array.isArray(globalData)) {
