@@ -34,6 +34,7 @@ EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
 WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
 WFM_ROSTER_DB = os.path.join(BASE_DIR, 'wfm_roster.db')
 _WFM_ROSTER_LOCK = threading.RLock()
+_ROSTER_DB_READY = False
 _WFM_ACTION_LOG_LOCK = threading.RLock()
 
 # Caché en memoria para evitar volver a leer/parsear JSON grandes cada vez que
@@ -529,14 +530,25 @@ _ROSTER_DAYS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domi
 def _roster_conn():
     conn = sqlite3.connect(WFM_ROSTER_DB, timeout=15)
     conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA journal_mode=WAL')
     conn.execute('PRAGMA foreign_keys=ON')
+    conn.execute('PRAGMA busy_timeout=5000')
     return conn
 
 def _roster_db_init():
+    global _ROSTER_DB_READY
+    if _ROSTER_DB_READY:
+        return
+
+    should_seed = False
     with _WFM_ROSTER_LOCK:
+        if _ROSTER_DB_READY:
+            return
         conn = _roster_conn()
         try:
+            # WAL + synchronous are database-level settings. Configure them once,
+            # not on every read/write connection.
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA synchronous=NORMAL')
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS roster_agents (
                     agent_id TEXT PRIMARY KEY,
@@ -602,7 +614,7 @@ def _roster_db_init():
                 CREATE INDEX IF NOT EXISTS idx_roster_channel ON roster_agents(channel);
                 CREATE INDEX IF NOT EXISTS idx_roster_override_date ON roster_overrides(work_date);
             """)
-            # Migración compatible con bases V6 existentes.
+
             columns = {row[1] for row in conn.execute("PRAGMA table_info(roster_agents)").fetchall()}
             if 'coordinator' not in columns:
                 conn.execute("ALTER TABLE roster_agents ADD COLUMN coordinator TEXT NOT NULL DEFAULT ''")
@@ -614,13 +626,20 @@ def _roster_db_init():
                 conn.execute("ALTER TABLE roster_overrides ADD COLUMN batch_id TEXT")
             if 'reason' not in override_columns:
                 conn.execute("ALTER TABLE roster_overrides ADD COLUMN reason TEXT NOT NULL DEFAULT ''")
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_override_batch ON roster_overrides(batch_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_absence_agent ON roster_absences(agent_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_absence_dates ON roster_absences(start_date,end_date,status)")
+            should_seed = conn.execute("SELECT COUNT(*) FROM roster_agents").fetchone()[0] == 0
             conn.commit()
+            _ROSTER_DB_READY = True
         finally:
             conn.close()
-    _roster_seed_from_excel_if_empty()
+
+    # The potentially slower Excel migration only runs on first initialization
+    # and only when the operational roster is empty.
+    if should_seed:
+        _roster_seed_from_excel_if_empty()
 
 def _roster_normalize_schedule(value):
     raw = str(value or '').strip().upper()
@@ -1023,7 +1042,8 @@ def _roster_save_vacation(agent_id, start_date, end_date, status='requested', re
         finally:
             conn.close()
 
-    _invalidate_roster_dependent_caches()
+    if status == 'approved':
+        _invalidate_roster_dependent_caches()
     return after
 
 def _roster_update_vacation_status(vacation_id, status, actor='wfm', reason=''):
@@ -1059,6 +1079,7 @@ def _roster_update_vacation_status(vacation_id, status, actor='wfm', reason=''):
                 'startDate': row['start_date'],
                 'endDate': row['end_date']
             }
+            affects_forecast = row['status'] == 'approved' or status == 'approved'
             now = datetime.now().isoformat(timespec='seconds')
             conn.execute(
                 """UPDATE roster_absences
@@ -1081,7 +1102,8 @@ def _roster_update_vacation_status(vacation_id, status, actor='wfm', reason=''):
         finally:
             conn.close()
 
-    _invalidate_roster_dependent_caches()
+    if affects_forecast:
+        _invalidate_roster_dependent_caches()
     return after
 
 def _roster_absence_deltas(channel, df_roster):
@@ -1361,40 +1383,64 @@ def _roster_get_agent(agent_id):
     finally:
         conn.close()
 
-def _roster_save_agent(payload, actor='wfm', reason='Edición manual', allow_create=True):
-    _roster_db_init()
+def _roster_get_agent_tx(conn, agent_id):
+    return _roster_row_dict(
+        conn.execute("SELECT * FROM roster_agents WHERE agent_id=?", (agent_id,)).fetchone()
+    )
+
+def _roster_save_agent_tx(conn, payload, actor='wfm', reason='Edición manual', allow_create=True):
     agent_id = str((payload or {}).get('agentId') or '').strip()
-    before = _roster_get_agent(agent_id) if agent_id else None
+    before = _roster_get_agent_tx(conn, agent_id) if agent_id else None
     if before is None and not allow_create:
         raise ValueError('No se encontró el agente.')
-    clean = _roster_validate_payload(payload,before)
-    s, now = clean['schedules'], datetime.now().isoformat(timespec='seconds')
+
+    clean = _roster_validate_payload(payload, before)
+    s = clean['schedules']
+    now = datetime.now().isoformat(timespec='seconds')
+
+    if before:
+        conn.execute(
+            """UPDATE roster_agents SET full_name=?,supervisor=?,coordinator=?,campaign=?,channel=?,status=?,
+            lunes=?,martes=?,miercoles=?,jueves=?,viernes=?,sabado=?,domingo=?,updated_at=?,updated_by=? WHERE agent_id=?""",
+            (
+                clean['fullName'],clean['supervisor'],clean['coordinator'],clean['campaign'],clean['channel'],clean['status'],
+                s['Lunes'],s['Martes'],s['Miércoles'],s['Jueves'],s['Viernes'],s['Sábado'],s['Domingo'],
+                now,actor,clean['agentId']
+            )
+        )
+        change_type = 'agent_updated'
+    else:
+        conn.execute(
+            """INSERT INTO roster_agents
+            (agent_id,full_name,supervisor,coordinator,campaign,channel,status,lunes,martes,miercoles,jueves,viernes,sabado,domingo,source,created_at,updated_at,updated_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'manual',?,?,?)""",
+            (
+                clean['agentId'],clean['fullName'],clean['supervisor'],clean['coordinator'],clean['campaign'],clean['channel'],clean['status'],
+                s['Lunes'],s['Martes'],s['Miércoles'],s['Jueves'],s['Viernes'],s['Sábado'],s['Domingo'],
+                now,now,actor
+            )
+        )
+        change_type = 'agent_created'
+
+    after = _roster_get_agent_tx(conn, clean['agentId'])
+    _roster_history_add(conn, clean['agentId'], change_type, before, after, reason, actor)
+    return after
+
+def _roster_save_agent(payload, actor='wfm', reason='Edición manual', allow_create=True, invalidate=True):
+    _roster_db_init()
     with _WFM_ROSTER_LOCK:
         conn = _roster_conn()
         try:
-            if before:
-                conn.execute(
-                    """UPDATE roster_agents SET full_name=?,supervisor=?,coordinator=?,campaign=?,channel=?,status=?,
-                    lunes=?,martes=?,miercoles=?,jueves=?,viernes=?,sabado=?,domingo=?,updated_at=?,updated_by=? WHERE agent_id=?""",
-                    (clean['fullName'],clean['supervisor'],clean['coordinator'],clean['campaign'],clean['channel'],clean['status'],
-                     s['Lunes'],s['Martes'],s['Miércoles'],s['Jueves'],s['Viernes'],s['Sábado'],s['Domingo'],now,actor,clean['agentId'])
-                )
-                change_type='agent_updated'
-            else:
-                conn.execute(
-                    """INSERT INTO roster_agents
-                    (agent_id,full_name,supervisor,coordinator,campaign,channel,status,lunes,martes,miercoles,jueves,viernes,sabado,domingo,source,created_at,updated_at,updated_by)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'manual',?,?,?)""",
-                    (clean['agentId'],clean['fullName'],clean['supervisor'],clean['coordinator'],clean['campaign'],clean['channel'],clean['status'],
-                     s['Lunes'],s['Martes'],s['Miércoles'],s['Jueves'],s['Viernes'],s['Sábado'],s['Domingo'],now,now,actor)
-                )
-                change_type='agent_created'
-            after = _roster_row_dict(conn.execute("SELECT * FROM roster_agents WHERE agent_id=?",(clean['agentId'],)).fetchone())
-            _roster_history_add(conn,clean['agentId'],change_type,before,after,reason,actor)
+            after = _roster_save_agent_tx(conn, payload, actor, reason, allow_create)
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
-    _invalidate_roster_dependent_caches()
+
+    if invalidate:
+        _invalidate_roster_dependent_caches()
     return after
 
 @app.route('/api/roster', methods=['GET'])
@@ -1443,7 +1489,11 @@ def roster_save_agent():
         payload = request.get_json(force=True,silent=False) or {}
         actor = str(payload.pop('actorMode','wfm') or 'wfm')[:80]
         reason = str(payload.pop('reason','Edición manual') or 'Edición manual')[:500]
-        return jsonify({'ok':True,'agent':_roster_save_agent(payload,actor,reason,True)}),200
+        defer_invalidation = bool(payload.pop('deferInvalidation', False))
+        return jsonify({
+            'ok':True,
+            'agent':_roster_save_agent(payload,actor,reason,True,invalidate=not defer_invalidation)
+        }),200
     except sqlite3.IntegrityError:
         return jsonify({'error':'Ya existe un agente con ese ID.'}),409
     except Exception as e:
@@ -1560,23 +1610,45 @@ def roster_cancel_temporary_change(batch_id):
 @app.route('/api/roster/bulk', methods=['POST'])
 def roster_bulk_update():
     try:
-        payload=request.get_json(force=True,silent=False) or {}
-        ids=[str(x).strip() for x in payload.get('agentIds',[]) if str(x).strip()]
-        changes=payload.get('changes') or {}
-        actor=str(payload.get('actorMode') or 'wfm')[:80]
+        payload = request.get_json(force=True,silent=False) or {}
+        ids = [str(x).strip() for x in payload.get('agentIds',[]) if str(x).strip()]
+        changes = payload.get('changes') or {}
+        actor = str(payload.get('actorMode') or 'wfm')[:80]
         if not ids:
             return jsonify({'error':'Selecciona al menos un agente.'}),400
-        updated=0
-        for agent_id in ids:
-            before=_roster_get_agent(agent_id)
-            if not before: continue
-            merged=dict(before)
-            if str(changes.get('campaign','')).strip(): merged['campaign']=str(changes['campaign']).strip()
-            if 'supervisor' in changes: merged['supervisor']=str(changes['supervisor']).strip()
-            if 'coordinator' in changes: merged['coordinator']=str(changes['coordinator']).strip()
-            if changes.get('status') in ('Activo','Inactivo'): merged['status']=changes['status']
-            if changes.get('channel') in ('Llamadas','Chat'): merged['channel']=changes['channel']
-            _roster_save_agent(merged,actor,'Edición masiva',False); updated+=1
+
+        _roster_db_init()
+        updated = 0
+        with _WFM_ROSTER_LOCK:
+            conn = _roster_conn()
+            try:
+                for agent_id in ids:
+                    before = _roster_get_agent_tx(conn, agent_id)
+                    if not before:
+                        continue
+                    merged = dict(before)
+                    if str(changes.get('campaign','')).strip():
+                        merged['campaign'] = str(changes['campaign']).strip()
+                    if 'supervisor' in changes:
+                        merged['supervisor'] = str(changes['supervisor']).strip()
+                    if 'coordinator' in changes:
+                        merged['coordinator'] = str(changes['coordinator']).strip()
+                    if changes.get('status') in ('Activo','Inactivo'):
+                        merged['status'] = changes['status']
+                    if changes.get('channel') in ('Llamadas','Chat'):
+                        merged['channel'] = changes['channel']
+
+                    _roster_save_agent_tx(conn, merged, actor, 'Edición masiva', False)
+                    updated += 1
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        if updated:
+            _invalidate_roster_dependent_caches()
         return jsonify({'ok':True,'updated':updated}),200
     except Exception as e:
         return jsonify({'error':str(e)}),400
@@ -1597,42 +1669,89 @@ def roster_import():
     try:
         if 'file' not in request.files:
             return jsonify({'error':'Selecciona un archivo CSV o XLSX.'}),400
-        f=request.files['file']; name=(f.filename or '').lower()
-        actor=str(request.form.get('actorMode') or 'wfm')[:80]
-        if name.endswith('.csv'): df=pd.read_csv(f)
-        elif name.endswith('.xlsx'): df=pd.read_excel(f,engine='openpyxl')
-        else: return jsonify({'error':'Formato no soportado. Usa CSV o XLSX.'}),400
-        cols=_roster_import_columns(df)
+
+        f = request.files['file']
+        name = (f.filename or '').lower()
+        actor = str(request.form.get('actorMode') or 'wfm')[:80]
+
+        if name.endswith('.csv'):
+            df = pd.read_csv(f)
+        elif name.endswith('.xlsx'):
+            df = pd.read_excel(f,engine='openpyxl')
+        else:
+            return jsonify({'error':'Formato no soportado. Usa CSV o XLSX.'}),400
+
+        cols = _roster_import_columns(df)
         if not cols['id'] or not cols['campaign']:
             return jsonify({'error':'La carga requiere ID Agente y Campaña.'}),400
-        aliases={'lunes':'Lunes','martes':'Martes','miércoles':'Miércoles','miercoles':'Miércoles','jueves':'Jueves','viernes':'Viernes','sábado':'Sábado','sabado':'Sábado','domingo':'Domingo'}
-        day_cols={}
+
+        aliases = {
+            'lunes':'Lunes','martes':'Martes','miércoles':'Miércoles','miercoles':'Miércoles',
+            'jueves':'Jueves','viernes':'Viernes','sábado':'Sábado','sabado':'Sábado','domingo':'Domingo'
+        }
+        day_cols = {}
         for c in df.columns:
-            key=str(c).strip().lower()
-            if key in aliases: day_cols[aliases[key]]=c
-        imported,errors=0,[]
-        for idx,row in df.iterrows():
+            key = str(c).strip().lower()
+            if key in aliases:
+                day_cols[aliases[key]] = c
+
+        def safe(row, col, fallback=''):
+            if not col:
+                return fallback
+            val = str(row.get(col,'')).strip()
+            return '' if val.lower() == 'nan' else val
+
+        _roster_db_init()
+        imported = 0
+        errors = []
+
+        with _WFM_ROSTER_LOCK:
+            conn = _roster_conn()
             try:
-                agent_id=str(row.get(cols['id'],'')).strip(); campaign=str(row.get(cols['campaign'],'')).strip()
-                if not agent_id or agent_id.lower()=='nan' or not campaign or campaign.lower()=='nan': continue
-                existing=_roster_get_agent(agent_id) or {}
-                schedules={d:(row.get(day_cols[d],'DD-DD') if d in day_cols else (existing.get('schedules') or {}).get(d,'DD-DD')) for d in _ROSTER_DAYS}
-                def safe(col, fallback=''):
-                    if not col: return fallback
-                    val=str(row.get(col,'')).strip()
-                    return '' if val.lower()=='nan' else val
-                payload={
-                    'agentId':agent_id,'fullName':safe(cols['name'],existing.get('fullName','')),
-                    'supervisor':safe(cols['supervisor'],existing.get('supervisor','')),
-                    'coordinator':safe(cols['coordinator'],existing.get('coordinator','')),
-                    'campaign':campaign,'channel':safe(cols['channel'],existing.get('channel','Llamadas')) or 'Llamadas',
-                    'status':(safe(cols['status'],existing.get('status','Activo')) or 'Activo').title(),
-                    'schedules':schedules
-                }
-                _roster_save_agent(payload,actor,f'Carga masiva: {f.filename}',True); imported+=1
-            except Exception as row_error:
-                errors.append({'row':int(idx)+2,'error':str(row_error)})
-                if len(errors)>=20: break
+                for idx,row in df.iterrows():
+                    try:
+                        agent_id = str(row.get(cols['id'],'')).strip()
+                        campaign = str(row.get(cols['campaign'],'')).strip()
+                        if not agent_id or agent_id.lower() == 'nan' or not campaign or campaign.lower() == 'nan':
+                            continue
+
+                        existing = _roster_get_agent_tx(conn, agent_id) or {}
+                        schedules = {
+                            d: (
+                                row.get(day_cols[d],'DD-DD')
+                                if d in day_cols
+                                else (existing.get('schedules') or {}).get(d,'DD-DD')
+                            )
+                            for d in _ROSTER_DAYS
+                        }
+                        item = {
+                            'agentId':agent_id,
+                            'fullName':safe(row, cols['name'], existing.get('fullName','')),
+                            'supervisor':safe(row, cols['supervisor'], existing.get('supervisor','')),
+                            'coordinator':safe(row, cols['coordinator'], existing.get('coordinator','')),
+                            'campaign':campaign,
+                            'channel':safe(row, cols['channel'], existing.get('channel','Llamadas')) or 'Llamadas',
+                            'status':(safe(row, cols['status'], existing.get('status','Activo')) or 'Activo').title(),
+                            'schedules':schedules
+                        }
+                        _roster_save_agent_tx(
+                            conn, item, actor, f'Carga masiva: {f.filename}', True
+                        )
+                        imported += 1
+                    except Exception as row_error:
+                        errors.append({'row':int(idx)+2,'error':str(row_error)})
+                        if len(errors) >= 20:
+                            break
+
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        if imported:
+            _invalidate_roster_dependent_caches()
         return jsonify({'ok':True,'imported':imported,'errors':errors}),200
     except Exception as e:
         return jsonify({'error':f'No se pudo importar el roster: {str(e)}'}),400
@@ -3337,4 +3456,5 @@ _roster_db_init()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+
 
