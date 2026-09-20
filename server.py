@@ -12,6 +12,7 @@ import io
 import csv
 from functools import lru_cache
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, send_from_directory, make_response, send_file
 from flask_cors import CORS
 import pandas as pd
@@ -33,6 +34,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json')
 EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
 WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
 WFM_ROSTER_DB = os.path.join(BASE_DIR, 'wfm_roster.db')
+WFM_TIMEZONE = os.environ.get('WFM_TIMEZONE','America/Mexico_City')
 _WFM_ROSTER_LOCK = threading.RLock()
 _ROSTER_DB_READY = False
 _WFM_ACTION_LOG_LOCK = threading.RLock()
@@ -609,6 +611,70 @@ def _roster_db_init():
                     updated_by TEXT NOT NULL DEFAULT 'wfm',
                     FOREIGN KEY(agent_id) REFERENCES roster_agents(agent_id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS forecast_locks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    month_key TEXT NOT NULL,
+                    month_label TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'closed',
+                    comment TEXT NOT NULL DEFAULT '',
+                    closed_at TEXT NOT NULL,
+                    closed_by TEXT NOT NULL DEFAULT 'wfm',
+                    reopened_at TEXT,
+                    reopened_by TEXT,
+                    reopen_reason TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS forecast_lock_rows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lock_id INTEGER NOT NULL,
+                    campaign TEXT NOT NULL,
+                    work_date TEXT NOT NULL,
+                    interval TEXT NOT NULL,
+                    forecast_at_close REAL NOT NULL DEFAULT 0,
+                    official_forecast REAL NOT NULL DEFAULT 0,
+                    required_hc_locked INTEGER NOT NULL DEFAULT 0,
+                    aht_text TEXT NOT NULL DEFAULT '',
+                    aht_seconds REAL NOT NULL DEFAULT 0,
+                    target_sl REAL NOT NULL DEFAULT 0,
+                    target_asa REAL NOT NULL DEFAULT 0,
+                    concurrencia REAL NOT NULL DEFAULT 1,
+                    fte_locked REAL NOT NULL DEFAULT 0,
+                    factor_cobertura REAL NOT NULL DEFAULT 1,
+                    merma_pct REAL NOT NULL DEFAULT 0,
+                    jornada_hours REAL NOT NULL DEFAULT 8,
+                    nocturno INTEGER NOT NULL DEFAULT 0,
+                    factor_descanso REAL NOT NULL DEFAULT 1.166666667,
+                    factor_asistencia REAL NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(lock_id,campaign,work_date,interval),
+                    FOREIGN KEY(lock_id) REFERENCES forecast_locks(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS forecast_revisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lock_id INTEGER NOT NULL,
+                    revision_no INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    affected_rows INTEGER NOT NULL DEFAULT 0,
+                    forecast_before REAL NOT NULL DEFAULT 0,
+                    forecast_after REAL NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT 'wfm',
+                    FOREIGN KEY(lock_id) REFERENCES forecast_locks(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS forecast_revision_rows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    revision_id INTEGER NOT NULL,
+                    campaign TEXT NOT NULL,
+                    work_date TEXT NOT NULL,
+                    interval TEXT NOT NULL,
+                    forecast_before REAL NOT NULL DEFAULT 0,
+                    forecast_after REAL NOT NULL DEFAULT 0,
+                    FOREIGN KEY(revision_id) REFERENCES forecast_revisions(id) ON DELETE CASCADE
+                );
                 CREATE INDEX IF NOT EXISTS idx_roster_campaign ON roster_agents(campaign);
                 CREATE INDEX IF NOT EXISTS idx_roster_supervisor ON roster_agents(supervisor);
                 CREATE INDEX IF NOT EXISTS idx_roster_channel ON roster_agents(channel);
@@ -630,6 +696,20 @@ def _roster_db_init():
             conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_override_batch ON roster_overrides(batch_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_absence_agent ON roster_absences(agent_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_roster_absence_dates ON roster_absences(start_date,end_date,status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_locks_lookup ON forecast_locks(month_key,channel,status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_lock_rows_lookup ON forecast_lock_rows(lock_id,work_date,campaign,interval)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_revisions_lock ON forecast_revisions(lock_id,revision_no)")
+            forecast_row_columns = {row[1] for row in conn.execute("PRAGMA table_info(forecast_lock_rows)").fetchall()}
+            forecast_row_migrations = {
+                'merma_pct': "ALTER TABLE forecast_lock_rows ADD COLUMN merma_pct REAL NOT NULL DEFAULT 0",
+                'jornada_hours': "ALTER TABLE forecast_lock_rows ADD COLUMN jornada_hours REAL NOT NULL DEFAULT 8",
+                'nocturno': "ALTER TABLE forecast_lock_rows ADD COLUMN nocturno INTEGER NOT NULL DEFAULT 0",
+                'factor_descanso': "ALTER TABLE forecast_lock_rows ADD COLUMN factor_descanso REAL NOT NULL DEFAULT 1.166666667",
+                'factor_asistencia': "ALTER TABLE forecast_lock_rows ADD COLUMN factor_asistencia REAL NOT NULL DEFAULT 1"
+            }
+            for col_name, ddl in forecast_row_migrations.items():
+                if col_name not in forecast_row_columns:
+                    conn.execute(ddl)
             should_seed = conn.execute("SELECT COUNT(*) FROM roster_agents").fetchone()[0] == 0
             conn.commit()
             _ROSTER_DB_READY = True
@@ -875,6 +955,602 @@ def _roster_override_deltas(channel, df_roster):
         if bool(base_set) != bool(override_set):
             day_delta[(camp,date)] = day_delta.get((camp,date),0) + (1 if override_set else -1)
     return coverage_delta, day_delta
+
+
+_MESES_ES = {
+    1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',
+    7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre'
+}
+
+def _forecast_today_iso():
+    try:
+        return datetime.now(ZoneInfo(WFM_TIMEZONE)).strftime('%Y-%m-%d')
+    except Exception:
+        return datetime.now().strftime('%Y-%m-%d')
+
+def _forecast_channel_norm(channel):
+    return 'chat' if str(channel or '').strip().lower() == 'chat' else 'llamadas'
+
+def _forecast_month_key_from_date(value):
+    try:
+        return datetime.strptime(str(value)[:10], '%Y-%m-%d').strftime('%Y-%m')
+    except Exception:
+        return ''
+
+def _forecast_month_label_from_key(month_key):
+    try:
+        dt = datetime.strptime(str(month_key)[:7], '%Y-%m')
+        return f"{_MESES_ES[dt.month]} {dt.year}"
+    except Exception:
+        return str(month_key or '')
+
+def _forecast_month_key_from_label(label):
+    raw = str(label or '').strip()
+    m = re.match(r'^([A-Za-zÁÉÍÓÚáéíóúñÑ]+)\s+(\d{4})$', raw)
+    if not m:
+        return ''
+    month_name = m.group(1).lower()
+    year = int(m.group(2))
+    lookup = {
+        'enero':1,'febrero':2,'marzo':3,'abril':4,'mayo':5,'junio':6,
+        'julio':7,'agosto':8,'septiembre':9,'setiembre':9,'octubre':10,
+        'noviembre':11,'diciembre':12
+    }
+    month = lookup.get(month_name)
+    return f"{year:04d}-{month:02d}" if month else ''
+
+def _forecast_row_key(row):
+    return (
+        str((row or {}).get('Campaña') or (row or {}).get('Campana') or '').strip(),
+        str((row or {}).get('Fecha') or '')[:10],
+        str((row or {}).get('Intervalo') or '').strip()
+    )
+
+def _forecast_num(value, default=0.0):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+def _forecast_active_locks(channel=None):
+    _roster_db_init()
+    conn = _roster_conn()
+    try:
+        args = []
+        sql = "SELECT * FROM forecast_locks WHERE status='closed'"
+        if channel:
+            sql += " AND channel=?"
+            args.append(_forecast_channel_norm(channel))
+        sql += " ORDER BY month_key,version DESC"
+        rows = conn.execute(sql,args).fetchall()
+        result = {}
+        for r in rows:
+            key = (r['month_key'], r['channel'])
+            if key not in result:
+                result[key] = dict(r)
+        return result
+    finally:
+        conn.close()
+
+def _forecast_lock_rows_map(lock_ids):
+    ids = [int(x) for x in lock_ids if x is not None]
+    if not ids:
+        return {}
+    conn = _roster_conn()
+    try:
+        q = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT * FROM forecast_lock_rows WHERE lock_id IN ({q})",
+            ids
+        ).fetchall()
+        result = {}
+        for r in rows:
+            result[(int(r['lock_id']), r['campaign'], r['work_date'], r['interval'])] = dict(r)
+        return result
+    finally:
+        conn.close()
+
+def _forecast_apply_control(channel, data):
+    """
+    Closed month rules:
+    - HC required is always the value locked with Operations.
+    - Forecast is the official value stored in the lock. It changes only through
+      an explicit future reforecast/anomaly revision.
+    - Roster / HC actual remains live.
+    - Past/today rows are never changed by a reforecast operation.
+    """
+    if not isinstance(data,list) or not data:
+        return data
+
+    mode = _forecast_channel_norm(channel)
+    locks = _forecast_active_locks(mode)
+    if not locks:
+        result = []
+        for raw in data:
+            row = dict(raw)
+            row['Forecast_Control_Estado'] = 'rolling'
+            row['HC_Bloqueado'] = False
+            row['Forecast_Rolling'] = _forecast_num(row.get('Llamadas'),0)
+            row['Forecast_Oficial'] = _forecast_num(row.get('Llamadas'),0)
+            row['Forecast_Al_Cierre'] = None
+            row['Lock_Version'] = None
+            result.append(row)
+        return result
+
+    rows_map = _forecast_lock_rows_map([v['id'] for v in locks.values()])
+    result = []
+    for raw in data:
+        row = dict(raw)
+        month_key = _forecast_month_key_from_date(row.get('Fecha'))
+        lock = locks.get((month_key,mode))
+        rolling_forecast = _forecast_num(row.get('Llamadas'),0)
+        rolling_hc = int(round(_forecast_num(row.get('Agentes_Requeridos'),0)))
+
+        row['Forecast_Rolling'] = rolling_forecast
+        row['Agentes_Requeridos_Rolling'] = rolling_hc
+
+        if not lock:
+            row['Forecast_Control_Estado'] = 'rolling'
+            row['HC_Bloqueado'] = False
+            row['Forecast_Oficial'] = rolling_forecast
+            row['Forecast_Al_Cierre'] = None
+            row['Lock_Version'] = None
+            result.append(row)
+            continue
+
+        key = _forecast_row_key(row)
+        snap = rows_map.get((int(lock['id']), key[0], key[1], key[2]))
+        if not snap:
+            # A new campaign/interval that did not exist at close cannot silently
+            # change the agreed HC. It remains visible as "sin snapshot".
+            row['Forecast_Control_Estado'] = 'closed_missing_snapshot'
+            row['HC_Bloqueado'] = True
+            row['Agentes_Requeridos'] = 0
+            row['Forecast_Oficial'] = 0
+            row['Llamadas'] = 0
+            row['Forecast_Al_Cierre'] = 0
+            row['Lock_Version'] = int(lock['version'])
+            row['Lock_Id'] = int(lock['id'])
+            result.append(row)
+            continue
+
+        official = _forecast_num(snap['official_forecast'],0)
+        row['Forecast_Control_Estado'] = 'closed'
+        row['HC_Bloqueado'] = True
+        row['Lock_Id'] = int(lock['id'])
+        row['Lock_Version'] = int(lock['version'])
+        row['Forecast_Al_Cierre'] = _forecast_num(snap['forecast_at_close'],0)
+        row['Forecast_Oficial'] = official
+
+        # Only forecast can move after close, via an explicit reforecast.
+        row['Llamadas'] = int(round(official))
+        row['Agentes_Requeridos'] = int(snap['required_hc_locked'] or 0)
+        row['AHT'] = snap['aht_text'] or row.get('AHT','')
+        row['AHT_Segundos'] = int(round(_forecast_num(snap['aht_seconds'],0)))
+        row['Target_SL'] = _forecast_num(snap['target_sl'],row.get('Target_SL',0))
+        row['Target_ASA'] = _forecast_num(snap['target_asa'],row.get('Target_ASA',0))
+        row['Concurrencia_Aplicada'] = _forecast_num(snap['concurrencia'],row.get('Concurrencia_Aplicada',1))
+        row['FTE_Erlang'] = int(round(_forecast_num(snap['fte_locked'],row.get('FTE_Erlang',0))))
+        row['Lock_Merma_Pct'] = _forecast_num(snap['merma_pct'],0)
+        row['Lock_Jornada_Horas'] = _forecast_num(snap['jornada_hours'],8)
+        row['Lock_Nocturno'] = bool(snap['nocturno'])
+        row['Lock_Factor_Descanso'] = _forecast_num(snap['factor_descanso'],7.0/6.0)
+        row['Lock_Factor_Asistencia'] = _forecast_num(snap['factor_asistencia'],1)
+        if 'Factor_Cobertura_Ambulancia' in row:
+            row['Factor_Cobertura_Ambulancia'] = _forecast_num(
+                snap['factor_cobertura'],row.get('Factor_Cobertura_Ambulancia',1)
+            )
+        result.append(row)
+    return result
+
+def _forecast_raw_month_rows(channel, month_key, data=None):
+    mode = _forecast_channel_norm(channel)
+    source = data if isinstance(data,list) else (_leer_cache_forecast(mode) or [])
+    return [
+        dict(r) for r in source
+        if _forecast_month_key_from_date((r or {}).get('Fecha')) == month_key
+    ]
+
+def _forecast_generate_raw(channel):
+    mode = _forecast_channel_norm(channel)
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        raise ValueError('No se encontró historico.xlsx para recalcular el forecast.')
+
+    sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
+    campaign_settings = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE,'r',encoding='utf-8') as f:
+                cfg = json.load(f)
+            sl = float(cfg.get('targetSl',80.0))
+            tt = float(cfg.get('targetTime',20.0))
+            merma_data = cfg.get('merma',30.0)
+            merma = float(merma_data.get(mode,30.0)) if isinstance(merma_data,dict) else float(merma_data)
+            dias = int(clean_num(cfg.get('dias'),dias))
+            concurrencia = float(clean_num(cfg.get('concurrencia'),concurrencia))
+            all_settings = cfg.get('campaignSettings',{})
+            campaign_settings = all_settings.get(mode,{}) if isinstance(all_settings,dict) else {}
+        except Exception:
+            pass
+
+    if mode == 'chat':
+        return procesar_archivo_chat(
+            excel_path,target_sl=sl,target_time=tt,merma=merma/100.0,
+            concurrencia=concurrencia,dias_futuros=dias,campaign_settings=campaign_settings
+        )
+    return procesar_archivo_llamadas(
+        excel_path,target_sl=sl,target_time=tt,merma=merma/100.0,
+        dias_futuros=dias,campaign_settings=campaign_settings
+    )
+
+def _forecast_control_status(month_key, channel):
+    mode = _forecast_channel_norm(channel)
+    _roster_db_init()
+    conn = _roster_conn()
+    try:
+        active = conn.execute(
+            """SELECT * FROM forecast_locks
+               WHERE month_key=? AND channel=? AND status='closed'
+               ORDER BY version DESC LIMIT 1""",
+            (month_key,mode)
+        ).fetchone()
+        latest = active or conn.execute(
+            """SELECT * FROM forecast_locks
+               WHERE month_key=? AND channel=?
+               ORDER BY version DESC LIMIT 1""",
+            (month_key,mode)
+        ).fetchone()
+
+        raw_rows = _forecast_raw_month_rows(mode,month_key)
+        rolling_total = sum(_forecast_num(r.get('Llamadas'),0) for r in raw_rows)
+        rolling_peak_hc = max([int(round(_forecast_num(r.get('Agentes_Requeridos'),0))) for r in raw_rows] or [0])
+
+        payload = {
+            'monthKey':month_key,
+            'monthLabel':_forecast_month_label_from_key(month_key),
+            'channel':mode,
+            'status':'closed' if active else 'rolling',
+            'rollingForecastTotal':round(rolling_total,2),
+            'rollingPeakRequiredHC':rolling_peak_hc,
+            'availableRows':len(raw_rows),
+            'latestVersion':int(latest['version']) if latest else 0
+        }
+
+        if active:
+            rows = conn.execute(
+                "SELECT * FROM forecast_lock_rows WHERE lock_id=?",
+                (active['id'],)
+            ).fetchall()
+            today = _forecast_today_iso()
+            revisions = conn.execute(
+                """SELECT * FROM forecast_revisions
+                   WHERE lock_id=? ORDER BY revision_no DESC LIMIT 1""",
+                (active['id'],)
+            ).fetchone()
+            payload.update({
+                'lockId':int(active['id']),
+                'version':int(active['version']),
+                'comment':active['comment'] or '',
+                'closedAt':active['closed_at'],
+                'closedBy':active['closed_by'] or '',
+                'forecastAtCloseTotal':round(sum(_forecast_num(r['forecast_at_close'],0) for r in rows),2),
+                'officialForecastTotal':round(sum(_forecast_num(r['official_forecast'],0) for r in rows),2),
+                'lockedPeakRequiredHC':max([int(r['required_hc_locked'] or 0) for r in rows] or [0]),
+                'rowCount':len(rows),
+                'protectedRows':sum(1 for r in rows if str(r['work_date']) <= today),
+                'futureRows':sum(1 for r in rows if str(r['work_date']) > today),
+                'lastRevision':dict(revisions) if revisions else None
+            })
+        elif latest:
+            payload.update({
+                'previousLockId':int(latest['id']),
+                'previousVersion':int(latest['version']),
+                'reopenedAt':latest['reopened_at'],
+                'reopenReason':latest['reopen_reason'] or ''
+            })
+        return payload
+    finally:
+        conn.close()
+
+def _forecast_close_month(month_key, channel, actor='wfm', comment=''):
+    mode = _forecast_channel_norm(channel)
+    _roster_db_init()
+    rows = _forecast_raw_month_rows(mode,month_key)
+    if not rows:
+        # Try a fresh raw calculation if the requested month is not in cache.
+        rows = _forecast_raw_month_rows(mode,month_key,_forecast_generate_raw(mode))
+    if not rows:
+        raise ValueError('No hay forecast disponible para ese mes. Genera el forecast antes de cerrarlo.')
+
+    merma_pct = 30.0
+    jornada_hours = 8.0
+    nocturno = False
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE,'r',encoding='utf-8') as f:
+                close_cfg = json.load(f)
+            merma_data = close_cfg.get('merma',30.0)
+            merma_pct = float(merma_data.get(mode,30.0)) if isinstance(merma_data,dict) else float(merma_data)
+            jornada_hours = max(0.5,float(clean_num(close_cfg.get('jornada'),8.0)))
+            nocturno = bool(close_cfg.get('nocturno',False))
+        except Exception:
+            pass
+    factor_descanso_lock = 7.0/5.0 if nocturno else 7.0/6.0
+    factor_asistencia_lock = max(0.01,1.0-(merma_pct/100.0))
+
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            active = conn.execute(
+                """SELECT id FROM forecast_locks
+                   WHERE month_key=? AND channel=? AND status='closed'
+                   LIMIT 1""",
+                (month_key,mode)
+            ).fetchone()
+            if active:
+                raise ValueError('Este mes ya está cerrado. Reábrelo formalmente antes de crear un nuevo cierre.')
+
+            version = int(conn.execute(
+                "SELECT COALESCE(MAX(version),0)+1 FROM forecast_locks WHERE month_key=? AND channel=?",
+                (month_key,mode)
+            ).fetchone()[0])
+            now = datetime.now().isoformat(timespec='seconds')
+            month_label = _forecast_month_label_from_key(month_key)
+            cur = conn.execute(
+                """INSERT INTO forecast_locks
+                   (month_key,month_label,channel,version,status,comment,closed_at,closed_by,created_at)
+                   VALUES (?,?,?,?,'closed',?,?,?,?)""",
+                (month_key,month_label,mode,version,str(comment or '')[:500],now,actor,now)
+            )
+            lock_id = int(cur.lastrowid)
+
+            total_forecast = 0.0
+            for r in rows:
+                campaign,date,interval = _forecast_row_key(r)
+                forecast = _forecast_num(r.get('Llamadas'),0)
+                total_forecast += forecast
+                conn.execute(
+                    """INSERT INTO forecast_lock_rows
+                       (lock_id,campaign,work_date,interval,forecast_at_close,official_forecast,
+                        required_hc_locked,aht_text,aht_seconds,target_sl,target_asa,concurrencia,
+                        fte_locked,factor_cobertura,merma_pct,jornada_hours,nocturno,factor_descanso,
+                        factor_asistencia,created_at,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        lock_id,campaign,date,interval,forecast,forecast,
+                        int(round(_forecast_num(r.get('Agentes_Requeridos'),0))),
+                        str(r.get('AHT') or ''),
+                        _forecast_num(r.get('AHT_Segundos'),0),
+                        _forecast_num(r.get('Target_SL'),0),
+                        _forecast_num(r.get('Target_ASA'),0),
+                        _forecast_num(r.get('Concurrencia_Aplicada'),1),
+                        _forecast_num(r.get('FTE_Erlang'),0),
+                        _forecast_num(r.get('Factor_Cobertura_Ambulancia'),1),
+                        merma_pct,jornada_hours,1 if nocturno else 0,
+                        factor_descanso_lock,factor_asistencia_lock,
+                        now,now
+                    )
+                )
+            conn.execute(
+                """INSERT INTO forecast_revisions
+                   (lock_id,revision_no,event_type,reason,affected_rows,forecast_before,forecast_after,created_at,created_by)
+                   VALUES (?,1,'close',?,?,?,?,?,?)""",
+                (lock_id,str(comment or 'Cierre mensual con Operaciones')[:500],len(rows),total_forecast,total_forecast,now,actor)
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+    return _forecast_control_status(month_key,mode)
+
+def _forecast_reopen_month(month_key, channel, actor='wfm', reason=''):
+    mode = _forecast_channel_norm(channel)
+    if not str(reason or '').strip():
+        raise ValueError('La reapertura requiere un motivo.')
+    _roster_db_init()
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            lock = conn.execute(
+                """SELECT * FROM forecast_locks
+                   WHERE month_key=? AND channel=? AND status='closed'
+                   ORDER BY version DESC LIMIT 1""",
+                (month_key,mode)
+            ).fetchone()
+            if not lock:
+                raise ValueError('No existe un cierre activo para ese mes.')
+            now = datetime.now().isoformat(timespec='seconds')
+            conn.execute(
+                """UPDATE forecast_locks
+                   SET status='reopened',reopened_at=?,reopened_by=?,reopen_reason=?
+                   WHERE id=?""",
+                (now,actor,str(reason)[:500],lock['id'])
+            )
+            rev_no = int(conn.execute(
+                "SELECT COALESCE(MAX(revision_no),0)+1 FROM forecast_revisions WHERE lock_id=?",
+                (lock['id'],)
+            ).fetchone()[0])
+            total = _forecast_num(conn.execute(
+                "SELECT COALESCE(SUM(official_forecast),0) FROM forecast_lock_rows WHERE lock_id=?",
+                (lock['id'],)
+            ).fetchone()[0],0)
+            conn.execute(
+                """INSERT INTO forecast_revisions
+                   (lock_id,revision_no,event_type,reason,affected_rows,forecast_before,forecast_after,created_at,created_by)
+                   VALUES (?,?, 'reopen', ?,0,?,?,?,?)""",
+                (lock['id'],rev_no,str(reason)[:500],total,total,now,actor)
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+    return _forecast_control_status(month_key,mode)
+
+def _forecast_reforecast_future(month_key, channel, actor='wfm', reason=''):
+    """
+    Reforecast is explicit/manual. It runs the current ML again and applies only
+    forecast values strictly AFTER today. It never modifies locked HC or past/today.
+    """
+    mode = _forecast_channel_norm(channel)
+    if not str(reason or '').strip():
+        raise ValueError('El reforecast requiere un motivo.')
+    _roster_db_init()
+
+    fresh_raw = _forecast_generate_raw(mode)
+    fresh_rows = _forecast_raw_month_rows(mode,month_key,fresh_raw)
+    fresh_map = {_forecast_row_key(r): r for r in fresh_rows}
+    today = _forecast_today_iso()
+
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            lock = conn.execute(
+                """SELECT * FROM forecast_locks
+                   WHERE month_key=? AND channel=? AND status='closed'
+                   ORDER BY version DESC LIMIT 1""",
+                (month_key,mode)
+            ).fetchone()
+            if not lock:
+                raise ValueError('El mes debe estar cerrado antes de aplicar un reforecast controlado.')
+
+            lock_rows = conn.execute(
+                "SELECT * FROM forecast_lock_rows WHERE lock_id=? ORDER BY work_date,campaign,interval",
+                (lock['id'],)
+            ).fetchall()
+            before_total = sum(_forecast_num(r['official_forecast'],0) for r in lock_rows)
+            changes = []
+            now = datetime.now().isoformat(timespec='seconds')
+
+            for old in lock_rows:
+                work_date = str(old['work_date'])
+                if work_date <= today:
+                    continue
+                key = (old['campaign'],work_date,old['interval'])
+                fresh = fresh_map.get(key)
+                if not fresh:
+                    continue
+                new_forecast = _forecast_num(fresh.get('Llamadas'),old['official_forecast'])
+                old_forecast = _forecast_num(old['official_forecast'],0)
+                if abs(new_forecast-old_forecast) < 0.0001:
+                    continue
+                changes.append((old,new_forecast,old_forecast))
+                conn.execute(
+                    "UPDATE forecast_lock_rows SET official_forecast=?,updated_at=? WHERE id=?",
+                    (new_forecast,now,old['id'])
+                )
+
+            # Si el ML detecta una nueva combinación futura que no existía al cierre
+            # (por ejemplo una campaña nueva), el forecast sí puede incorporarla,
+            # pero el HC requerido oficial permanece en 0 para esa fila porque no
+            # formó parte del staffing cerrado con Operaciones.
+            existing_keys = {(r['campaign'],str(r['work_date']),r['interval']) for r in lock_rows}
+            template = lock_rows[0] if lock_rows else None
+            for key,fresh in fresh_map.items():
+                campaign,work_date,interval = key
+                if work_date <= today or key in existing_keys:
+                    continue
+                new_forecast = _forecast_num(fresh.get('Llamadas'),0)
+                if new_forecast <= 0:
+                    continue
+                conn.execute(
+                    """INSERT INTO forecast_lock_rows
+                       (lock_id,campaign,work_date,interval,forecast_at_close,official_forecast,
+                        required_hc_locked,aht_text,aht_seconds,target_sl,target_asa,concurrencia,
+                        fte_locked,factor_cobertura,merma_pct,jornada_hours,nocturno,factor_descanso,
+                        factor_asistencia,created_at,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        lock['id'],campaign,work_date,interval,0,new_forecast,0,
+                        str(fresh.get('AHT') or ''),
+                        _forecast_num(fresh.get('AHT_Segundos'),0),
+                        _forecast_num(fresh.get('Target_SL'),0),
+                        _forecast_num(fresh.get('Target_ASA'),0),
+                        _forecast_num(fresh.get('Concurrencia_Aplicada'),1),
+                        0,
+                        _forecast_num(fresh.get('Factor_Cobertura_Ambulancia'),1),
+                        _forecast_num(template['merma_pct'],0) if template else 0,
+                        _forecast_num(template['jornada_hours'],8) if template else 8,
+                        int(template['nocturno']) if template else 0,
+                        _forecast_num(template['factor_descanso'],7.0/6.0) if template else 7.0/6.0,
+                        _forecast_num(template['factor_asistencia'],1) if template else 1,
+                        now,now
+                    )
+                )
+                changes.append(({
+                    'campaign':campaign,'work_date':work_date,'interval':interval
+                },new_forecast,0))
+
+            rev_no = int(conn.execute(
+                "SELECT COALESCE(MAX(revision_no),0)+1 FROM forecast_revisions WHERE lock_id=?",
+                (lock['id'],)
+            ).fetchone()[0])
+            after_total = _forecast_num(conn.execute(
+                "SELECT COALESCE(SUM(official_forecast),0) FROM forecast_lock_rows WHERE lock_id=?",
+                (lock['id'],)
+            ).fetchone()[0],0)
+
+            cur = conn.execute(
+                """INSERT INTO forecast_revisions
+                   (lock_id,revision_no,event_type,reason,affected_rows,forecast_before,forecast_after,created_at,created_by)
+                   VALUES (?,?,'reforecast',?,?,?,?,?,?)""",
+                (lock['id'],rev_no,str(reason)[:500],len(changes),before_total,after_total,now,actor)
+            )
+            revision_id = int(cur.lastrowid)
+            for old,new_forecast,old_forecast in changes:
+                conn.execute(
+                    """INSERT INTO forecast_revision_rows
+                       (revision_id,campaign,work_date,interval,forecast_before,forecast_after)
+                       VALUES (?,?,?,?,?,?)""",
+                    (revision_id,old['campaign'],old['work_date'],old['interval'],old_forecast,new_forecast)
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    status = _forecast_control_status(month_key,mode)
+    status['reforecast'] = {
+        'affectedRows':len(changes),
+        'effectiveFrom':(datetime.strptime(_forecast_today_iso(),'%Y-%m-%d')+timedelta(days=1)).strftime('%Y-%m-%d'),
+        'pastProtected':True,
+        'hcChanged':False
+    }
+    return status
+
+def _forecast_control_history(month_key, channel):
+    mode = _forecast_channel_norm(channel)
+    _roster_db_init()
+    conn = _roster_conn()
+    try:
+        locks = conn.execute(
+            """SELECT * FROM forecast_locks
+               WHERE month_key=? AND channel=?
+               ORDER BY version DESC""",
+            (month_key,mode)
+        ).fetchall()
+        result = []
+        for lock in locks:
+            revisions = conn.execute(
+                """SELECT * FROM forecast_revisions
+                   WHERE lock_id=? ORDER BY revision_no DESC""",
+                (lock['id'],)
+            ).fetchall()
+            result.append({
+                'lock':dict(lock),
+                'revisions':[dict(r) for r in revisions]
+            })
+        return result
+    finally:
+        conn.close()
 
 def _roster_forecast_metrics(xls_file, channel):
     try:
@@ -2268,12 +2944,84 @@ def get_forecast_status():
     _cache_excel_info_set(excel_path, 'status', payload)
     return jsonify(payload), 200
 
+
+@app.route('/api/forecast-control/status', methods=['GET'])
+def forecast_control_status():
+    month_key = str(request.args.get('monthKey') or '').strip()
+    if not month_key:
+        month_key = _forecast_month_key_from_label(request.args.get('month'))
+    if not month_key:
+        return jsonify({'error':'Selecciona un mes válido.'}),400
+    channel = _forecast_channel_norm(request.args.get('channel'))
+    return jsonify(_forecast_control_status(month_key,channel)),200
+
+@app.route('/api/forecast-control/close', methods=['POST'])
+def forecast_control_close():
+    try:
+        payload = request.get_json(force=True,silent=False) or {}
+        month_key = str(payload.get('monthKey') or '').strip() or _forecast_month_key_from_label(payload.get('month'))
+        if not month_key:
+            return jsonify({'error':'Selecciona un mes válido.'}),400
+        result = _forecast_close_month(
+            month_key,
+            payload.get('channel'),
+            actor=str(payload.get('actorMode') or 'wfm')[:80],
+            comment=str(payload.get('comment') or '')[:500]
+        )
+        return jsonify({'ok':True,'status':result}),200
+    except Exception as e:
+        return jsonify({'error':str(e)}),400
+
+@app.route('/api/forecast-control/reopen', methods=['POST'])
+def forecast_control_reopen():
+    try:
+        payload = request.get_json(force=True,silent=False) or {}
+        month_key = str(payload.get('monthKey') or '').strip() or _forecast_month_key_from_label(payload.get('month'))
+        if not month_key:
+            return jsonify({'error':'Selecciona un mes válido.'}),400
+        result = _forecast_reopen_month(
+            month_key,
+            payload.get('channel'),
+            actor=str(payload.get('actorMode') or 'wfm')[:80],
+            reason=str(payload.get('reason') or '')[:500]
+        )
+        return jsonify({'ok':True,'status':result}),200
+    except Exception as e:
+        return jsonify({'error':str(e)}),400
+
+@app.route('/api/forecast-control/reforecast', methods=['POST'])
+def forecast_control_reforecast():
+    try:
+        payload = request.get_json(force=True,silent=False) or {}
+        month_key = str(payload.get('monthKey') or '').strip() or _forecast_month_key_from_label(payload.get('month'))
+        if not month_key:
+            return jsonify({'error':'Selecciona un mes válido.'}),400
+        result = _forecast_reforecast_future(
+            month_key,
+            payload.get('channel'),
+            actor=str(payload.get('actorMode') or 'wfm')[:80],
+            reason=str(payload.get('reason') or '')[:500]
+        )
+        return jsonify({'ok':True,'status':result}),200
+    except Exception as e:
+        return jsonify({'error':str(e)}),400
+
+@app.route('/api/forecast-control/history', methods=['GET'])
+def forecast_control_history():
+    month_key = str(request.args.get('monthKey') or '').strip()
+    if not month_key:
+        month_key = _forecast_month_key_from_label(request.args.get('month'))
+    if not month_key:
+        return jsonify({'error':'Selecciona un mes válido.'}),400
+    channel = _forecast_channel_norm(request.args.get('channel'))
+    return jsonify({'history':_forecast_control_history(month_key,channel)}),200
+
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
     mode = request.args.get('mode', 'llamadas')
     cache_data = _leer_cache_forecast(mode)
     if isinstance(cache_data, list) and cache_data:
-        return jsonify(cache_data), 200
+        return jsonify(_forecast_apply_control(mode,cache_data)), 200
             
     excel_path = buscar_archivo_excel()
     if excel_path:
@@ -2297,7 +3045,7 @@ def get_latest_forecast():
             if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings)
             else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
             gc.collect()
-            return jsonify(data), 200
+            return jsonify(_forecast_apply_control(mode,data)), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
@@ -2322,7 +3070,7 @@ def process_data():
             campaign_settings=campaign_settings
         )
         gc.collect()
-        return jsonify(data)
+        return jsonify(_forecast_apply_control('llamadas',data))
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
@@ -2346,7 +3094,7 @@ def process_chat_data():
             campaign_settings=campaign_settings
         )
         gc.collect()
-        return jsonify(data)
+        return jsonify(_forecast_apply_control('chat',data))
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
@@ -3456,5 +4204,3 @@ _roster_db_init()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-
-
