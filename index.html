@@ -3738,6 +3738,32 @@
             .forecast-annual-months { grid-template-columns:repeat(3,minmax(0,1fr)); }
         }
 
+
+        /* ================================================================
+           V6.10 · REAL HISTÓRICO + FORECAST FUTURO
+           ================================================================ */
+        .forecast-source-badge {
+            display:inline-flex;align-items:center;gap:6px;min-height:25px;padding:0 8px;
+            border-radius:999px;border:1px solid #D7E1E8;background:#F3F6F8;
+            color:#667D90;font-size:6.8px;font-weight:900;text-transform:uppercase;
+            letter-spacing:.06em;white-space:nowrap;
+        }
+        .forecast-source-badge::before {
+            content:'';width:6px;height:6px;border-radius:50%;background:#92A5B4;
+        }
+        .forecast-source-badge.real { background:#EEF4F7;border-color:#D4E0E6;color:#496A80; }
+        .forecast-source-badge.real::before { background:#5D8DAA; }
+        .forecast-source-badge.hybrid { background:#EEF6F5;border-color:#CEE1DD;color:#3E756D; }
+        .forecast-source-badge.hybrid::before { background:#58A696; }
+        .forecast-source-badge.forecast { background:#F1F3FA;border-color:#D6DCEF;color:#5F70A0; }
+        .forecast-source-badge.forecast::before { background:#7188CF; }
+        .forecast-source-badge.closed { background:#EAF6F3;border-color:#C7DFD9;color:#2F756C; }
+        .forecast-source-badge.closed::before { background:#4FAE9D; }
+        .forecast-source-note {
+            margin-top:7px;color:#7B8D9D;font-size:7.3px;line-height:1.45;
+        }
+        .forecast-source-note strong { color:#526B7D; }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -3877,8 +3903,8 @@
                     <div class="flex flex-col group">
                         <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte del forecast</label>
                         <div class="input-clean p-3 rounded-xl">
-                            <div class="text-sm font-mono-num font-bold text-brand-accentViolet">Hasta 31 Dic 2026</div>
-                            <div class="text-[9px] text-slate-500 mt-1">El modelo calcula automáticamente desde la siguiente fecha real disponible. El pasado no se reconstruye.</div>
+                            <div class="text-sm font-mono-num font-bold text-brand-accentViolet">Enero → Diciembre 2026</div>
+                            <div class="text-[9px] text-slate-500 mt-1">Pasado: volumen real cargado. Futuro: rolling forecast. No se fabrica forecast histórico.</div>
                         </div>
                         <input type="hidden" name="dias" id="dias" value="365">
                     </div>
@@ -3975,8 +4001,8 @@
                     <div class="capacity-hero-head">
                         <div>
                             <div class="capacity-eyebrow"><span class="capacity-live-dot"></span> COBERTURA DE PLANTILLA</div>
-                            <h2 class="capacity-title">HC requerido vs. HC actual</h2>
-                            <p class="capacity-subtitle">La brecha de plantilla es el indicador principal para decidir contratación, redistribución o ajuste operativo.</p>
+                            <h2 id="capacityMainTitle" class="capacity-title">HC requerido vs. HC actual</h2>
+                            <p id="capacityMainSubtitle" class="capacity-subtitle">La brecha de plantilla es el indicador principal para decidir contratación, redistribución o ajuste operativo.</p><div class="forecast-source-note"><span id="forecastDataSourceBadge" class="forecast-source-badge forecast">Forecast</span> <span id="forecastDataSourceNote">Demanda proyectada para el periodo seleccionado.</span></div>
                         </div>
                         <span class="capacity-status" id="heroStatusText"><span class="capacity-status-dot"></span>Cobertura suficiente</span>
                     </div>
@@ -3984,11 +4010,11 @@
                     <div class="capacity-comparison-grid">
                         <div class="capacity-metric capacity-required-block">
                             <div class="capacity-metric-top">
-                                <span class="capacity-metric-label">HC requerido</span>
+                                <span id="capacityRequiredLabel" class="capacity-metric-label">HC requerido</span>
                                 <span class="capacity-metric-tag">NECESIDAD</span>
                             </div>
                             <p id="kpiHcRequerido" class="capacity-metric-value capacity-required-value font-mono-num">0 HC</p>
-                            <p class="capacity-metric-help">Plantilla necesaria considerando jornada, descanso y merma.</p>
+                            <p id="capacityRequiredHelp" class="capacity-metric-help">Plantilla necesaria considerando jornada, descanso y merma.</p>
                         </div>
 
                         <div class="capacity-vs" aria-hidden="true">
@@ -3999,20 +4025,20 @@
 
                         <div class="capacity-metric capacity-current-block">
                             <div class="capacity-metric-top">
-                                <span class="capacity-metric-label">HC actual</span>
+                                <span id="capacityCurrentLabel" class="capacity-metric-label">HC actual</span>
                                 <span class="capacity-metric-tag capacity-metric-tag-green">ROSTER</span>
                             </div>
                             <p id="kpiHcRoster" class="capacity-metric-value capacity-current-value font-mono-num">0 HC</p>
-                            <p class="capacity-metric-help">Dotación disponible actualmente en la plantilla seleccionada.</p>
+                            <p id="capacityCurrentHelp" class="capacity-metric-help">Dotación disponible actualmente en la plantilla seleccionada.</p>
                         </div>
 
                         <div class="capacity-gap-block">
                             <div class="capacity-gap-top">
-                                <span class="capacity-metric-label">Déficit / excedente</span>
-                                <span class="capacity-gap-caption">BRECHA</span>
+                                <span id="capacityGapLabel" class="capacity-metric-label">Déficit / excedente</span>
+                                <span id="capacityGapCaption" class="capacity-gap-caption">BRECHA</span>
                             </div>
                             <p id="kpiHcGap" class="capacity-gap-value gap-neutral font-mono-num">0</p>
-                            <p class="capacity-gap-help">Diferencia entre HC actual y HC requerido.</p>
+                            <p id="capacityGapHelp" class="capacity-gap-help">Diferencia entre HC actual y HC requerido.</p>
                         </div>
                     </div>
 
@@ -4093,7 +4119,7 @@
                 <div id="kpiDemandCard" class="glass-panel kpi-card kpi-secondary kpi-demand p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Demanda del periodo</p><div class="kpi-icon text-[#9BB9FF]"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 17V9m5 8V5m5 12v-4m4 4V7" stroke-linecap="round"/></svg></div></div>
                     <div class="flex items-end justify-between gap-4 mt-4 flex-wrap"><p id="kpiCalls" class="kpi-value font-mono-num text-white">0</p><p id="kpiCallsDaily" class="text-[9px] text-slate-400 pb-0.5">Promedio diario: 0</p></div>
-                    <p class="kpi-help mt-2">Volumen total proyectado</p>
+                    <p id="kpiDemandHelp" class="kpi-help mt-2">Volumen total proyectado</p>
                 </div>
 
                 <div id="kpiAhtCard" class="glass-panel kpi-card kpi-secondary kpi-card-warning kpi-aht p-5">
@@ -5353,6 +5379,74 @@
             return sameSl && sameAsa && sameConcurrency ? row.fte : null;
         }
 
+        function updateForecastSourcePresentation(rows){
+            const items=Array.isArray(rows)?rows:[];
+            const hasReal=items.some(r=>String(getProp(r,['Dato_Tipo','Forecast_Tipo'],'')).toLowerCase()==='real');
+            const hasForecast=items.some(r=>{
+                const t=String(getProp(r,['Dato_Tipo','Forecast_Tipo'],'')).toLowerCase();
+                return t==='forecast'||t==='rolling'||t==='annual_baseline';
+            });
+            const hasLocked=items.some(r=>!!getProp(r,['HC_Bloqueado'],false));
+            const allReal=items.length>0&&hasReal&&!hasForecast;
+            const hybrid=hasReal&&hasForecast;
+
+            const badge=document.getElementById('forecastDataSourceBadge');
+            const note=document.getElementById('forecastDataSourceNote');
+            const demandHelp=document.getElementById('kpiDemandHelp');
+            const title=document.getElementById('capacityMainTitle');
+            const subtitle=document.getElementById('capacityMainSubtitle');
+            const reqLabel=document.getElementById('capacityRequiredLabel');
+            const reqHelp=document.getElementById('capacityRequiredHelp');
+            const currentLabel=document.getElementById('capacityCurrentLabel');
+            const currentHelp=document.getElementById('capacityCurrentHelp');
+            const gapLabel=document.getElementById('capacityGapLabel');
+            const gapCaption=document.getElementById('capacityGapCaption');
+            const gapHelp=document.getElementById('capacityGapHelp');
+
+            if(badge){
+                badge.className='forecast-source-badge '+(allReal?'real':hybrid?'hybrid':hasLocked?'closed':'forecast');
+                badge.textContent=allReal?'Real histórico':hybrid?'Real + Forecast':hasLocked?'Forecast cerrado':'Forecast';
+            }
+
+            if(allReal){
+                if(note)note.textContent='El volumen y AHT son reales. No existe forecast original para este periodo.';
+                if(demandHelp)demandHelp.textContent='Volumen real histórico cargado en historico.xlsx.';
+                if(title)title.textContent='HC teórico sobre demanda real';
+                if(subtitle)subtitle.textContent='El HC mostrado es una referencia teórica calculada sobre el volumen real; no representa un HC histórico acordado.';
+                if(reqLabel)reqLabel.textContent='HC teórico sobre real';
+                if(reqHelp)reqHelp.textContent='Estimación con volumen/AHT real y los parámetros de dimensionamiento disponibles.';
+                if(currentLabel)currentLabel.textContent='HC actual (referencia)';
+                if(currentHelp)currentHelp.textContent='Roster actual usado solo como referencia; no es una fotografía histórica de plantilla.';
+                if(gapLabel)gapLabel.textContent='Brecha referencial';
+                if(gapCaption)gapCaption.textContent='REFERENCIA';
+                if(gapHelp)gapHelp.textContent='Compara el HC teórico histórico contra el roster actual, no contra la plantilla histórica.';
+            }else if(hybrid){
+                if(note)note.textContent='Periodo híbrido: real transcurrido + forecast para las fechas futuras.';
+                if(demandHelp)demandHelp.textContent='Real acumulado + forecast restante = proyección de cierre del periodo.';
+                if(title)title.textContent='HC del periodo · real + forecast';
+                if(subtitle)subtitle.textContent='El pasado usa demanda real; el futuro usa forecast. Los locks mensuales conservan el HC acordado cuando aplica.';
+                if(reqLabel)reqLabel.textContent='HC requerido / teórico';
+                if(reqHelp)reqHelp.textContent='Pasado: cálculo teórico sobre real. Futuro: requerimiento sobre forecast vigente o cerrado.';
+                if(currentLabel)currentLabel.textContent='HC actual';
+                if(currentHelp)currentHelp.textContent='Dotación disponible actualmente para contrastar la capacidad futura.';
+                if(gapLabel)gapLabel.textContent='Déficit / excedente';
+                if(gapCaption)gapCaption.textContent='BRECHA';
+                if(gapHelp)gapHelp.textContent='Referencia operativa sobre la selección mixta de real y forecast.';
+            }else{
+                if(note)note.textContent=hasLocked?'Forecast oficial del periodo con HC requerido bloqueado.':'Demanda proyectada para el periodo seleccionado.';
+                if(demandHelp)demandHelp.textContent=hasLocked?'Volumen forecast oficial / vigente del periodo.':'Volumen total proyectado.';
+                if(title)title.textContent='HC requerido vs. HC actual';
+                if(subtitle)subtitle.textContent='La brecha de plantilla es el indicador principal para decidir contratación, redistribución o ajuste operativo.';
+                if(reqLabel)reqLabel.textContent='HC requerido';
+                if(reqHelp)reqHelp.textContent=hasLocked?'HC acordado y bloqueado para el periodo cerrado.':'Plantilla necesaria considerando jornada, descanso y merma.';
+                if(currentLabel)currentLabel.textContent='HC actual';
+                if(currentHelp)currentHelp.textContent='Dotación disponible actualmente en la plantilla seleccionada.';
+                if(gapLabel)gapLabel.textContent='Déficit / excedente';
+                if(gapCaption)gapCaption.textContent='BRECHA';
+                if(gapHelp)gapHelp.textContent='Diferencia entre HC actual y HC requerido.';
+            }
+        }
+
         async function actualizarGrafica() {
             actualizarVisibilidadFiltros(); 
 
@@ -5383,6 +5477,8 @@
                 limpiarPantalla();
                 return;
             }
+
+            updateForecastSourcePresentation(dfFiltered);
 
             let aggInter = {};
             let fechasSet = new Set();
@@ -6220,17 +6316,18 @@
             let metrics='';
             if(historical){
                 metrics=`<div class="forecast-control-metrics">
+                    <div class="forecast-control-metric"><span>Volumen real</span><strong>${forecastControlNumber(status.actualVolumeTotal||status.rollingForecastTotal)}</strong></div>
+                    <div class="forecast-control-metric"><span>HC teórico pico</span><strong>${forecastControlNumber(status.rollingPeakRequiredHC)} HC</strong></div>
                     <div class="forecast-control-metric"><span>Tratamiento</span><strong>Inmutable</strong></div>
-                    <div class="forecast-control-metric"><span>Reforecast</span><strong>No permitido</strong></div>
-                    <div class="forecast-control-metric"><span>Cierre retrospectivo</span><strong>No permitido</strong></div>
-                    <div class="forecast-control-metric"><span>Versión previa</span><strong>${status.latestVersion?'V'+forecastControlNumber(status.latestVersion):'—'}</strong></div>
+                    <div class="forecast-control-metric"><span>Forecast original</span><strong>No disponible</strong></div>
                 </div>`;
             }else{
+                const currentMonth=status.temporalState==='current';
                 metrics=`<div class="forecast-control-metrics">
-                    <div class="forecast-control-metric"><span>${closed?'Forecast al cierre':'Forecast rolling'}</span><strong>${forecastControlNumber(closed?status.forecastAtCloseTotal:status.rollingForecastTotal)}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'Forecast oficial':'HC pico rolling'}</span><strong>${closed?forecastControlNumber(status.officialForecastTotal):forecastControlNumber(status.rollingPeakRequiredHC)+' HC'}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'HC requerido cerrado':'Filas disponibles'}</span><strong>${closed?forecastControlNumber(status.lockedPeakRequiredHC)+' HC':forecastControlNumber(status.availableRows)}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'Variación post-cierre':'Última versión'}</span><strong>${closed?deltaText:'V'+forecastControlNumber(status.latestVersion||0)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Forecast al cierre':currentMonth?'Real acumulado':'Forecast rolling'}</span><strong>${forecastControlNumber(closed?status.forecastAtCloseTotal:currentMonth?status.actualVolumeTotal:status.rollingForecastTotal)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Forecast oficial':currentMonth?'Forecast restante':'HC pico rolling'}</span><strong>${closed?forecastControlNumber(status.officialForecastTotal):currentMonth?forecastControlNumber(status.futureForecastTotal):forecastControlNumber(status.rollingPeakRequiredHC)+' HC'}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'HC requerido cerrado':currentMonth?'Proyección cierre':'Filas disponibles'}</span><strong>${closed?forecastControlNumber(status.lockedPeakRequiredHC)+' HC':currentMonth?forecastControlNumber(status.projectedCloseTotal):forecastControlNumber(status.availableRows)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Variación post-cierre':currentMonth?'HC pico teórico/rolling':'Última versión'}</span><strong>${closed?deltaText:currentMonth?forecastControlNumber(status.rollingPeakRequiredHC)+' HC':'V'+forecastControlNumber(status.latestVersion||0)}</strong></div>
                 </div>`;
             }
 
@@ -6238,7 +6335,7 @@
             if(closed){
                 detail=`Versión LOCK-${rosterSafe(status.monthKey||'')}-V${Number(status.version||0)} · cerrado ${rosterSafe(String(status.closedAt||'').replace('T',' '))}<br>Protegido: ${Number(status.protectedRows||0)} filas pasadas/hoy · Reforecast elegible: ${Number(status.futureRows||0)} filas futuras`;
             }else if(historical){
-                detail='El sistema no reconstruye este mes con información futura. Si existió un cierre previo, permanece únicamente en su historial de auditoría.';
+                detail=status.availableRows>0?'Volumen real cargado en el histórico. El HC es teórico sobre demanda real; no existe forecast original de este mes.':'No hay volumen real cargado para este mes.';
             }else if(status.previousVersion){
                 detail=`Rolling tras reapertura de V${Number(status.previousVersion)} · ${rosterSafe(status.reopenReason||'')}`;
             }else{
@@ -6297,7 +6394,7 @@
                         const historical=status.status==='historical';
                         const closed=status.status==='closed';
                         const rolling=status.status==='rolling';
-                        const state=closed?'🔒 Cerrado':historical?'✓ Histórico':(Number(status.availableRows||0)>0?'↻ Rolling':'Sin forecast');
+                        const state=closed?'🔒 Cerrado':historical?(Number(status.realRows||0)>0?'✓ Real histórico':'Sin real'):(status.temporalState==='current'?'◐ Real + Forecast':(Number(status.forecastRows||status.availableRows||0)>0?'↻ Rolling':'Sin forecast'));
                         const cls=closed?'closed':historical?'historical':rolling?'rolling':'';
                         const current=status.temporalState==='current'?'current':'';
                         return `<button type="button" class="forecast-annual-month ${cls} ${current}" onclick="selectForecastControlAnnualMonth('${rosterSafe(monthLabel)}')">
@@ -6335,7 +6432,7 @@
                 const anyClosed=statuses.some(s=>s.status==='closed');
                 const badge=document.getElementById('forecastControlHeaderBadge');
                 if(badge){
-                    badge.textContent=anyClosed?'2026 · cierre':'2026';
+                    badge.textContent=anyClosed?'2026 · cierre':'2026 real + forecast';
                     badge.classList.toggle('closed',anyClosed);
                 }
                 await Promise.all([loadForecastControlHistory(),loadForecastAnnualOverview()]);
@@ -9015,8 +9112,8 @@
         <div class="forecast-control-shell">
             <div class="forecast-control-head">
                 <div>
-                    <div class="forecast-control-title">Forecast anual 2026 · Lock & Rolling mensual</div>
-                    <div class="forecast-control-subtitle">Cobertura hasta el 31 de diciembre de 2026. El pasado es inmutable; los meses actuales/futuros conservan el control mensual.</div>
+                    <div class="forecast-control-title">2026 completo · Real + Forecast + Lock mensual</div>
+                    <div class="forecast-control-subtitle">Enero–Diciembre visibles. El pasado muestra volumen real cargado; el futuro conserva rolling forecast y cierre mensual.</div>
                 </div>
                 <button type="button" class="roster-head-btn" onclick="closeForecastControl()" aria-label="Cerrar">✕</button>
             </div>
@@ -9034,13 +9131,17 @@
                 </div>
 
                 <div class="forecast-control-rule">
-                    <strong>Regla de gobierno:</strong> 2026 se administra completo, pero no se reconstruye el pasado. El cierre mensual sigue siendo manual; el HC requerido cerrado queda bloqueado y cualquier reforecast solo modifica fechas posteriores a hoy.
+                    <strong>Regla de gobierno:</strong> no existe forecast original para el pasado, por lo que Enero–hoy se muestra como REAL histórico. Desde mañana se usa el rolling vigente. El cierre sigue siendo mensual y manual; el HC cerrado no cambia y el reforecast nunca modifica el pasado.
+                </div>
+
+                <div class="forecast-control-rule" style="margin-top:10px">
+                    <strong>Cómo leer 2026:</strong> las fechas con datos reales usan el volumen/AHT observado. Desde mañana se usa forecast. En el mes actual, Real acumulado + Forecast restante forman la proyección de cierre. Los locks conservan el HC acordado.
                 </div>
 
                 <div class="forecast-annual-summary">
                     <div class="forecast-annual-summary-head">
                         <div class="forecast-annual-summary-title">Mapa anual 2026</div>
-                        <div class="forecast-annual-summary-copy">Histórico protegido · Cerrado · Rolling</div>
+                        <div class="forecast-annual-summary-copy">Real histórico · Cerrado · Rolling</div>
                     </div>
                     <div id="forecastAnnualOverview"><div class="forecast-control-loading">Cargando estado anual…</div></div>
                 </div>
