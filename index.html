@@ -4944,6 +4944,30 @@
             setTimeout(() => { if (gapChartInstance) gapChartInstance.resize(); }, 150);
         }
 
+        async function showSourceDiagnostics(){
+            try{
+                const mode=forecastMode==='general'?'llamadas':forecastMode;
+                const response=await fetch(`/api/source-diagnostics?mode=${encodeURIComponent(mode)}`,{cache:'no-store'});
+                const data=await response.json();
+                const layout=data.layout||{};
+                const cols=layout.columns||{};
+                const cache=data.cache||{};
+                alert(
+                    `Diagnóstico de fuente\n\n`+
+                    `Archivo: ${data.file||'No encontrado'}\n`+
+                    `Canal: ${mode}\n`+
+                    `Hoja detectada: ${layout.sheet||'No detectada'}\n`+
+                    `Fila de encabezado: ${layout.headerRow||'—'}\n`+
+                    `Fecha: ${cols.date ?? '—'} · Volumen: ${cols.volume ?? '—'}\n`+
+                    `Campaña: ${cols.campaign ?? '—'} · Intervalo: ${cols.interval ?? '—'} · AHT: ${cols.aht ?? '—'}\n`+
+                    `Filas reales cacheadas: ${cache.rows||0}\n`+
+                    `Primera fecha: ${cache.firstDate||'—'} · Última fecha: ${cache.lastDate||'—'}`
+                );
+            }catch(error){
+                alert('No se pudo obtener el diagnóstico: '+error.message);
+            }
+        }
+
         async function fetchModeData(mode, force = false) {
             mode = mode === 'chat' ? 'chat' : 'llamadas';
             if (!force && Array.isArray(modeDataCache[mode]) && modeDataCache[mode].length) {
@@ -4971,7 +4995,13 @@
                 let data = null;
                 try { data = await response.json(); } catch (_) { data = null; }
                 if (!response.ok) {
-                    throw new Error((data && data.error) || `HTTP ${response.status}`);
+                    let detail=(data&&data.error)||`HTTP ${response.status}`;
+                    const diag=data&&data.diagnostics;
+                    if(diag&&diag.layout){
+                        const cols=diag.layout.columns||{};
+                        detail += ` · Hoja: ${diag.layout.sheet||'—'} · Encabezado fila ${diag.layout.headerRow||'—'} · Fecha:${cols.date ?? '—'} Volumen:${cols.volume ?? '—'} Campaña:${cols.campaign ?? '—'} Intervalo:${cols.interval ?? '—'}`;
+                    }
+                    throw new Error(detail);
                 }
                 const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
                 const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
@@ -5058,7 +5088,7 @@
                 if (!isBackground) {
                     const box = document.getElementById('dashboardError');
                     if (box) {
-                        box.innerText = 'No se pudo cargar la información: ' + (e.message || 'error de conexión con el servidor.');
+                        box.innerHTML = `No se pudo cargar la información: ${rosterSafe(e.message || 'error de conexión con el servidor.')} <button type="button" onclick="showSourceDiagnostics()" style="margin-left:8px;text-decoration:underline;font-weight:900">Ver diagnóstico</button>`;
                         box.classList.remove('hidden');
                     }
                     setRunStatus('Error al cargar', 'red');

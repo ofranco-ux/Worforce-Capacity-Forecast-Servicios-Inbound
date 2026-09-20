@@ -18,6 +18,7 @@ from flask_cors import CORS
 import pandas as pd
 import numpy as np
 from openpyxl import load_workbook
+from openpyxl.utils.datetime import from_excel
 
 # Dependencias locales del forecast. Se distribuyen junto al servidor para que
 # el calendario de México y el modelo de machine learning estén siempre activos.
@@ -1279,6 +1280,119 @@ def _forecast_settings(mode):
             pass
     return sl, tt, merma, dias, concurrencia, campaign_settings
 
+ACTUAL_EXTRACTOR_VERSION = 4
+
+def _parse_excel_date_robust(value, epoch=None):
+    if value is None:
+        return None
+    try:
+        if isinstance(value, pd.Timestamp):
+            return value.normalize()
+        if isinstance(value, datetime):
+            return pd.Timestamp(value).normalize()
+        # date-like openpyxl value
+        if hasattr(value,'year') and hasattr(value,'month') and hasattr(value,'day'):
+            return pd.Timestamp(value).normalize()
+        if isinstance(value,(int,float)) and not isinstance(value,bool):
+            # Excel serial dates are typically > 20000 for modern dates.
+            if float(value) > 1000:
+                try:
+                    return pd.Timestamp(from_excel(value, epoch=epoch)).normalize()
+                except Exception:
+                    pass
+        text=str(value).strip()
+        if not text:
+            return None
+        for fmt in ('%Y-%m-%d','%d/%m/%Y','%d-%m-%Y','%Y/%m/%d','%m/%d/%Y'):
+            try:
+                return pd.Timestamp(datetime.strptime(text[:10],fmt)).normalize()
+            except Exception:
+                pass
+        dt=pd.to_datetime(text,dayfirst=True,errors='coerce')
+        if pd.isna(dt):
+            return None
+        return pd.Timestamp(dt).normalize()
+    except Exception:
+        return None
+
+def _history_column_map(header):
+    return {
+        'date': _header_index(header,['fecha','date','dia','día']),
+        'campaign': _header_index(header,['campaña','campana','skill','servicio','ring group','queue','cola','grupo']),
+        'interval': _header_index(header,['intervalo','interval','hora','time','franja','media hora']),
+        'volume': _header_index(header,[
+            'recibidos','recibidas','llamadas','calls','volumen','ofrecidas','offered',
+            'entrada','entrantes','received','contactos','contacts','interacciones','tickets','casos'
+        ]),
+        'aht': _header_index(header,['aht','tmo','handle','duracion','duración','talk time','tiempo medio'])
+    }
+
+def _detect_history_layout(excel_path, mode):
+    """
+    Searches the first 12 rows of every plausible sheet and chooses the row that
+    most resembles the operational history header. This avoids assuming row 1 or
+    relying only on the worksheet name.
+    """
+    wb=load_workbook(excel_path,read_only=True,data_only=True)
+    try:
+        best=None
+        for sheet_name in wb.sheetnames:
+            low=sheet_name.lower()
+            if any(x in low for x in ('plantilla','roster','platilla','config','parametro')):
+                continue
+            ws=wb[sheet_name]
+            for row_num,values in enumerate(
+                ws.iter_rows(min_row=1,max_row=min(12,ws.max_row or 12),values_only=True),
+                start=1
+            ):
+                header=list(values or [])
+                mapping=_history_column_map(header)
+                # Date + volume are mandatory; campaign/interval improve confidence.
+                if mapping['date'] is None or mapping['volume'] is None:
+                    continue
+                score=10
+                if mapping['campaign'] is not None: score+=4
+                if mapping['interval'] is not None: score+=3
+                if mapping['aht'] is not None: score+=2
+                if mode=='chat' and ('chat' in low or 'mensaje' in low): score+=5
+                if mode=='llamadas' and ('llam' in low or 'call' in low or 'hist' in low or 'dato' in low): score+=5
+                if mode=='llamadas' and ('chat' in low or 'mensaje' in low): score-=6
+                candidate={
+                    'sheet':sheet_name,
+                    'headerRow':row_num,
+                    'columns':mapping,
+                    'headers':[str(x or '') for x in header],
+                    'score':score
+                }
+                if best is None or score>best['score']:
+                    best=candidate
+        return best
+    finally:
+        wb.close()
+
+def _actual_cache_summary(mode):
+    data_path,meta_path=_forecast_actual_cache_paths(mode)
+    result={'rows':0,'firstDate':None,'lastDate':None,'cached':False}
+    try:
+        if os.path.exists(meta_path):
+            with open(meta_path,'r',encoding='utf-8') as f:
+                meta=json.load(f)
+            result['meta']=meta
+        if os.path.exists(data_path):
+            with open(data_path,'r',encoding='utf-8') as f:
+                data=json.load(f)
+            if isinstance(data,list):
+                dates=[str(r.get('Fecha') or '')[:10] for r in data if r.get('Fecha')]
+                result.update({
+                    'rows':len(data),
+                    'firstDate':min(dates) if dates else None,
+                    'lastDate':max(dates) if dates else None,
+                    'cached':len(data)>0
+                })
+    except Exception as e:
+        result['error']=str(e)
+    return result
+
 def _forecast_actual_cache_paths(mode):
     if _forecast_channel_norm(mode) == 'chat':
         return ACTUAL_2026_FILE_CHAT, ACTUAL_2026_META_CHAT
@@ -1286,142 +1400,149 @@ def _forecast_actual_cache_paths(mode):
 
 def _forecast_actual_source_2026(channel):
     """
-    Fast/low-memory actual 2026 extractor.
-    Streams the Excel sheet row-by-row with openpyxl read_only and aggregates
-    directly into a dict. No pandas DataFrame is created for the raw history.
+    Robust actual 2026 extractor:
+    - auto-detects worksheet + header row;
+    - supports Excel serial dates, datetime cells and text dates;
+    - ignores stale/empty caches from previous extractor versions;
+    - streams rows with openpyxl read_only.
     """
-    mode = _forecast_channel_norm(channel)
-    excel_path = buscar_archivo_excel()
+    mode=_forecast_channel_norm(channel)
+    excel_path=buscar_archivo_excel()
     if not excel_path:
         return []
 
-    data_path, meta_path = _forecast_actual_cache_paths(mode)
-    signature = list(_excel_signature(excel_path))
-    today = _forecast_today_iso()
+    data_path,meta_path=_forecast_actual_cache_paths(mode)
+    signature=list(_excel_signature(excel_path))
+    today=_forecast_today_iso()
 
     try:
         if os.path.exists(data_path) and os.path.exists(meta_path):
             with open(meta_path,'r',encoding='utf-8') as f:
-                meta = json.load(f)
-            if meta.get('signature') == signature and meta.get('today') == today:
+                meta=json.load(f)
+            cache_ok=(
+                meta.get('signature')==signature and
+                meta.get('today')==today and
+                int(meta.get('extractorVersion') or 0)==ACTUAL_EXTRACTOR_VERSION and
+                int(meta.get('rows') or 0)>0
+            )
+            if cache_ok:
                 with open(data_path,'r',encoding='utf-8') as f:
-                    cached = json.load(f)
-                if isinstance(cached,list):
+                    cached=json.load(f)
+                if isinstance(cached,list) and cached:
                     return cached
     except Exception:
         pass
 
-    wb = load_workbook(excel_path, read_only=True, data_only=True)
+    layout=_detect_history_layout(excel_path,mode)
+    if not layout:
+        return []
+
+    wb=load_workbook(excel_path,read_only=True,data_only=True)
     try:
-        sheet = None
-        if mode == 'chat':
-            for sh in wb.sheetnames:
-                low = sh.lower()
-                if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ('plantilla','roster','platilla')):
-                    sheet = sh
-                    break
-        else:
-            sheet = wb.sheetnames[0] if wb.sheetnames else None
-            for sh in wb.sheetnames:
-                low = sh.lower()
-                if 'llam' in low or 'hist' in low or 'datos' in low:
-                    sheet = sh
-                    break
-        if not sheet:
-            return []
+        ws=wb[layout['sheet']]
+        mapping=layout['columns']
+        header_row=int(layout['headerRow'])
+        today_ts=pd.Timestamp(today)
+        agg={}
+        examined=0
+        accepted=0
 
-        ws = wb[sheet]
-        header = next(ws.iter_rows(min_row=1,max_row=1,values_only=True), ())
-        col_calls = _header_index(header, ['recibidos','recibidas','llamadas','calls','volumen','ofrecidas','entrada','chats','mensajes'])
-        col_aht = _header_index(header, ['aht','tmo','handle','duracion'])
-        col_camp = _header_index(header, ['campaña','campana','skill','servicio','ring group'])
-        col_inter = _header_index(header, ['intervalo','hora','time'])
-        col_fecha = _header_index(header, ['fecha','date'])
-
-        if col_camp is None: col_camp = 0
-        if col_fecha is None: col_fecha = 1
-        if col_inter is None: col_inter = 2
-        if col_calls is None: col_calls = 3
-
-        today_ts = pd.Timestamp(today)
-        agg = {}
-
-        for values in ws.iter_rows(min_row=2, values_only=True):
+        for values in ws.iter_rows(min_row=header_row+1,values_only=True):
+            examined+=1
             try:
-                if col_fecha >= len(values):
-                    continue
-                raw_date = values[col_fecha]
-                if raw_date is None:
-                    continue
-                dt = pd.to_datetime(raw_date, dayfirst=True, errors='coerce')
-                if pd.isna(dt):
-                    continue
-                dt = pd.Timestamp(dt).normalize()
-                if dt.year != FORECAST_ANNUAL_YEAR or dt > today_ts:
+                date_idx=mapping['date']
+                vol_idx=mapping['volume']
+                raw_date=values[date_idx] if date_idx is not None and date_idx<len(values) else None
+                dt=_parse_excel_date_robust(raw_date,wb.epoch)
+                if dt is None or dt.year!=FORECAST_ANNUAL_YEAR or dt>today_ts:
                     continue
 
-                campaign = ''
-                if col_camp < len(values) and values[col_camp] is not None:
-                    campaign = str(values[col_camp]).strip().title()
-                if not campaign or campaign.lower() == 'nan':
+                volume=clean_num(values[vol_idx] if vol_idx is not None and vol_idx<len(values) else 0,0.0)
+                if volume<=0:
                     continue
 
-                interval = clean_interval_str(values[col_inter] if col_inter < len(values) else '')
-                volume = clean_num(values[col_calls] if col_calls < len(values) else 0, 0.0)
-                if volume <= 0:
-                    continue
-
-                if col_aht is not None and col_aht < len(values):
-                    aht = parse_aht_to_seconds(values[col_aht])
+                camp_idx=mapping['campaign']
+                if camp_idx is not None and camp_idx<len(values) and values[camp_idx] is not None:
+                    campaign=str(values[camp_idx]).strip().title()
                 else:
-                    aht = 600.0 if mode == 'chat' else 180.0
+                    campaign='General'
+                if not campaign or campaign.lower()=='nan':
+                    campaign='General'
 
-                key = (dt.strftime('%Y-%m-%d'), campaign, interval)
-                current = agg.get(key)
-                handle = volume * aht
+                int_idx=mapping['interval']
+                if int_idx is not None and int_idx<len(values):
+                    interval=clean_interval_str(values[int_idx])
+                else:
+                    interval='00:00'
+
+                aht_idx=mapping['aht']
+                if aht_idx is not None and aht_idx<len(values):
+                    raw_aht=values[aht_idx]
+                    # Excel time fraction, e.g. 00:05:30 stored as fraction of a day.
+                    if isinstance(raw_aht,(int,float)) and 0<float(raw_aht)<1:
+                        aht=float(raw_aht)*86400.0
+                    else:
+                        aht=parse_aht_to_seconds(raw_aht)
+                else:
+                    aht=600.0 if mode=='chat' else 180.0
+                if not aht or aht<=0:
+                    aht=600.0 if mode=='chat' else 180.0
+
+                key=(dt.strftime('%Y-%m-%d'),campaign,interval)
+                handle=float(volume)*float(aht)
+                current=agg.get(key)
                 if current is None:
-                    agg[key] = [float(volume), float(handle)]
+                    agg[key]=[float(volume),handle]
                 else:
-                    current[0] += float(volume)
-                    current[1] += float(handle)
+                    current[0]+=float(volume)
+                    current[1]+=handle
+                accepted+=1
             except Exception:
                 continue
     finally:
         wb.close()
 
-    meses = ['', 'Enero','Febrero','Marzo','Abril','Mayo','Junio',
-             'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-    dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-
-    result = []
+    meses=['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
+           'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+    dias=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
+    result=[]
     for (date,campaign,interval),(volume,handle) in agg.items():
-        dt = pd.Timestamp(date)
-        aht = (handle / volume) if volume > 0 else 0.0
+        dt=pd.Timestamp(date)
+        aht=(handle/volume) if volume>0 else 0.0
         result.append({
-            'Campaña': campaign,
-            'Fecha': date,
-            'Mes': f"{meses[dt.month]} {dt.year}",
-            'Día_Semana': dias[dt.weekday()],
-            'Intervalo': interval,
-            'Llamadas': int(round(volume)),
-            'AHT_Segundos': int(round(aht)),
-            'AHT': format_aht_str(aht)
+            'Campaña':campaign,
+            'Fecha':date,
+            'Mes':f"{meses[dt.month]} {dt.year}",
+            'Día_Semana':dias[dt.weekday()],
+            'Intervalo':interval,
+            'Llamadas':int(round(volume)),
+            'AHT_Segundos':int(round(aht)),
+            'AHT':format_aht_str(aht)
         })
-
     result.sort(key=lambda x:(x['Fecha'],x['Campaña'],x['Intervalo']))
 
     try:
-        encoder = json.JSONEncoder(ensure_ascii=False,separators=(',',':'))
-        tmp = data_path + '.tmp'
+        encoder=json.JSONEncoder(ensure_ascii=False,separators=(',',':'))
+        tmp=data_path+'.tmp'
         with open(tmp,'w',encoding='utf-8') as f:
             for chunk in encoder.iterencode(result):
                 f.write(chunk)
         os.replace(tmp,data_path)
+        dates=[r['Fecha'] for r in result]
         with open(meta_path,'w',encoding='utf-8') as f:
-            json.dump(
-                {'signature':signature,'today':today,'rows':len(result)},
-                f,ensure_ascii=False,separators=(',',':')
-            )
+            json.dump({
+                'signature':signature,
+                'today':today,
+                'extractorVersion':ACTUAL_EXTRACTOR_VERSION,
+                'rows':len(result),
+                'firstDate':min(dates) if dates else None,
+                'lastDate':max(dates) if dates else None,
+                'sheet':layout['sheet'],
+                'headerRow':layout['headerRow'],
+                'columns':layout['columns'],
+                'examinedRows':examined,
+                'acceptedRows':accepted
+            },f,ensure_ascii=False,separators=(',',':'))
     except Exception as e:
         print(f"No se pudo guardar cache real 2026 {mode}: {e}")
 
@@ -1472,11 +1593,15 @@ def _forecast_actual_2026(channel):
         factor_cobertura = factor_cobertura_ambulancia(camp) if mode == 'llamadas' else 1.0
         concurrency = max(1.0,concurrencia) if mode == 'chat' else 1.0
         aht_efectivo = aht / concurrency if mode == 'chat' else aht
-        a_erlang = (calls * aht_efectivo * factor_cobertura) / 1800.0 if calls > 0 and aht_efectivo > 0 else 0.0
-        req_ftes = calcular_agentes_requeridos_erlang_c(
-            a_erlang,aht_efectivo,camp_asa,camp_sl
-        ) if calls > 0 and aht_efectivo > 0 else 0
-        req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
+        try:
+            a_erlang = (calls * aht_efectivo * factor_cobertura) / 1800.0 if calls > 0 and aht_efectivo > 0 else 0.0
+            req_ftes = calcular_agentes_requeridos_erlang_c(
+                a_erlang,aht_efectivo,camp_asa,camp_sl
+            ) if calls > 0 and aht_efectivo > 0 else 0
+            req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
+        except Exception:
+            req_ftes = 0
+            req_hc = 0
 
         day = row['Día_Semana']
         roster_ref = max(
@@ -3597,6 +3722,24 @@ def forecast_control_history():
     channel = _forecast_channel_norm(request.args.get('channel'))
     return jsonify({'history':_forecast_control_history(month_key,channel)}),200
 
+@app.route('/api/source-diagnostics', methods=['GET'])
+def source_diagnostics():
+    mode=_forecast_channel_norm(request.args.get('mode','llamadas'))
+    excel_path=buscar_archivo_excel()
+    payload={
+        'mode':mode,
+        'file':os.path.basename(excel_path) if excel_path else None,
+        'fileFound':bool(excel_path),
+        'today':_forecast_today_iso()
+    }
+    if excel_path:
+        try:
+            payload['layout']=_detect_history_layout(excel_path,mode)
+        except Exception as e:
+            payload['layoutError']=str(e)
+    payload['cache']=_actual_cache_summary(mode)
+    return jsonify(payload),200
+
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
     mode = request.args.get('mode', 'llamadas')
@@ -3614,6 +3757,17 @@ def get_latest_forecast():
             # A future rolling forecast is generated only when the user presses
             # "Generar Forecast" (or when a persisted cache already exists).
             actual_only = _forecast_actual_2026(mode)
+            if not actual_only:
+                layout = _detect_history_layout(excel_path,_forecast_channel_norm(mode))
+                return jsonify({
+                    'error':'No pude identificar filas reales de 2026 en el histórico.',
+                    'hint':'Revisa la hoja/encabezados de Fecha, Campaña, Intervalo y Volumen. El diagnóstico de fuente ya está disponible.',
+                    'diagnostics':{
+                        'file':os.path.basename(excel_path),
+                        'layout':layout,
+                        'cache':_actual_cache_summary(mode)
+                    }
+                }),422
             controlled = _forecast_apply_control(mode, actual_only)
             return _stream_json_rows(controlled), 200
         except Exception as e:
