@@ -30,6 +30,8 @@ from sklearn.ensemble import RandomForestRegressor
 
 CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
 CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
+ANNUAL_BASE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_annual_base_2026_llamadas.json')
+ANNUAL_BASE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_annual_base_2026_chat.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
 EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
 WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
@@ -46,6 +48,8 @@ _WFM_ACTION_LOG_LOCK = threading.RLock()
 _FORECAST_MEMORY_CACHE = {'llamadas': None, 'chat': None}
 _FORECAST_CACHE_GENERATION = {'llamadas': 0, 'chat': 0}
 _FORECAST_CACHE_LOCK = threading.RLock()
+_ANNUAL_BASE_MEMORY = {'llamadas': None, 'chat': None}
+_ANNUAL_BASE_LOCK = threading.RLock()
 _EXCEL_INFO_CACHE = {}
 _ASSISTANT_PLAN_CACHE = {}
 _ASSISTANT_PLAN_CACHE_LOCK = threading.RLock()
@@ -54,6 +58,41 @@ _ASSISTANT_PLAN_CACHE_TTL = 600
 
 def _cache_path(mode):
     return CACHE_FILE_CHAT if str(mode).lower() == 'chat' else CACHE_FILE_LLAMADAS
+
+def _annual_base_path(mode):
+    return ANNUAL_BASE_FILE_CHAT if str(mode).lower() == 'chat' else ANNUAL_BASE_FILE_LLAMADAS
+
+def _leer_annual_base(mode):
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    with _ANNUAL_BASE_LOCK:
+        mem = _ANNUAL_BASE_MEMORY.get(mode)
+    if isinstance(mem, list) and mem:
+        return mem
+    target = _annual_base_path(mode)
+    if not os.path.exists(target):
+        return None
+    try:
+        with open(target, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, list) and data:
+            with _ANNUAL_BASE_LOCK:
+                _ANNUAL_BASE_MEMORY[mode] = data
+            return data
+    except Exception as e:
+        print(f"No se pudo leer baseline anual {mode}: {e}")
+    return None
+
+def _guardar_annual_base(mode, data):
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    if not isinstance(data, list) or not data:
+        return
+    with _ANNUAL_BASE_LOCK:
+        _ANNUAL_BASE_MEMORY[mode] = data
+        target = _annual_base_path(mode)
+        tmp = target + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
+        os.replace(tmp, target)
 
 def _guardar_cache_forecast(mode, data):
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
@@ -1055,85 +1094,98 @@ def _forecast_lock_rows_map(lock_ids):
 
 def _forecast_apply_control(channel, data):
     """
-    Closed month rules:
-    - HC required is always the value locked with Operations.
-    - Forecast is the official value stored in the lock. It changes only through
-      an explicit future reforecast/anomaly revision.
-    - Roster / HC actual remains live.
-    - Past/today rows are never changed by a reforecast operation.
+    Governance rules:
+    - Real historical volume is never replaced by a reconstructed forecast.
+    - A closed month can still expose its original/official forecast in metadata.
+    - Locked HC remains authoritative for a closed month.
+    - Future forecast can change only through rolling/reforecast rules.
     """
     if not isinstance(data,list) or not data:
         return data
 
     mode = _forecast_channel_norm(channel)
     locks = _forecast_active_locks(mode)
-    if not locks:
-        result = []
-        for raw in data:
-            row = dict(raw)
-            row['Forecast_Control_Estado'] = 'rolling'
-            row['HC_Bloqueado'] = False
-            row['Forecast_Rolling'] = _forecast_num(row.get('Llamadas'),0)
-            row['Forecast_Oficial'] = _forecast_num(row.get('Llamadas'),0)
-            row['Forecast_Al_Cierre'] = None
-            row['Lock_Version'] = None
-            result.append(row)
-        return result
-
-    rows_map = _forecast_lock_rows_map([v['id'] for v in locks.values()])
+    rows_map = _forecast_lock_rows_map([v['id'] for v in locks.values()]) if locks else {}
     result = []
+
     for raw in data:
         row = dict(raw)
+        is_real = str(row.get('Dato_Tipo') or row.get('Forecast_Tipo') or '').lower() == 'real'
         month_key = _forecast_month_key_from_date(row.get('Fecha'))
         lock = locks.get((month_key,mode))
-        rolling_forecast = _forecast_num(row.get('Llamadas'),0)
-        rolling_hc = int(round(_forecast_num(row.get('Agentes_Requeridos'),0)))
+        current_value = _forecast_num(row.get('Llamadas'),0)
+        current_hc = int(round(_forecast_num(row.get('Agentes_Requeridos'),0)))
 
-        row['Forecast_Rolling'] = rolling_forecast
-        row['Agentes_Requeridos_Rolling'] = rolling_hc
+        if is_real:
+            row['Volumen_Real'] = current_value
+            row['Forecast_Rolling'] = None
+            row['Agentes_Requeridos_Rolling'] = None
+        else:
+            row['Forecast_Rolling'] = current_value
+            row['Agentes_Requeridos_Rolling'] = current_hc
 
         if not lock:
-            row['Forecast_Control_Estado'] = 'rolling'
-            row['HC_Bloqueado'] = False
-            row['Forecast_Oficial'] = rolling_forecast
-            row['Forecast_Al_Cierre'] = None
-            row['Lock_Version'] = None
+            if is_real:
+                row['Forecast_Control_Estado'] = 'historical_real'
+                row['HC_Bloqueado'] = False
+                row['Forecast_Oficial'] = None
+                row['Forecast_Al_Cierre'] = None
+                row['Lock_Version'] = None
+            else:
+                row['Forecast_Control_Estado'] = 'rolling'
+                row['HC_Bloqueado'] = False
+                row['Forecast_Oficial'] = current_value
+                row['Forecast_Al_Cierre'] = None
+                row['Lock_Version'] = None
             result.append(row)
             continue
 
         key = _forecast_row_key(row)
-        snap = rows_map.get((int(lock['id']), key[0], key[1], key[2]))
+        snap = rows_map.get((int(lock['id']),key[0],key[1],key[2]))
+        row['Lock_Id'] = int(lock['id'])
+        row['Lock_Version'] = int(lock['version'])
+        row['HC_Bloqueado'] = True
+
         if not snap:
-            # A new campaign/interval that did not exist at close cannot silently
-            # change the agreed HC. It remains visible as "sin snapshot".
-            row['Forecast_Control_Estado'] = 'closed_missing_snapshot'
-            row['HC_Bloqueado'] = True
-            row['Agentes_Requeridos'] = 0
-            row['Forecast_Oficial'] = 0
-            row['Llamadas'] = 0
-            row['Forecast_Al_Cierre'] = 0
-            row['Lock_Version'] = int(lock['version'])
-            row['Lock_Id'] = int(lock['id'])
+            if is_real:
+                # Real demand appeared outside the closing snapshot.
+                # Preserve the real volume, but do not invent official HC.
+                row['Forecast_Control_Estado'] = 'closed_actual_missing_snapshot'
+                row['Forecast_Al_Cierre'] = 0
+                row['Forecast_Oficial'] = 0
+                row['HC_Teorico_Real'] = current_hc
+                row['Agentes_Requeridos'] = 0
+                row['FTE_Erlang'] = 0
+            else:
+                row['Forecast_Control_Estado'] = 'closed_missing_snapshot'
+                row['Agentes_Requeridos'] = 0
+                row['Forecast_Oficial'] = 0
+                row['Llamadas'] = 0
+                row['Forecast_Al_Cierre'] = 0
             result.append(row)
             continue
 
         official = _forecast_num(snap['official_forecast'],0)
-        row['Forecast_Control_Estado'] = 'closed'
-        row['HC_Bloqueado'] = True
-        row['Lock_Id'] = int(lock['id'])
-        row['Lock_Version'] = int(lock['version'])
         row['Forecast_Al_Cierre'] = _forecast_num(snap['forecast_at_close'],0)
         row['Forecast_Oficial'] = official
 
-        # Only forecast can move after close, via an explicit reforecast.
-        row['Llamadas'] = int(round(official))
-        row['Agentes_Requeridos'] = int(snap['required_hc_locked'] or 0)
-        row['AHT'] = snap['aht_text'] or row.get('AHT','')
-        row['AHT_Segundos'] = int(round(_forecast_num(snap['aht_seconds'],0)))
+        if is_real:
+            # Keep actual volume/AHT. Only the agreed HC/assumptions remain locked.
+            row['Forecast_Control_Estado'] = 'closed_actual'
+            row['HC_Teorico_Real'] = current_hc
+            row['Agentes_Requeridos'] = int(snap['required_hc_locked'] or 0)
+            row['FTE_Erlang'] = int(round(_forecast_num(snap['fte_locked'],0)))
+        else:
+            row['Forecast_Control_Estado'] = 'closed'
+            row['Llamadas'] = int(round(official))
+            row['Agentes_Requeridos'] = int(snap['required_hc_locked'] or 0)
+            row['AHT'] = snap['aht_text'] or row.get('AHT','')
+            row['AHT_Segundos'] = int(round(_forecast_num(snap['aht_seconds'],0)))
+            row['FTE_Erlang'] = int(round(_forecast_num(snap['fte_locked'],row.get('FTE_Erlang',0))))
+
         row['Target_SL'] = _forecast_num(snap['target_sl'],row.get('Target_SL',0))
         row['Target_ASA'] = _forecast_num(snap['target_asa'],row.get('Target_ASA',0))
         row['Concurrencia_Aplicada'] = _forecast_num(snap['concurrencia'],row.get('Concurrencia_Aplicada',1))
-        row['FTE_Erlang'] = int(round(_forecast_num(snap['fte_locked'],row.get('FTE_Erlang',0))))
         row['Lock_Merma_Pct'] = _forecast_num(snap['merma_pct'],0)
         row['Lock_Jornada_Horas'] = _forecast_num(snap['jornada_hours'],8)
         row['Lock_Nocturno'] = bool(snap['nocturno'])
@@ -1146,13 +1198,312 @@ def _forecast_apply_control(channel, data):
         result.append(row)
     return result
 
+
 def _forecast_raw_month_rows(channel, month_key, data=None):
     mode = _forecast_channel_norm(channel)
-    source = data if isinstance(data,list) else (_leer_cache_forecast(mode) or [])
+    source = data if isinstance(data,list) else _forecast_annual_view(mode)
     return [
         dict(r) for r in source
         if _forecast_month_key_from_date((r or {}).get('Fecha')) == month_key
     ]
+
+def _forecast_settings(mode):
+    mode = _forecast_channel_norm(mode)
+    sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 365, 3.0
+    campaign_settings = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            sl = float(cfg.get('targetSl', 80.0))
+            tt = float(cfg.get('targetTime', 20.0))
+            merma_data = cfg.get('merma', 30.0)
+            merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
+            dias = int(clean_num(cfg.get('dias'), dias))
+            concurrencia = float(clean_num(cfg.get('concurrencia'), concurrencia))
+            all_settings = cfg.get('campaignSettings', {})
+            campaign_settings = all_settings.get(mode, {}) if isinstance(all_settings, dict) else {}
+        except Exception:
+            pass
+    return sl, tt, merma, dias, concurrencia, campaign_settings
+
+def _forecast_actual_source_2026(channel):
+    """
+    Reads the actual 2026 volume/AHT already present in historico.xlsx.
+    This is source data, not a reconstructed forecast.
+    """
+    mode = _forecast_channel_norm(channel)
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        return []
+
+    cache_key = f'actual2026:{mode}:{_forecast_today_iso()}'
+    cached = _cache_excel_info_get(excel_path, cache_key)
+    if isinstance(cached, list):
+        return cached
+
+    xls = pd.ExcelFile(excel_path, engine='openpyxl')
+    sheet = None
+    if mode == 'chat':
+        for sh in xls.sheet_names:
+            low = sh.lower()
+            if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ('plantilla','roster','platilla')):
+                sheet = sh
+                break
+    else:
+        sheet = xls.sheet_names[0]
+        for sh in xls.sheet_names:
+            low = sh.lower()
+            if 'llam' in low or 'hist' in low or 'datos' in low:
+                sheet = sh
+                break
+    if not sheet:
+        return []
+
+    df_raw = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
+    col_calls = encontrar_columna(
+        df_raw,
+        ['recibidos','recibidas','llamadas','calls','volumen','ofrecidas','entrada','chats','mensajes']
+    )
+    col_aht = encontrar_columna(df_raw, ['aht','tmo','handle','duracion'])
+    col_camp = encontrar_columna(df_raw, ['campaña','campana','skill','servicio','ring group'])
+    col_inter = encontrar_columna(df_raw, ['intervalo','hora','time'])
+    col_fecha = encontrar_columna(df_raw, ['fecha','date'])
+
+    if not col_camp: col_camp = df_raw.columns[0]
+    if not col_fecha: col_fecha = df_raw.columns[1]
+    if not col_inter: col_inter = df_raw.columns[2]
+    if not col_calls: col_calls = df_raw.columns[3]
+
+    df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
+    df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
+    df_raw = df_raw.dropna(subset=[col_fecha])
+    today = pd.Timestamp(_forecast_today_iso())
+    df_raw = df_raw[
+        (df_raw[col_fecha].dt.year == FORECAST_ANNUAL_YEAR) &
+        (df_raw[col_fecha] <= today)
+    ].copy()
+    if df_raw.empty:
+        _cache_excel_info_set(excel_path, cache_key, [])
+        return []
+
+    df_raw[col_calls] = [clean_num(x,0.0) for x in df_raw[col_calls]]
+    if col_aht:
+        df_raw['_AHT_SECONDS_'] = [parse_aht_to_seconds(x) for x in df_raw[col_aht]]
+    else:
+        df_raw['_AHT_SECONDS_'] = 600.0 if mode == 'chat' else 180.0
+
+    df_raw['_INTERVAL_'] = df_raw[col_inter].apply(clean_interval_str)
+    df_raw['_HANDLE_SECONDS_'] = df_raw[col_calls] * df_raw['_AHT_SECONDS_']
+
+    grouped = (
+        df_raw.groupby([col_fecha,col_camp,'_INTERVAL_'], dropna=False)
+        .agg(volume=(col_calls,'sum'), handle=('_HANDLE_SECONDS_','sum'))
+        .reset_index()
+    )
+    grouped['aht'] = np.where(
+        grouped['volume'] > 0,
+        grouped['handle'] / grouped['volume'],
+        0.0
+    )
+
+    result = []
+    meses = ['', 'Enero','Febrero','Marzo','Abril','Mayo','Junio',
+             'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+    dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
+    for _,r in grouped.iterrows():
+        fecha = pd.Timestamp(r[col_fecha])
+        result.append({
+            'Campaña': str(r[col_camp]).strip().title(),
+            'Fecha': fecha.strftime('%Y-%m-%d'),
+            'Mes': f"{meses[fecha.month]} {fecha.year}",
+            'Día_Semana': dias[fecha.weekday()],
+            'Intervalo': str(r['_INTERVAL_']),
+            'Llamadas': int(round(float(r['volume'] or 0))),
+            'AHT_Segundos': int(round(float(r['aht'] or 0))),
+            'AHT': format_aht_str(float(r['aht'] or 0))
+        })
+
+    result.sort(key=lambda x:(x['Fecha'],x['Campaña'],x['Intervalo']))
+    return _cache_excel_info_set(excel_path, cache_key, result)
+
+def _forecast_actual_2026(channel):
+    """
+    Enriches real historical volume with a THEORETICAL staffing view.
+    Theoretical HC is explicitly not an original/approved historical HC.
+    Current roster values are reference-only because historical roster snapshots
+    do not exist in the source data.
+    """
+    mode = _forecast_channel_norm(channel)
+    source = _forecast_actual_source_2026(mode)
+    if not source:
+        return []
+
+    sl,tt,merma,dias,concurrencia,campaign_settings = _forecast_settings(mode)
+    factor_asistencia = max(0.01, 1.0 - (merma / 100.0))
+
+    roster_coverage, roster_total_camp, roster_total_day, override_cov, override_day = {},{},{},{},{}
+    try:
+        df_db = _roster_dataframe('Chat' if mode == 'chat' else 'Llamadas')
+        if not df_db.empty:
+            roster_coverage, roster_total_camp, roster_total_day = procesar_hoja_roster(df_db)
+            override_cov, override_day = _roster_override_deltas(
+                'Chat' if mode == 'chat' else 'Llamadas', df_db
+            )
+            absence_cov, absence_day = _roster_absence_deltas(
+                'Chat' if mode == 'chat' else 'Llamadas', df_db
+            )
+            for key,value in absence_cov.items():
+                override_cov[key] = override_cov.get(key,0) + value
+            for key,value in absence_day.items():
+                override_day[key] = override_day.get(key,0) + value
+    except Exception as e:
+        print(f'Roster de referencia histórico ({mode}): {e}')
+
+    result = []
+    for base in source:
+        row = dict(base)
+        camp = row['Campaña']
+        fecha = row['Fecha']
+        intervalo = row['Intervalo']
+        calls = float(row.get('Llamadas') or 0)
+        aht = float(row.get('AHT_Segundos') or 0)
+        camp_sl,camp_asa = objetivos_campana(camp,sl,tt,campaign_settings)
+
+        factor_cobertura = factor_cobertura_ambulancia(camp) if mode == 'llamadas' else 1.0
+        concurrency = max(1.0,concurrencia) if mode == 'chat' else 1.0
+        aht_efectivo = aht / concurrency if mode == 'chat' else aht
+        a_erlang = (calls * aht_efectivo * factor_cobertura) / 1800.0 if calls > 0 and aht_efectivo > 0 else 0.0
+        req_ftes = calcular_agentes_requeridos_erlang_c(
+            a_erlang,aht_efectivo,camp_asa,camp_sl
+        ) if calls > 0 and aht_efectivo > 0 else 0
+        req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
+
+        day = row['Día_Semana']
+        roster_ref = max(
+            0,
+            roster_coverage.get((camp,day,intervalo),0) +
+            override_cov.get((camp,fecha,intervalo),0)
+        )
+        total_day_ref = max(
+            0,
+            roster_total_day.get((camp,day),0) +
+            override_day.get((camp,fecha),0)
+        )
+
+        row.update({
+            'Agentes_Requeridos': req_hc,
+            'HC_Teorico_Real': req_hc,
+            'FTE_Erlang': int(req_ftes),
+            'HC_Actual_Roster': roster_ref,
+            'Total_Roster_Campana': roster_total_camp.get(camp,0),
+            'Total_Roster_Dia': total_day_ref,
+            'Target_SL': camp_sl,
+            'Target_ASA': camp_asa,
+            'Concurrencia_Aplicada': float(concurrency),
+            'Factor_Cobertura_Ambulancia': factor_cobertura,
+            'Volumen_Doble_Cobertura': (
+                round(calls * REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'],2)
+                if mode == 'llamadas' and es_ambulancia_servicios(camp) else 0.0
+            ),
+            'Factor_Correccion': 1.0,
+            'Dato_Tipo': 'real',
+            'Forecast_Tipo': 'real',
+            'HC_Tipo': 'teorico_real',
+            'Roster_Tipo': 'actual_referencia',
+            'Volumen_Real': int(round(calls)),
+            'Forecast_Base_Anual': False
+        })
+        result.append(row)
+    return result
+
+def _forecast_build_annual_baseline(channel):
+    """
+    Baseline Jan-Dec 2026 trained only with information through 2025-12-31.
+    Once generated, it is persisted separately and never auto-deleted.
+    """
+    mode = _forecast_channel_norm(channel)
+    cached = _leer_annual_base(mode)
+    if isinstance(cached, list) and cached:
+        return cached
+
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        return []
+
+    sl, tt, merma, dias, concurrencia, campaign_settings = _forecast_settings(mode)
+    common = dict(
+        target_sl=sl,
+        target_time=tt,
+        merma=merma / 100.0,
+        dias_futuros=365,
+        campaign_settings=campaign_settings,
+        forecast_year=FORECAST_ANNUAL_YEAR,
+        history_cutoff=f'{FORECAST_ANNUAL_YEAR - 1}-12-31',
+        forecast_start_date=f'{FORECAST_ANNUAL_YEAR}-01-01',
+        forecast_end_date=f'{FORECAST_ANNUAL_YEAR}-12-31',
+        persist_cache=False
+    )
+    try:
+        if mode == 'chat':
+            data = procesar_archivo_chat(excel_path, concurrencia=concurrencia, **common)
+        else:
+            data = procesar_archivo_llamadas(excel_path, **common)
+    except Exception as e:
+        print(f"No se pudo construir baseline anual {mode}: {e}")
+        return []
+
+    for row in data:
+        row['Forecast_Tipo'] = 'annual_baseline'
+        row['Forecast_Base_Anual'] = True
+    _guardar_annual_base(mode, data)
+    return data
+
+def _forecast_annual_view(channel, rolling_data=None):
+    """
+    Honest full-year 2026 view:
+    - dates with loaded real data through today => REAL;
+    - dates after today => latest rolling FORECAST;
+    - no past forecast is reconstructed.
+    Monthly locks are applied after this merge.
+    """
+    mode = _forecast_channel_norm(channel)
+    actual = _forecast_actual_2026(mode)
+    rolling = rolling_data if isinstance(rolling_data,list) else (_leer_cache_forecast(mode) or [])
+    today = _forecast_today_iso()
+
+    merged = {}
+    for raw in actual:
+        row = dict(raw)
+        date = str(row.get('Fecha') or '')[:10]
+        if not date.startswith(f'{FORECAST_ANNUAL_YEAR}-') or date > today:
+            continue
+        row['Dato_Tipo'] = 'real'
+        row['Forecast_Tipo'] = 'real'
+        merged[_forecast_row_key(row)] = row
+
+    for raw in rolling:
+        row = dict(raw)
+        date = str(row.get('Fecha') or '')[:10]
+        if not date.startswith(f'{FORECAST_ANNUAL_YEAR}-'):
+            continue
+        # The past and today are never replaced by a newly generated forecast.
+        if date <= today:
+            continue
+        row['Dato_Tipo'] = 'forecast'
+        row['Forecast_Tipo'] = 'rolling'
+        row['HC_Tipo'] = 'rolling'
+        row['Forecast_Base_Anual'] = False
+        merged[_forecast_row_key(row)] = row
+
+    rows = list(merged.values())
+    rows.sort(key=lambda r:(
+        str(r.get('Fecha') or ''),
+        str(r.get('Campaña') or r.get('Campana') or ''),
+        str(r.get('Intervalo') or '')
+    ))
+    return rows
+
 
 def _forecast_generate_raw(channel):
     mode = _forecast_channel_norm(channel)
@@ -1160,22 +1511,7 @@ def _forecast_generate_raw(channel):
     if not excel_path:
         raise ValueError('No se encontró historico.xlsx para recalcular el forecast.')
 
-    sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
-    campaign_settings = {}
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE,'r',encoding='utf-8') as f:
-                cfg = json.load(f)
-            sl = float(cfg.get('targetSl',80.0))
-            tt = float(cfg.get('targetTime',20.0))
-            merma_data = cfg.get('merma',30.0)
-            merma = float(merma_data.get(mode,30.0)) if isinstance(merma_data,dict) else float(merma_data)
-            dias = int(clean_num(cfg.get('dias'),dias))
-            concurrencia = float(clean_num(cfg.get('concurrencia'),concurrencia))
-            all_settings = cfg.get('campaignSettings',{})
-            campaign_settings = all_settings.get(mode,{}) if isinstance(all_settings,dict) else {}
-        except Exception:
-            pass
+    sl, tt, merma, dias, concurrencia, campaign_settings = _forecast_settings(mode)
 
     if mode == 'chat':
         return procesar_archivo_chat(
@@ -1234,6 +1570,10 @@ def _forecast_control_status(month_key, channel):
         raw_rows = _forecast_raw_month_rows(mode,month_key)
         rolling_total = sum(_forecast_num(r.get('Llamadas'),0) for r in raw_rows)
         rolling_peak_hc = max([int(round(_forecast_num(r.get('Agentes_Requeridos'),0))) for r in raw_rows] or [0])
+        real_rows = [r for r in raw_rows if str(r.get('Dato_Tipo') or '').lower() == 'real']
+        forecast_rows = [r for r in raw_rows if str(r.get('Dato_Tipo') or '').lower() == 'forecast']
+        actual_total = sum(_forecast_num(r.get('Llamadas'),0) for r in real_rows)
+        future_forecast_total = sum(_forecast_num(r.get('Llamadas'),0) for r in forecast_rows)
 
         temporal_state = _forecast_month_temporal_state(month_key)
         effective_status = 'closed' if active else ('historical' if temporal_state == 'historical' else 'rolling')
@@ -1246,6 +1586,11 @@ def _forecast_control_status(month_key, channel):
             'rollingForecastTotal':round(rolling_total,2),
             'rollingPeakRequiredHC':rolling_peak_hc,
             'availableRows':len(raw_rows),
+            'realRows':len(real_rows),
+            'forecastRows':len(forecast_rows),
+            'actualVolumeTotal':round(actual_total,2),
+            'futureForecastTotal':round(future_forecast_total,2),
+            'projectedCloseTotal':round(actual_total + future_forecast_total,2),
             'latestVersion':int(latest['version']) if latest else 0,
             'canClose': bool(not active and temporal_state in ('current','future') and len(raw_rows) > 0),
             'canReforecast': False,
@@ -2589,7 +2934,7 @@ def roster_apply_recommendation():
         return jsonify({'error':f'No se pudo aplicar el movimiento al roster: {str(e)}'}),500
 
 
-def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None, forecast_year=None):
+def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None, forecast_year=None, history_cutoff=None, forecast_start_date=None, forecast_end_date=None, persist_cache=True):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_calls = xls_file.sheet_names[0]
     for s in xls_file.sheet_names:
@@ -2614,9 +2959,13 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
     df_raw = df_raw.dropna(subset=[col_fecha])
     df_raw[col_calls] = [clean_num(x, 0.0) for x in df_raw[col_calls]]
 
+    if history_cutoff:
+        cutoff_ts = pd.Timestamp(history_cutoff).normalize()
+        df_raw = df_raw[df_raw[col_fecha] <= cutoff_ts].copy()
+
     df_valido = df_raw[df_raw[col_calls] > 0]
     if df_valido.empty: raise ValueError("El archivo de Llamadas no tiene volumen mayor a cero.")
-    
+
     max_fecha_real = df_valido[col_fecha].max()
     df_raw = df_raw[df_raw[col_fecha] <= max_fecha_real]
 
@@ -2634,16 +2983,17 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
     meses_espanol = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
     df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
 
-    fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
-    if forecast_year:
+    fecha_inicio_forecast = pd.Timestamp(forecast_start_date).normalize() if forecast_start_date else (max_fecha_real + timedelta(days=1))
+    if forecast_end_date:
+        fecha_fin_forecast = pd.Timestamp(forecast_end_date).normalize()
+        dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
+    elif forecast_year:
         forecast_year = int(forecast_year)
         fecha_fin_forecast = pd.Timestamp(year=forecast_year, month=12, day=31)
         dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
     if dias_futuros <= 0:
-        _guardar_cache_forecast('chat', [])
-        return []
-    if dias_futuros <= 0:
-        _guardar_cache_forecast('llamadas', [])
+        if persist_cache:
+            _guardar_cache_forecast('llamadas', [])
         return []
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
@@ -2765,10 +3115,11 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
         df_final = forzar_cuadre_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
-    _guardar_cache_forecast('llamadas', data_processed)
+    if persist_cache:
+        _guardar_cache_forecast('llamadas', data_processed)
     return data_processed
 
-def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None, forecast_year=None):
+def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None, forecast_year=None, history_cutoff=None, forecast_start_date=None, forecast_end_date=None, persist_cache=True):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_chat = None
     for s in xls_file.sheet_names:
@@ -2795,9 +3146,13 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     df_raw = df_raw.dropna(subset=[col_fecha])
     df_raw[col_calls] = [clean_num(x, 0.0) for x in df_raw[col_calls]]
 
+    if history_cutoff:
+        cutoff_ts = pd.Timestamp(history_cutoff).normalize()
+        df_raw = df_raw[df_raw[col_fecha] <= cutoff_ts].copy()
+
     df_valido = df_raw[df_raw[col_calls] > 0]
     if df_valido.empty: raise ValueError("El archivo Chat no tiene volumen mayor a cero.")
-    
+
     max_fecha_real = df_valido[col_fecha].max()
     df_raw = df_raw[df_raw[col_fecha] <= max_fecha_real]
 
@@ -2815,11 +3170,18 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     meses_espanol = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
     df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
 
-    fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
-    if forecast_year:
+    fecha_inicio_forecast = pd.Timestamp(forecast_start_date).normalize() if forecast_start_date else (max_fecha_real + timedelta(days=1))
+    if forecast_end_date:
+        fecha_fin_forecast = pd.Timestamp(forecast_end_date).normalize()
+        dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
+    elif forecast_year:
         forecast_year = int(forecast_year)
         fecha_fin_forecast = pd.Timestamp(year=forecast_year, month=12, day=31)
         dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
+    if dias_futuros <= 0:
+        if persist_cache:
+            _guardar_cache_forecast('chat', [])
+        return []
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 600.0).to_dict()
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
     campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
@@ -2934,7 +3296,8 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
         df_final = forzar_cuadre_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
-    _guardar_cache_forecast('chat', data_processed)
+    if persist_cache:
+        _guardar_cache_forecast('chat', data_processed)
     return data_processed
 
 @app.route('/api/campaigns', methods=['GET'])
@@ -3094,7 +3457,8 @@ def get_latest_forecast():
     mode = request.args.get('mode', 'llamadas')
     cache_data = _leer_cache_forecast(mode)
     if isinstance(cache_data, list) and cache_data:
-        return jsonify(_forecast_apply_control(mode,cache_data)), 200
+        annual_data = _forecast_annual_view(mode,cache_data)
+        return jsonify(_forecast_apply_control(mode,annual_data)), 200
             
     excel_path = buscar_archivo_excel()
     if excel_path:
@@ -3117,8 +3481,9 @@ def get_latest_forecast():
             merma_pct = merma / 100.0
             if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings, forecast_year=FORECAST_ANNUAL_YEAR)
             else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings, forecast_year=FORECAST_ANNUAL_YEAR)
+            annual_data = _forecast_annual_view(mode,data)
             gc.collect()
-            return jsonify(_forecast_apply_control(mode,data)), 200
+            return jsonify(_forecast_apply_control(mode,annual_data)), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
@@ -3143,8 +3508,9 @@ def process_data():
             campaign_settings=campaign_settings,
             forecast_year=FORECAST_ANNUAL_YEAR
         )
+        annual_data = _forecast_annual_view('llamadas',data)
         gc.collect()
-        return jsonify(_forecast_apply_control('llamadas',data))
+        return jsonify(_forecast_apply_control('llamadas',annual_data))
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
@@ -3168,8 +3534,9 @@ def process_chat_data():
             campaign_settings=campaign_settings,
             forecast_year=FORECAST_ANNUAL_YEAR
         )
+        annual_data = _forecast_annual_view('chat',data)
         gc.collect()
-        return jsonify(_forecast_apply_control('chat',data))
+        return jsonify(_forecast_apply_control('chat',annual_data))
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
