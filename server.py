@@ -35,6 +35,7 @@ EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
 WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
 WFM_ROSTER_DB = os.path.join(BASE_DIR, 'wfm_roster.db')
 WFM_TIMEZONE = os.environ.get('WFM_TIMEZONE','America/Mexico_City')
+FORECAST_ANNUAL_YEAR = 2026
 _WFM_ROSTER_LOCK = threading.RLock()
 _ROSTER_DB_READY = False
 _WFM_ACTION_LOG_LOCK = threading.RLock()
@@ -1179,12 +1180,38 @@ def _forecast_generate_raw(channel):
     if mode == 'chat':
         return procesar_archivo_chat(
             excel_path,target_sl=sl,target_time=tt,merma=merma/100.0,
-            concurrencia=concurrencia,dias_futuros=dias,campaign_settings=campaign_settings
+            concurrencia=concurrencia,dias_futuros=dias,campaign_settings=campaign_settings,forecast_year=FORECAST_ANNUAL_YEAR
         )
     return procesar_archivo_llamadas(
         excel_path,target_sl=sl,target_time=tt,merma=merma/100.0,
-        dias_futuros=dias,campaign_settings=campaign_settings
+        dias_futuros=dias,campaign_settings=campaign_settings,forecast_year=FORECAST_ANNUAL_YEAR
     )
+
+def _forecast_month_temporal_state(month_key):
+    try:
+        start = datetime.strptime(str(month_key)[:7] + '-01', '%Y-%m-%d')
+        if start.month == 12:
+            next_month = datetime(start.year + 1,1,1)
+        else:
+            next_month = datetime(start.year,start.month + 1,1)
+        end = next_month - timedelta(days=1)
+        today = datetime.strptime(_forecast_today_iso(),'%Y-%m-%d')
+        if end < today:
+            return 'historical'
+        if start <= today <= end:
+            return 'current'
+        return 'future'
+    except Exception:
+        return 'unknown'
+
+def _forecast_month_end(month_key):
+    try:
+        start = datetime.strptime(str(month_key)[:7] + '-01','%Y-%m-%d')
+        if start.month == 12:
+            return datetime(start.year + 1,1,1) - timedelta(days=1)
+        return datetime(start.year,start.month + 1,1) - timedelta(days=1)
+    except Exception:
+        return None
 
 def _forecast_control_status(month_key, channel):
     mode = _forecast_channel_norm(channel)
@@ -1208,15 +1235,22 @@ def _forecast_control_status(month_key, channel):
         rolling_total = sum(_forecast_num(r.get('Llamadas'),0) for r in raw_rows)
         rolling_peak_hc = max([int(round(_forecast_num(r.get('Agentes_Requeridos'),0))) for r in raw_rows] or [0])
 
+        temporal_state = _forecast_month_temporal_state(month_key)
+        effective_status = 'closed' if active else ('historical' if temporal_state == 'historical' else 'rolling')
         payload = {
             'monthKey':month_key,
             'monthLabel':_forecast_month_label_from_key(month_key),
             'channel':mode,
-            'status':'closed' if active else 'rolling',
+            'status':effective_status,
+            'temporalState':temporal_state,
             'rollingForecastTotal':round(rolling_total,2),
             'rollingPeakRequiredHC':rolling_peak_hc,
             'availableRows':len(raw_rows),
-            'latestVersion':int(latest['version']) if latest else 0
+            'latestVersion':int(latest['version']) if latest else 0,
+            'canClose': bool(not active and temporal_state in ('current','future') and len(raw_rows) > 0),
+            'canReforecast': False,
+            'canReopen': False,
+            'annualYear': FORECAST_ANNUAL_YEAR
         }
 
         if active:
@@ -1242,7 +1276,9 @@ def _forecast_control_status(month_key, channel):
                 'rowCount':len(rows),
                 'protectedRows':sum(1 for r in rows if str(r['work_date']) <= today),
                 'futureRows':sum(1 for r in rows if str(r['work_date']) > today),
-                'lastRevision':dict(revisions) if revisions else None
+                'lastRevision':dict(revisions) if revisions else None,
+                'canReforecast': bool(temporal_state in ('current','future') and sum(1 for r in rows if str(r['work_date']) > today) > 0),
+                'canReopen': bool(temporal_state in ('current','future'))
             })
         elif latest:
             payload.update({
@@ -1257,6 +1293,8 @@ def _forecast_control_status(month_key, channel):
 
 def _forecast_close_month(month_key, channel, actor='wfm', comment=''):
     mode = _forecast_channel_norm(channel)
+    if _forecast_month_temporal_state(month_key) == 'historical':
+        raise ValueError('El pasado es inmutable. No se puede crear un cierre retrospectivo con el modelo actual.')
     _roster_db_init()
     rows = _forecast_raw_month_rows(mode,month_key)
     if not rows:
@@ -1350,6 +1388,8 @@ def _forecast_close_month(month_key, channel, actor='wfm', comment=''):
 
 def _forecast_reopen_month(month_key, channel, actor='wfm', reason=''):
     mode = _forecast_channel_norm(channel)
+    if _forecast_month_temporal_state(month_key) == 'historical':
+        raise ValueError('El pasado es inmutable. Un mes ya concluido no puede reabrirse.')
     if not str(reason or '').strip():
         raise ValueError('La reapertura requiere un motivo.')
     _roster_db_init()
@@ -1399,6 +1439,8 @@ def _forecast_reforecast_future(month_key, channel, actor='wfm', reason=''):
     forecast values strictly AFTER today. It never modifies locked HC or past/today.
     """
     mode = _forecast_channel_norm(channel)
+    if _forecast_month_temporal_state(month_key) == 'historical':
+        raise ValueError('El pasado es inmutable. El reforecast solo puede aplicarse a periodos con fechas futuras.')
     if not str(reason or '').strip():
         raise ValueError('El reforecast requiere un motivo.')
     _roster_db_init()
@@ -2547,7 +2589,7 @@ def roster_apply_recommendation():
         return jsonify({'error':f'No se pudo aplicar el movimiento al roster: {str(e)}'}),500
 
 
-def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None):
+def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None, forecast_year=None):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_calls = xls_file.sheet_names[0]
     for s in xls_file.sheet_names:
@@ -2593,6 +2635,16 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
     df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
 
     fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
+    if forecast_year:
+        forecast_year = int(forecast_year)
+        fecha_fin_forecast = pd.Timestamp(year=forecast_year, month=12, day=31)
+        dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
+    if dias_futuros <= 0:
+        _guardar_cache_forecast('chat', [])
+        return []
+    if dias_futuros <= 0:
+        _guardar_cache_forecast('llamadas', [])
+        return []
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
     campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
@@ -2644,6 +2696,8 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
+            if forecast_year and fecha_actual.year != int(forecast_year):
+                continue
             str_fecha = fecha_actual.strftime('%Y-%m-%d')
             str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
             nombre_dia = dias_espanol[fecha_actual.weekday()]
@@ -2714,7 +2768,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
     _guardar_cache_forecast('llamadas', data_processed)
     return data_processed
 
-def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None):
+def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None, forecast_year=None):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_chat = None
     for s in xls_file.sheet_names:
@@ -2762,6 +2816,10 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
 
     fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
+    if forecast_year:
+        forecast_year = int(forecast_year)
+        fecha_fin_forecast = pd.Timestamp(year=forecast_year, month=12, day=31)
+        dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 600.0).to_dict()
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
     campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
@@ -2812,6 +2870,8 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
+            if forecast_year and fecha_actual.year != int(forecast_year):
+                continue
             str_fecha = fecha_actual.strftime('%Y-%m-%d')
             str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
             nombre_dia = dias_espanol[fecha_actual.weekday()]
@@ -2945,6 +3005,19 @@ def get_forecast_status():
     return jsonify(payload), 200
 
 
+@app.route('/api/forecast-control/year', methods=['GET'])
+def forecast_control_year():
+    try:
+        year = int(request.args.get('year') or FORECAST_ANNUAL_YEAR)
+    except Exception:
+        year = FORECAST_ANNUAL_YEAR
+    channel = _forecast_channel_norm(request.args.get('channel'))
+    months = []
+    for month in range(1,13):
+        month_key = f"{year:04d}-{month:02d}"
+        months.append(_forecast_control_status(month_key,channel))
+    return jsonify({'year':year,'channel':channel,'months':months}),200
+
 @app.route('/api/forecast-control/status', methods=['GET'])
 def forecast_control_status():
     month_key = str(request.args.get('monthKey') or '').strip()
@@ -3042,8 +3115,8 @@ def get_latest_forecast():
                 except: pass
             
             merma_pct = merma / 100.0
-            if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings)
-            else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
+            if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings, forecast_year=FORECAST_ANNUAL_YEAR)
+            else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings, forecast_year=FORECAST_ANNUAL_YEAR)
             gc.collect()
             return jsonify(_forecast_apply_control(mode,data)), 200
         except Exception as e:
@@ -3067,7 +3140,8 @@ def process_data():
             float(clean_num(request.form.get('target_time'), 20.0)), 
             float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
             int(clean_num(request.form.get('dias'), 45)),
-            campaign_settings=campaign_settings
+            campaign_settings=campaign_settings,
+            forecast_year=FORECAST_ANNUAL_YEAR
         )
         gc.collect()
         return jsonify(_forecast_apply_control('llamadas',data))
@@ -3091,7 +3165,8 @@ def process_chat_data():
             float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
             float(clean_num(request.form.get('concurrencia'), 3.0)), 
             int(clean_num(request.form.get('dias'), 45)),
-            campaign_settings=campaign_settings
+            campaign_settings=campaign_settings,
+            forecast_year=FORECAST_ANNUAL_YEAR
         )
         gc.collect()
         return jsonify(_forecast_apply_control('chat',data))
