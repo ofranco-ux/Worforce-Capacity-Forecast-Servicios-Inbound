@@ -3566,6 +3566,46 @@
             color:#84652E;
         }
 
+
+        /* ================================================================
+           V6.6 · GUARDADO RÁPIDO / RECÁLCULO EN SEGUNDO PLANO
+           ================================================================ */
+        .roster-sync-status {
+            display:inline-flex;
+            align-items:center;
+            gap:6px;
+            min-height:30px;
+            padding:0 9px;
+            border-radius:999px;
+            border:1px solid rgba(255,255,255,.12);
+            background:rgba(255,255,255,.06);
+            color:#D8E7F0;
+            font-size:7px;
+            font-weight:900;
+            white-space:nowrap;
+        }
+        .roster-sync-status::before {
+            content:'';
+            width:6px;
+            height:6px;
+            border-radius:50%;
+            background:#93A9B8;
+        }
+        .roster-sync-status.is-saving::before {
+            background:#FFD37D;
+            animation:rosterSyncPulse .9s ease-in-out infinite;
+        }
+        .roster-sync-status.is-recalculating::before {
+            background:#82D8CC;
+            animation:rosterSyncPulse .9s ease-in-out infinite;
+        }
+        .roster-sync-status.is-ready::before { background:#83D5A6; }
+        .roster-sync-status.is-error::before { background:#F39AA9; }
+        @keyframes rosterSyncPulse {
+            0%,100% { opacity:.45; transform:scale(.82); }
+            50% { opacity:1; transform:scale(1.15); }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -5927,6 +5967,50 @@
         let rosterVacationAgentId = null;
         let rosterScheduleValidity = 'permanent';
         let rosterScheduleDay = 'Lunes';
+        let rosterForecastRefreshTimer = null;
+        let rosterForecastRefreshSequence = 0;
+
+        function setRosterSyncStatus(state='ready', text='Sincronizado') {
+            const el=document.getElementById('rosterSyncStatus');
+            if(!el)return;
+            el.className=`roster-sync-status is-${state}`;
+            el.textContent=text;
+        }
+
+        function markRosterSaving(text='Guardando…') {
+            setRosterSyncStatus('saving',text);
+        }
+
+        function scheduleRosterForecastRefresh(delay=350) {
+            modeDataCache.llamadas=null;
+            modeDataCache.chat=null;
+            wfmAutopilotLastSignature='';
+            wfmAutopilotPayload=null;
+            invalidateWfmAssistantContext();
+
+            clearTimeout(rosterForecastRefreshTimer);
+            const sequence=++rosterForecastRefreshSequence;
+            setRosterSyncStatus('recalculating','Guardado · recalculando');
+
+            rosterForecastRefreshTimer=setTimeout(async()=>{
+                try{
+                    await fetchLatestData(forecastMode,true);
+                    if(sequence===rosterForecastRefreshSequence){
+                        setRosterSyncStatus('ready','Proyección actualizada');
+                        setTimeout(()=>{
+                            if(sequence===rosterForecastRefreshSequence){
+                                setRosterSyncStatus('ready','Sincronizado');
+                            }
+                        },2200);
+                    }
+                }catch(error){
+                    console.warn('Actualización forecast después del roster:',error);
+                    if(sequence===rosterForecastRefreshSequence){
+                        setRosterSyncStatus('error','Guardado · falta recalcular');
+                    }
+                }
+            },delay);
+        }
 
         function rosterSafe(value) {
             return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -6365,7 +6449,8 @@
                 status:document.getElementById('rosterEditStatus')?.value||'Activo',
                 schedules:savingValidity==='temporary'&&existing?(existing.schedules||{}):editedSchedules,
                 actorMode:currentMode,
-                reason:reason||(savingValidity==='temporary'?'Datos del agente actualizados durante cambio temporal':'Cambio permanente desde Gestión de horarios')
+                reason:reason||(savingValidity==='temporary'?'Datos del agente actualizados durante cambio temporal':'Cambio permanente desde Gestión de horarios'),
+                deferInvalidation:savingValidity==='temporary'
             };
 
             if(!payload.agentId||!payload.campaign){
@@ -6390,6 +6475,7 @@
                 }
             }
 
+            markRosterSaving();
             if(btn){btn.disabled=true;btn.textContent='Guardando…';}
             try{
                 const response=await fetch('/api/roster/agent',{
@@ -6407,8 +6493,7 @@
                         body:JSON.stringify({
                             agentId:payload.agentId,
                             schedules:editedSchedules,
-                            startDate,
-                            endDate,
+                            startDate,endDate,
                             reason:reason||'Cambio temporal de horario',
                             actorMode:currentMode
                         })
@@ -6422,10 +6507,13 @@
                 }
 
                 closeRosterEditor();
+                setRosterSyncStatus('ready','Horario guardado');
                 await loadRosterData();
-                await refreshForecastAfterRosterChange();
-                if(savingValidity==='temporary') setRosterView('temporary');
+
+                if(savingValidity==='temporary')setRosterView('temporary');
+                scheduleRosterForecastRefresh();
             }catch(error){
+                setRosterSyncStatus('error','Error al guardar');
                 alert(error.message);
             }finally{
                 if(btn){btn.disabled=false;btn.textContent='Guardar cambios';}
@@ -6435,26 +6523,69 @@
         function openRosterBulkEditor(){if(!rosterSelectedIds.size)return;document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');['rosterBulkSupervisor','rosterBulkCoordinator','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>document.getElementById(id).value='');}
         function closeRosterBulkEditor(){document.getElementById('rosterBulkBackdrop')?.classList.add('hidden');}
         async function saveRosterBulkEdit(){
-            const changes={},sup=String(document.getElementById('rosterBulkSupervisor')?.value||'').trim(),coord=String(document.getElementById('rosterBulkCoordinator')?.value||'').trim(),camp=String(document.getElementById('rosterBulkCampaign')?.value||'').trim(),ch=document.getElementById('rosterBulkChannel')?.value||'',st=document.getElementById('rosterBulkStatus')?.value||'';
-            if(sup)changes.supervisor=sup;if(coord)changes.coordinator=coord;if(camp)changes.campaign=camp;if(ch)changes.channel=ch;if(st)changes.status=st;
+            const changes={},
+                sup=String(document.getElementById('rosterBulkSupervisor')?.value||'').trim(),
+                coord=String(document.getElementById('rosterBulkCoordinator')?.value||'').trim(),
+                camp=String(document.getElementById('rosterBulkCampaign')?.value||'').trim(),
+                ch=document.getElementById('rosterBulkChannel')?.value||'',
+                st=document.getElementById('rosterBulkStatus')?.value||'';
+
+            if(sup)changes.supervisor=sup;
+            if(coord)changes.coordinator=coord;
+            if(camp)changes.campaign=camp;
+            if(ch)changes.channel=ch;
+            if(st)changes.status=st;
             if(!Object.keys(changes).length){alert('Completa al menos un campo para modificar.');return;}
+
+            markRosterSaving(`Guardando ${rosterSelectedIds.size} agentes…`);
             try{
-                const response=await fetch('/api/roster/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentIds:Array.from(rosterSelectedIds),changes,actorMode:currentMode})});
-                const data=await response.json();if(!response.ok)throw new Error(data.error||'No se pudieron aplicar los cambios.');
-                closeRosterBulkEditor();clearRosterSelection();await loadRosterData();await refreshForecastAfterRosterChange();
-            }catch(error){alert(error.message)}
+                const response=await fetch('/api/roster/bulk',{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({agentIds:Array.from(rosterSelectedIds),changes,actorMode:currentMode})
+                });
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudieron aplicar los cambios.');
+
+                closeRosterBulkEditor();
+                clearRosterSelection();
+                setRosterSyncStatus('ready',`${Number(data.updated||0)} agentes guardados`);
+                await loadRosterData();
+                scheduleRosterForecastRefresh();
+            }catch(error){
+                setRosterSyncStatus('error','Error al guardar');
+                alert(error.message);
+            }
         }
 
         async function importRosterFile(event){
-            const file=event.target.files?.[0];if(!file)return;
-            if(!confirm(`Carga masiva de roster\n\n${file.name}\n\nLos IDs nuevos se agregarán y los IDs existentes se actualizarán. ¿Continuar?`)){event.target.value='';return;}
+            const file=event.target.files?.[0];
+            if(!file)return;
+            if(!confirm(`Carga masiva de roster\n\n${file.name}\n\nLos IDs nuevos se agregarán y los IDs existentes se actualizarán. ¿Continuar?`)){
+                event.target.value='';
+                return;
+            }
+
+            markRosterSaving('Procesando Excel…');
             try{
-                const form=new FormData();form.append('file',file);form.append('actorMode',currentMode);
-                const response=await fetch('/api/roster/import',{method:'POST',body:form});const data=await response.json();
+                const form=new FormData();
+                form.append('file',file);
+                form.append('actorMode',currentMode);
+                const response=await fetch('/api/roster/import',{method:'POST',body:form});
+                const data=await response.json();
                 if(!response.ok)throw new Error(data.error||'No se pudo importar.');
+
+                setRosterSyncStatus('ready',`${Number(data.imported||0)} agentes cargados`);
+                await loadRosterData();
+                scheduleRosterForecastRefresh(500);
+
                 alert(`Carga terminada: ${data.imported||0} agentes procesados.${data.errors?.length?` ${data.errors.length} filas con observaciones.`:''}`);
-                await loadRosterData();await refreshForecastAfterRosterChange();
-            }catch(error){alert(error.message)}finally{event.target.value='';}
+            }catch(error){
+                setRosterSyncStatus('error','Error en carga');
+                alert(error.message);
+            }finally{
+                event.target.value='';
+            }
         }
 
         function exportRosterCsv(){window.location.href='/api/roster/export.csv';}
@@ -6518,9 +6649,10 @@
                 const data=await response.json();
                 if(!response.ok)throw new Error(data.error||'No se pudieron registrar las vacaciones.');
                 closeRosterVacationEditor();
+                setRosterSyncStatus('ready','Vacaciones guardadas');
                 await loadRosterData();
-                if(status==='approved')await refreshForecastAfterRosterChange();
                 setRosterView('vacations');
+                if(status==='approved')scheduleRosterForecastRefresh();
             }catch(error){
                 alert(error.message);
             }finally{
@@ -6575,7 +6707,7 @@
                 if(!response.ok)throw new Error(data.error||'No se pudo actualizar la solicitud.');
                 await loadRosterData();
                 renderRosterVacations();
-                if(status==='approved'||status==='cancelled')await refreshForecastAfterRosterChange();
+                if(status==='approved'||status==='cancelled')scheduleRosterForecastRefresh();
             }catch(error){
                 alert(error.message);
             }
@@ -6624,7 +6756,7 @@
                 if(!response.ok)throw new Error(data.error||'No se pudo cancelar el temporal.');
                 await loadRosterData();
                 renderRosterTemporaryChanges();
-                await refreshForecastAfterRosterChange();
+                scheduleRosterForecastRefresh();
             }catch(error){
                 alert(error.message);
             }
@@ -6662,10 +6794,8 @@
         }
 
         async function refreshForecastAfterRosterChange(){
-            try{
-                modeDataCache.llamadas=null;modeDataCache.chat=null;wfmAutopilotLastSignature='';wfmAutopilotPayload=null;invalidateWfmAssistantContext();
-                await fetchLatestData(forecastMode,true);
-            }catch(error){console.warn('Actualización forecast después del roster:',error)}
+            // Compatibility wrapper: schedule instead of blocking the save UI.
+            scheduleRosterForecastRefresh(0);
         }
 
         async function applyWfmMoveToRoster(actionId,buttonEl=null){
@@ -6676,7 +6806,9 @@
             try{
                 const response=await fetch('/api/roster/apply-recommendation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actionId,move,actorMode:currentMode})});
                 const data=await response.json();if(!response.ok)throw new Error(data.error||'No se pudo aplicar al roster.');
-                await Promise.all([loadWfmDecisionLog(),loadRosterData()]);renderWfmPlanWorkspace(wfmCurrentPlanPayload);await refreshForecastAfterRosterChange();
+                await Promise.all([loadWfmDecisionLog(),loadRosterData()]);
+                renderWfmPlanWorkspace(wfmCurrentPlanPayload);
+                scheduleRosterForecastRefresh();
                 showWfmToast(`Roster actualizado: ${data.agentId} · ${data.date} · ${data.before} → ${data.after}`,'success');
             }catch(error){if(buttonEl){buttonEl.disabled=false;buttonEl.textContent=original;}showWfmToast(error.message,'error');}
         }
@@ -8194,6 +8326,7 @@
                     <div><div class="roster-title">Gestión de horarios</div><div class="roster-subtitle">Roster operativo · ID, nombre completo, supervisor, campaña y horario semanal.</div></div>
                 </div>
                 <div class="roster-head-actions">
+                    <span id="rosterSyncStatus" class="roster-sync-status is-ready">Sincronizado</span>
                     <button type="button" class="roster-head-btn" onclick="downloadRosterTemplate()"><span>Plantilla</span></button>
                     <button type="button" class="roster-head-btn primary" onclick="document.getElementById('rosterImportFile').click()" title="Carga inicial o actualización masiva"><span>Carga masiva Excel</span></button>
                     <input id="rosterImportFile" type="file" class="hidden" accept=".xlsx,.csv" onchange="importRosterFile(event)">
@@ -8514,4 +8647,3 @@
 
 </body>
 </html>
-
