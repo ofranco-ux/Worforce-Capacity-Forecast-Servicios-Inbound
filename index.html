@@ -3696,6 +3696,48 @@
             .forecast-control-cards { grid-template-columns:1fr; }
         }
 
+
+        /* ================================================================
+           V6.8 · FORECAST ANUAL 2026
+           ================================================================ */
+        .forecast-annual-summary {
+            margin-top:10px;padding:10px;border:1px solid #D7E2E9;border-radius:13px;background:#FFF;
+        }
+        .forecast-annual-summary-head {
+            display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;
+        }
+        .forecast-annual-summary-title {
+            color:#39576B;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;
+        }
+        .forecast-annual-summary-copy { color:#8998A6;font-size:7px; }
+        .forecast-annual-channel { margin-top:8px; }
+        .forecast-annual-channel:first-child { margin-top:0; }
+        .forecast-annual-channel-name { color:#506A7D;font-size:7px;font-weight:900;margin-bottom:5px; }
+        .forecast-annual-months {
+            display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;
+        }
+        .forecast-annual-month {
+            min-height:42px;padding:6px;border-radius:9px;border:1px solid #DEE6EB;background:#F8FAFB;
+            text-align:left;cursor:pointer;transition:.14s ease;
+        }
+        .forecast-annual-month:hover { transform:translateY(-1px);border-color:#BDCFD9;background:#FFF; }
+        .forecast-annual-month strong { display:block;color:#405D71;font-size:7px;font-weight:900; }
+        .forecast-annual-month span { display:block;margin-top:3px;color:#8A99A6;font-size:6.2px;font-weight:800; }
+        .forecast-annual-month.closed { border-color:#BED8D1;background:#EEF8F5; }
+        .forecast-annual-month.closed strong,.forecast-annual-month.closed span { color:#34766E; }
+        .forecast-annual-month.rolling { border-color:#CFD9EC;background:#F3F6FC; }
+        .forecast-annual-month.rolling span { color:#5D72A0; }
+        .forecast-annual-month.historical { background:#F0F2F4;border-color:#E0E4E7; }
+        .forecast-annual-month.historical strong { color:#687987; }
+        .forecast-annual-month.current { box-shadow:inset 0 0 0 1px #7EBEB3; }
+        .forecast-history-protected {
+            display:inline-flex;align-items:center;min-height:22px;padding:0 7px;border-radius:999px;
+            background:#EEF1F3;color:#657886;font-size:6.6px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;
+        }
+        @media (max-width:800px) {
+            .forecast-annual-months { grid-template-columns:repeat(3,minmax(0,1fr)); }
+        }
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -3833,8 +3875,12 @@
                     </div>
 
                     <div class="flex flex-col group">
-                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte (Días)</label>
-                        <input type="number" name="dias" id="dias" value="45" min="1" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentViolet focus:outline-none" onchange="guardarEstadoParametros()">
+                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte del forecast</label>
+                        <div class="input-clean p-3 rounded-xl">
+                            <div class="text-sm font-mono-num font-bold text-brand-accentViolet">Hasta 31 Dic 2026</div>
+                            <div class="text-[9px] text-slate-500 mt-1">El modelo calcula automáticamente desde la siguiente fecha real disponible. El pasado no se reconstruye.</div>
+                        </div>
+                        <input type="hidden" name="dias" id="dias" value="365">
                     </div>
 
                     <label class="flex items-center justify-between p-3 bg-[#09111F] border border-[#24334A] rounded-xl cursor-pointer hover:border-[#344761] transition-colors">
@@ -6121,6 +6167,11 @@
             return Number.isFinite(n)?Math.round(n).toLocaleString():'0';
         }
 
+        function forecastControlMonths2026(){
+            return ['Enero 2026','Febrero 2026','Marzo 2026','Abril 2026','Mayo 2026','Junio 2026',
+                    'Julio 2026','Agosto 2026','Septiembre 2026','Octubre 2026','Noviembre 2026','Diciembre 2026'];
+        }
+
         function openForecastControl(){
             const overlay=document.getElementById('forecastControlOverlay');
             overlay?.classList.remove('hidden');
@@ -6129,12 +6180,16 @@
             const select=document.getElementById('forecastControlMonth');
             if(select){
                 const previous=select.value;
-                const months=allMesesOptions.length?allMesesOptions:[...new Set((globalData||[]).map(r=>String(r.Mes||'')).filter(Boolean))];
+                const months=forecastControlMonths2026();
                 select.innerHTML=months.map(m=>`<option value="${rosterSafe(m)}">${rosterSafe(m)}</option>`).join('');
                 const selected=selectedMeses.size===1?Array.from(selectedMeses)[0]:'';
+                const forecastMonth=(allMesesOptions||[]).find(m=>months.includes(m));
+                const browserMonth=`${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][new Date().getMonth()]} 2026`;
                 if(selected&&months.includes(selected))select.value=selected;
                 else if(previous&&months.includes(previous))select.value=previous;
-                else if(months.length)select.value=months[0];
+                else if(forecastMonth)select.value=forecastMonth;
+                else if(months.includes(browserMonth))select.value=browserMonth;
+                else select.value='Enero 2026';
             }
             document.getElementById('forecastControlReason').value='';
             loadForecastControl();
@@ -6155,36 +6210,109 @@
 
         function renderForecastControlCard(status){
             const closed=status.status==='closed';
+            const historical=status.status==='historical';
             const delta=Number(status.officialForecastTotal||0)-Number(status.forecastAtCloseTotal||0);
             const deltaText=delta===0?'Sin ajuste':`${delta>0?'+':''}${forecastControlNumber(delta)}`;
+
+            const stateLabel=closed?'🔒 Cerrado':historical?'✓ Histórico protegido':'↻ Rolling';
+            const stateClass=closed?'closed':'';
+
+            let metrics='';
+            if(historical){
+                metrics=`<div class="forecast-control-metrics">
+                    <div class="forecast-control-metric"><span>Tratamiento</span><strong>Inmutable</strong></div>
+                    <div class="forecast-control-metric"><span>Reforecast</span><strong>No permitido</strong></div>
+                    <div class="forecast-control-metric"><span>Cierre retrospectivo</span><strong>No permitido</strong></div>
+                    <div class="forecast-control-metric"><span>Versión previa</span><strong>${status.latestVersion?'V'+forecastControlNumber(status.latestVersion):'—'}</strong></div>
+                </div>`;
+            }else{
+                metrics=`<div class="forecast-control-metrics">
+                    <div class="forecast-control-metric"><span>${closed?'Forecast al cierre':'Forecast rolling'}</span><strong>${forecastControlNumber(closed?status.forecastAtCloseTotal:status.rollingForecastTotal)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Forecast oficial':'HC pico rolling'}</span><strong>${closed?forecastControlNumber(status.officialForecastTotal):forecastControlNumber(status.rollingPeakRequiredHC)+' HC'}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'HC requerido cerrado':'Filas disponibles'}</span><strong>${closed?forecastControlNumber(status.lockedPeakRequiredHC)+' HC':forecastControlNumber(status.availableRows)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Variación post-cierre':'Última versión'}</span><strong>${closed?deltaText:'V'+forecastControlNumber(status.latestVersion||0)}</strong></div>
+                </div>`;
+            }
+
+            let detail='';
+            if(closed){
+                detail=`Versión LOCK-${rosterSafe(status.monthKey||'')}-V${Number(status.version||0)} · cerrado ${rosterSafe(String(status.closedAt||'').replace('T',' '))}<br>Protegido: ${Number(status.protectedRows||0)} filas pasadas/hoy · Reforecast elegible: ${Number(status.futureRows||0)} filas futuras`;
+            }else if(historical){
+                detail='El sistema no reconstruye este mes con información futura. Si existió un cierre previo, permanece únicamente en su historial de auditoría.';
+            }else if(status.previousVersion){
+                detail=`Rolling tras reapertura de V${Number(status.previousVersion)} · ${rosterSafe(status.reopenReason||'')}`;
+            }else{
+                detail='Mes abierto: Forecast y HC requerido continúan siendo rolling hasta que WFM decida cerrarlo.';
+            }
+
+            const actions=[];
+            if(status.canClose){
+                actions.push(`<button type="button" class="forecast-control-action primary" onclick="closeForecastMonth('${rosterSafe(status.channel)}')">🔒 Cerrar mes</button>`);
+            }
+            if(status.canReforecast){
+                actions.push(`<button type="button" class="forecast-control-action primary" onclick="reforecastForecastMonth('${rosterSafe(status.channel)}')">Reforecast futuro</button>`);
+            }
+            if(status.canReopen){
+                actions.push(`<button type="button" class="forecast-control-action danger" onclick="reopenForecastMonth('${rosterSafe(status.channel)}')">Reabrir mes</button>`);
+            }
+
             return `<article class="forecast-control-card ${closed?'closed':''}">
                 <div class="forecast-control-card-head">
                     <div>
                         <div class="forecast-control-channel">${forecastChannelLabel(status.channel)}</div>
                         <div class="forecast-control-meta">${rosterSafe(status.monthLabel||status.monthKey||'')}</div>
                     </div>
-                    <span class="forecast-control-state ${closed?'closed':''}">${closed?'🔒 Cerrado':'↻ Rolling'}</span>
+                    ${historical?`<span class="forecast-history-protected">${stateLabel}</span>`:`<span class="forecast-control-state ${stateClass}">${stateLabel}</span>`}
                 </div>
-                <div class="forecast-control-metrics">
-                    <div class="forecast-control-metric"><span>${closed?'Forecast al cierre':'Forecast rolling'}</span><strong>${forecastControlNumber(closed?status.forecastAtCloseTotal:status.rollingForecastTotal)}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'Forecast oficial':'HC pico rolling'}</span><strong>${closed?forecastControlNumber(status.officialForecastTotal):forecastControlNumber(status.rollingPeakRequiredHC)+' HC'}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'HC requerido cerrado':'Filas disponibles'}</span><strong>${closed?forecastControlNumber(status.lockedPeakRequiredHC)+' HC':forecastControlNumber(status.availableRows)}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'Variación post-cierre':'Última versión'}</span><strong>${closed?deltaText:'V'+forecastControlNumber(status.latestVersion||0)}</strong></div>
-                </div>
-                <div class="forecast-control-meta" style="margin-top:8px">
-                    ${closed
-                        ? `Versión LOCK-${rosterSafe(status.monthKey||'')}-V${Number(status.version||0)} · cerrado ${rosterSafe(String(status.closedAt||'').replace('T',' '))}<br>Protegido: ${Number(status.protectedRows||0)} filas pasadas/hoy · Reforecast elegible: ${Number(status.futureRows||0)} filas futuras`
-                        : status.previousVersion
-                            ? `Rolling tras reapertura de V${Number(status.previousVersion)} · ${rosterSafe(status.reopenReason||'')}`
-                            : 'Mes abierto: Forecast y HC requerido continúan siendo rolling.'}
-                </div>
-                <div class="forecast-control-actions">
-                    ${closed
-                        ? `<button type="button" class="forecast-control-action primary" onclick="reforecastForecastMonth('${rosterSafe(status.channel)}')">Reforecast futuro</button>
-                           <button type="button" class="forecast-control-action danger" onclick="reopenForecastMonth('${rosterSafe(status.channel)}')">Reabrir mes</button>`
-                        : `<button type="button" class="forecast-control-action primary" onclick="closeForecastMonth('${rosterSafe(status.channel)}')">🔒 Cerrar mes</button>`}
-                </div>
+                ${metrics}
+                <div class="forecast-control-meta" style="margin-top:8px">${detail}</div>
+                ${actions.length?`<div class="forecast-control-actions">${actions.join('')}</div>`:''}
             </article>`;
+        }
+
+        function selectForecastControlAnnualMonth(monthLabel){
+            const select=document.getElementById('forecastControlMonth');
+            if(select){
+                select.value=monthLabel;
+                loadForecastControl();
+            }
+        }
+
+        async function loadForecastAnnualOverview(){
+            const wrap=document.getElementById('forecastAnnualOverview');
+            if(!wrap)return;
+            wrap.innerHTML='<div class="forecast-control-loading">Cargando estado anual…</div>';
+            try{
+                const channels=forecastControlChannels();
+                const groups=await Promise.all(channels.map(async channel=>{
+                    const response=await fetch(`/api/forecast-control/year?year=2026&channel=${encodeURIComponent(channel)}`,{cache:'no-store'});
+                    const data=await response.json();
+                    if(!response.ok)throw new Error(data.error||'No se pudo consultar el año.');
+                    return data;
+                }));
+
+                wrap.innerHTML=groups.map(group=>{
+                    const months=(group.months||[]).map(status=>{
+                        const monthLabel=status.monthLabel||status.monthKey||'';
+                        const historical=status.status==='historical';
+                        const closed=status.status==='closed';
+                        const rolling=status.status==='rolling';
+                        const state=closed?'🔒 Cerrado':historical?'✓ Histórico':(Number(status.availableRows||0)>0?'↻ Rolling':'Sin forecast');
+                        const cls=closed?'closed':historical?'historical':rolling?'rolling':'';
+                        const current=status.temporalState==='current'?'current':'';
+                        return `<button type="button" class="forecast-annual-month ${cls} ${current}" onclick="selectForecastControlAnnualMonth('${rosterSafe(monthLabel)}')">
+                            <strong>${rosterSafe(String(monthLabel).replace(' 2026',''))}</strong>
+                            <span>${state}</span>
+                        </button>`;
+                    }).join('');
+                    return `<div class="forecast-annual-channel">
+                        <div class="forecast-annual-channel-name">${forecastChannelLabel(group.channel)}</div>
+                        <div class="forecast-annual-months">${months}</div>
+                    </div>`;
+                }).join('');
+            }catch(error){
+                wrap.innerHTML=`<div class="forecast-control-loading">${rosterSafe(error.message)}</div>`;
+            }
         }
 
         async function loadForecastControl(){
@@ -6207,10 +6335,10 @@
                 const anyClosed=statuses.some(s=>s.status==='closed');
                 const badge=document.getElementById('forecastControlHeaderBadge');
                 if(badge){
-                    badge.textContent=anyClosed?'Cierre activo':'Mensual';
+                    badge.textContent=anyClosed?'2026 · cierre':'2026';
                     badge.classList.toggle('closed',anyClosed);
                 }
-                await loadForecastControlHistory();
+                await Promise.all([loadForecastControlHistory(),loadForecastAnnualOverview()]);
             }catch(error){
                 if(cards)cards.innerHTML=`<div class="forecast-control-loading">${rosterSafe(error.message)}</div>`;
                 if(history)history.innerHTML='';
@@ -8887,8 +9015,8 @@
         <div class="forecast-control-shell">
             <div class="forecast-control-head">
                 <div>
-                    <div class="forecast-control-title">Lock & Rolling Forecast mensual</div>
-                    <div class="forecast-control-subtitle">El cierre siempre es manual. HC requerido cerrado no cambia; un reforecast solo puede modificar forecast futuro.</div>
+                    <div class="forecast-control-title">Forecast anual 2026 · Lock & Rolling mensual</div>
+                    <div class="forecast-control-subtitle">Cobertura hasta el 31 de diciembre de 2026. El pasado es inmutable; los meses actuales/futuros conservan el control mensual.</div>
                 </div>
                 <button type="button" class="roster-head-btn" onclick="closeForecastControl()" aria-label="Cerrar">✕</button>
             </div>
@@ -8906,7 +9034,15 @@
                 </div>
 
                 <div class="forecast-control-rule">
-                    <strong>Regla de gobierno:</strong> el mes no se cierra automáticamente. Al cerrar, el HC requerido queda bloqueado. Si después se requiere reforecast, únicamente se actualizan fechas posteriores a hoy; el pasado y el día actual no se reescriben.
+                    <strong>Regla de gobierno:</strong> 2026 se administra completo, pero no se reconstruye el pasado. El cierre mensual sigue siendo manual; el HC requerido cerrado queda bloqueado y cualquier reforecast solo modifica fechas posteriores a hoy.
+                </div>
+
+                <div class="forecast-annual-summary">
+                    <div class="forecast-annual-summary-head">
+                        <div class="forecast-annual-summary-title">Mapa anual 2026</div>
+                        <div class="forecast-annual-summary-copy">Histórico protegido · Cerrado · Rolling</div>
+                    </div>
+                    <div id="forecastAnnualOverview"><div class="forecast-control-loading">Cargando estado anual…</div></div>
                 </div>
 
                 <div id="forecastControlCards" class="forecast-control-cards">
