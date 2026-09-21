@@ -3771,6 +3771,20 @@
             color:#466E7D !important;
         }
 
+
+        /* ================================================================
+           V6.10.5 · FUENTE HISTÓRICA CONTROLADA
+           ================================================================ */
+        .source-manager-card{padding:11px;border:1px solid #D7E2E9;border-radius:13px;background:rgba(255,255,255,.52)}
+        .source-manager-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+        .source-manager-title{font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:#405B70}
+        .source-manager-status{margin-top:4px;font-size:7.5px;line-height:1.45;color:#728697;word-break:break-word}
+        .source-manager-pill{display:inline-flex;align-items:center;min-height:21px;padding:0 7px;border-radius:999px;font-size:6.5px;font-weight:900;background:#F0F3F6;color:#6B7E8E;white-space:nowrap}
+        .source-manager-pill.ready{background:#E7F5F1;color:#2B776D}.source-manager-pill.missing{background:#FFF2E4;color:#9A6426}
+        .source-manager-actions{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}
+        .source-manager-btn{min-height:31px;padding:0 9px;border-radius:9px;border:1px solid #CBD9E2;background:#F7FAFC;color:#456176;font-size:7.4px;font-weight:900}
+        .source-manager-btn.primary{border-color:#BBD7D1;background:#EAF6F3;color:#2C756B}
+
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -3905,6 +3919,21 @@
                             <label class="text-[11px] text-slate-400 font-medium mb-1.5">Jornada (Hrs)</label>
                             <input type="number" name="jornada" id="jornada" value="8" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentAmber focus:outline-none" onchange="guardarEstadoParametros(); debouncedActualizarGrafica()">
                         </div>
+                    </div>
+
+                    <div class="source-manager-card" id="historicalSourceCard">
+                        <div class="source-manager-head">
+                            <div>
+                                <div class="source-manager-title">Fuente histórica · Data Real Servicios.xlsx</div>
+                                <div id="historicalSourceStatus" class="source-manager-status">Validando archivo de datos…</div>
+                            </div>
+                            <span id="historicalSourcePill" class="source-manager-pill">Revisando</span>
+                        </div>
+                        <div class="source-manager-actions">
+                            <button type="button" id="historicalSourceUploadBtn" class="source-manager-btn primary" onclick="document.getElementById('historicalSourceFile').click()">Cargar Data Real Servicios</button>
+                            <button type="button" class="source-manager-btn" onclick="showSourceDiagnostics()">Diagnóstico</button>
+                        </div>
+                        <input id="historicalSourceFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden" onchange="uploadHistoricalSource(event)">
                     </div>
 
                     <div class="flex flex-col group">
@@ -4756,6 +4785,58 @@
         }
 
         function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
+        async function loadHistoricalSourceInfo(){
+            const status=document.getElementById('historicalSourceStatus');
+            const pill=document.getElementById('historicalSourcePill');
+            try{
+                const r=await fetch('/api/source-info?t='+Date.now(),{cache:'no-store'});
+                const info=await r.json();
+                if(!r.ok)throw new Error(info.error||'No se pudo consultar la fuente.');
+                if(info.sourceFound){
+                    const mb=(Number(info.selectedSizeBytes||0)/(1024*1024)).toFixed(1);
+                    if(status)status.textContent=`${info.selectedFile} · ${mb} MB · ${String(info.selectedModifiedAt||'').replace('T',' ')}`;
+                    if(pill){pill.textContent='Lista';pill.className='source-manager-pill ready';}
+                }else{
+                    if(status)status.textContent='No se encontró Data Real Servicios.xlsx. Carga ese archivo con el volumen real.';
+                    if(pill){pill.textContent='Falta fuente';pill.className='source-manager-pill missing';}
+                }
+                return info;
+            }catch(error){
+                if(status)status.textContent=error.message;
+                if(pill){pill.textContent='Error';pill.className='source-manager-pill missing';}
+                return {sourceFound:false,error:error.message};
+            }
+        }
+
+        async function uploadHistoricalSource(event){
+            const file=event.target.files?.[0];
+            if(!file)return;
+            const btn=document.getElementById('historicalSourceUploadBtn');
+            const status=document.getElementById('historicalSourceStatus');
+            if(btn){btn.disabled=true;btn.textContent='Cargando Data Real Servicios…';}
+            if(status)status.textContent=`Subiendo ${file.name}…`;
+            try{
+                const form=new FormData();form.append('file',file);
+                const response=await fetch('/api/source-upload',{method:'POST',body:form});
+                const data=await response.json();
+                if(!response.ok)throw new Error(data.error||'No se pudo cargar el histórico.');
+                modeDataCache.llamadas=null;modeDataCache.chat=null;
+                globalData=[];
+                await loadHistoricalSourceInfo();
+                await loadSourceMeta();
+                setRunStatus('Fuente cargada · leyendo histórico','amber');
+                await fetchLatestData(forecastMode,true);
+            }catch(error){
+                const box=document.getElementById('dashboardError');
+                if(box){box.innerText='No se pudo cargar el histórico: '+error.message;box.classList.remove('hidden');}
+                setRunStatus('Error en fuente histórica','red');
+                await loadHistoricalSourceInfo();
+            }finally{
+                if(btn){btn.disabled=false;btn.textContent='Cargar Data Real Servicios';}
+                event.target.value='';
+            }
+        }
+
         async function loadSourceMeta(){ try { const r=await fetch('/api/status?t='+Date.now()); const m=await r.json(); if(r.ok){ document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}`; } } catch(e){} }
 
 
@@ -4986,7 +5067,7 @@
                     });
                 }catch(error){
                     if(error.name==='AbortError'){
-                        throw new Error('La lectura del histórico superó 45 segundos. Revisa el tamaño de historico.xlsx o reinicia el servicio.');
+                        throw new Error('La lectura del histórico superó 45 segundos. Revisa el tamaño de Data Real Servicios.xlsx o reinicia el servicio.');
                     }
                     throw error;
                 }finally{
@@ -5144,7 +5225,7 @@
                     setRunStatus('Listo', 'green');
                     await loadSourceMeta();
                 } else {
-                    const msg = globalData.error || "Asegúrate de que 'historico.xlsx' esté cargado.";
+                    const msg = globalData.error || "Asegúrate de que 'Data Real Servicios.xlsx' esté cargado.";
                     const box=document.getElementById('dashboardError'); box.innerText='Error: '+msg; box.classList.remove('hidden'); setRunStatus('Falló el cálculo', 'red');
                 }
             } catch (e) {
@@ -5396,8 +5477,21 @@
                     return; 
                 }
             }
-            setRunStatus('Cargando histórico real…','amber');
-            fetchLatestData(forecastMode).finally(() => loadSourceMeta());
+            setRunStatus('Validando fuente histórica…','amber');
+            loadHistoricalSourceInfo().then(info=>{
+                if(info&&info.sourceFound){
+                    setRunStatus('Cargando histórico real…','amber');
+                    return fetchLatestData(forecastMode);
+                }
+                limpiarPantalla();
+                const box=document.getElementById('dashboardError');
+                if(box){
+                    box.innerText='No hay una fuente histórica operativa. Usa “Cargar Data Real Servicios” y selecciona tu archivo con el volumen real.';
+                    box.classList.remove('hidden');
+                    box.classList.add('dashboard-info-safe');
+                }
+                setRunStatus('Falta Data Real Servicios.xlsx','amber');
+            }).finally(()=>loadSourceMeta());
 
             if (mode === 'ops' || mode === 'operaciones') {
                 setInterval(() => {
@@ -5489,7 +5583,7 @@
 
             if(allReal){
                 if(note)note.textContent='El volumen y AHT son reales. No existe forecast original para este periodo.';
-                if(demandHelp)demandHelp.textContent='Volumen real histórico cargado en historico.xlsx.';
+                if(demandHelp)demandHelp.textContent='Volumen real histórico cargado en Data Real Servicios.xlsx.';
                 if(title)title.textContent='HC teórico sobre demanda real';
                 if(subtitle)subtitle.textContent='El HC mostrado es una referencia teórica calculada sobre el volumen real; no representa un HC histórico acordado.';
                 if(reqLabel)reqLabel.textContent='HC teórico sobre real';
@@ -8481,7 +8575,7 @@
                     <div class="wfm-quality-grid">
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Filas forecast</div><div class="wfm-quality-value">${Number(quality.forecastRows ?? context.rowCount ?? 0).toLocaleString()}</div></div>
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Roster disponible</div><div class="wfm-quality-value">${quality.rosterAvailable === false ? 'No confirmado' : `${Number(quality.rosterAgents || 0)} agentes`}</div></div>
-                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'historico.xlsx')}</div></div>
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Data Real Servicios.xlsx')}</div></div>
                     </div>
                     <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Frank no inventará ese dato.</div>
                 </section>`;

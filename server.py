@@ -8,6 +8,7 @@ import threading
 import hashlib
 import time
 import sqlite3
+import shutil
 import io
 import csv
 from functools import lru_cache
@@ -23,6 +24,11 @@ from openpyxl.utils.datetime import from_excel
 # Dependencias locales del forecast. Se distribuyen junto al servidor para que
 # el calendario de México y el modelo de machine learning estén siempre activos.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WFM_DATA_DIR = os.path.abspath(os.environ.get('WFM_DATA_DIR', BASE_DIR))
+os.makedirs(WFM_DATA_DIR, exist_ok=True)
+HISTORICAL_PRIMARY_BASENAME = 'Data Real Servicios.xlsx'
+HISTORICAL_FILE = os.path.join(WFM_DATA_DIR, HISTORICAL_PRIMARY_BASENAME)
+LEGACY_HISTORICAL_FILE = os.path.join(WFM_DATA_DIR, 'historico.xlsx')
 VENDOR_DIR = os.path.join(BASE_DIR, 'vendor')
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
     sys.path.insert(0, VENDOR_DIR)
@@ -39,7 +45,7 @@ ACTUAL_2026_FILE_CHAT = os.path.join(BASE_DIR, 'actual_2026_chat.json')
 ACTUAL_2026_META_LLAMADAS = os.path.join(BASE_DIR, 'actual_2026_llamadas.meta.json')
 ACTUAL_2026_META_CHAT = os.path.join(BASE_DIR, 'actual_2026_chat.meta.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
-EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
+EXCEL_DEFAULT = HISTORICAL_FILE
 WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
 WFM_ROSTER_DB = os.path.join(BASE_DIR, 'wfm_roster.db')
 WFM_TIMEZONE = os.environ.get('WFM_TIMEZONE','America/Mexico_City')
@@ -433,15 +439,162 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
 
     return preds_finales
 
+def _is_history_candidate(filename):
+    low=str(filename or '').strip().lower()
+    if not low.endswith(('.xlsx','.xlsm')) or low.startswith('~'):
+        return False
+    excluded=('plantilla_carga_masiva_roster','plantilla','roster','template','forecast_cache','actual_2026')
+    if any(x in low for x in excluded):
+        return False
+    return True
+
 def buscar_archivo_excel():
+    """
+    Historical source resolution is explicit and conservative.
+    The roster upload template is NEVER accepted as operational history.
+    """
     try:
-        archivos = [f for f in os.listdir(BASE_DIR) if f.lower().endswith('.xlsx') and not f.startswith('~')]
-        if not archivos: return None
-        for f in archivos:
-            if 'data' in f.lower() or 'servicios' in f.lower() or 'historico' in f.lower(): 
-                return os.path.join(BASE_DIR, f)
-        return os.path.join(BASE_DIR, archivos[0])
-    except: return None
+        env_file=str(os.environ.get('WFM_HISTORICAL_FILE','') or '').strip()
+        if env_file:
+            env_path=os.path.abspath(env_file)
+            if os.path.isfile(env_path) and _is_history_candidate(os.path.basename(env_path)):
+                return env_path
+
+        # Prefer the real operational workbook name used by this project.
+        if os.path.isfile(HISTORICAL_FILE):
+            return HISTORICAL_FILE
+        # Backward compatibility with versions that renamed uploads to historico.xlsx.
+        if os.path.isfile(LEGACY_HISTORICAL_FILE):
+            return LEGACY_HISTORICAL_FILE
+
+        roots=[]
+        for root in (WFM_DATA_DIR,BASE_DIR,os.getcwd()):
+            root=os.path.abspath(root)
+            if root not in roots and os.path.isdir(root): roots.append(root)
+
+        preferred=[]; fallback=[]
+        for root in roots:
+            for name in os.listdir(root):
+                if not _is_history_candidate(name):
+                    continue
+                path=os.path.join(root,name)
+                if not os.path.isfile(path): continue
+                low=name.lower()
+                if low == HISTORICAL_PRIMARY_BASENAME.lower():
+                    preferred.insert(0,path)
+                elif any(x in low for x in ('data real servicios','historico','histórico','history','data','servicios','volumen')):
+                    preferred.append(path)
+                else:
+                    fallback.append(path)
+        if preferred:
+            exact=[p for p in preferred if os.path.basename(p).lower()==HISTORICAL_PRIMARY_BASENAME.lower()]
+            if exact:
+                return sorted(exact,key=lambda p: os.path.getmtime(p),reverse=True)[0]
+            return sorted(preferred,key=lambda p: os.path.getmtime(p),reverse=True)[0]
+        # Only use an unnamed fallback if it is the sole plausible operational workbook.
+        if len(fallback)==1:
+            return fallback[0]
+        return None
+    except Exception as e:
+        print(f'No se pudo resolver la fuente histórica: {e}')
+        return None
+
+def _invalidate_historical_source_caches():
+    global _EXCEL_INFO_CACHE
+    _EXCEL_INFO_CACHE={}
+    with _FORECAST_CACHE_LOCK:
+        for mode in ('llamadas','chat'):
+            _FORECAST_MEMORY_CACHE[mode]=None
+            _FORECAST_CACHE_GENERATION[mode]+=1
+    with _ANNUAL_BASE_LOCK:
+        _ANNUAL_BASE_MEMORY['llamadas']=None
+        _ANNUAL_BASE_MEMORY['chat']=None
+    for path in (
+        CACHE_FILE_LLAMADAS,CACHE_FILE_CHAT,
+        ACTUAL_2026_FILE_LLAMADAS,ACTUAL_2026_FILE_CHAT,
+        ACTUAL_2026_META_LLAMADAS,ACTUAL_2026_META_CHAT,
+        ANNUAL_BASE_FILE_LLAMADAS,ANNUAL_BASE_FILE_CHAT
+    ):
+        try:
+            if os.path.exists(path): os.remove(path)
+        except Exception:
+            pass
+
+def _source_info_payload():
+    selected=buscar_archivo_excel()
+    candidates=[]
+    roots=[]
+    for root in (WFM_DATA_DIR,BASE_DIR,os.getcwd()):
+        root=os.path.abspath(root)
+        if root not in roots and os.path.isdir(root): roots.append(root)
+    for root in roots:
+        try:
+            for name in os.listdir(root):
+                if _is_history_candidate(name):
+                    path=os.path.join(root,name)
+                    if os.path.isfile(path):
+                        candidates.append({
+                            'name':name,
+                            'sizeBytes':os.path.getsize(path),
+                            'modifiedAt':datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec='seconds'),
+                            'selected':bool(selected and os.path.abspath(path)==os.path.abspath(selected))
+                        })
+        except Exception:
+            pass
+    # Deduplicate by name/size/modified tuple for repeated roots.
+    uniq=[]; seen=set()
+    for item in candidates:
+        key=(item['name'],item['sizeBytes'],item['modifiedAt'])
+        if key not in seen:
+            seen.add(key); uniq.append(item)
+    return {
+        'ok':True,
+        'sourceFound':bool(selected),
+        'selectedFile':os.path.basename(selected) if selected else None,
+        'selectedSizeBytes':os.path.getsize(selected) if selected and os.path.exists(selected) else 0,
+        'selectedModifiedAt':datetime.fromtimestamp(os.path.getmtime(selected)).isoformat(timespec='seconds') if selected and os.path.exists(selected) else None,
+        'expectedFile':HISTORICAL_PRIMARY_BASENAME,
+        'dataDirConfigured':bool(os.environ.get('WFM_DATA_DIR')),
+        'candidates':uniq,
+        'message':'Fuente histórica lista.' if selected else f'No se encontró {HISTORICAL_PRIMARY_BASENAME}. La plantilla de roster no se usa como histórico.'
+    }
+
+@app.route('/api/source-info', methods=['GET'])
+def source_info():
+    return jsonify(_source_info_payload()),200
+
+@app.route('/api/source-upload', methods=['POST'])
+def source_upload():
+    uploaded=request.files.get('file')
+    if not uploaded or not uploaded.filename:
+        return jsonify({'error':'Selecciona un archivo .xlsx con el histórico operativo.'}),400
+    filename=os.path.basename(uploaded.filename)
+    if not filename.lower().endswith('.xlsx'):
+        return jsonify({'error':'La fuente histórica debe ser un archivo .xlsx.'}),400
+
+    os.makedirs(WFM_DATA_DIR,exist_ok=True)
+    tmp=HISTORICAL_FILE+'.uploading'
+    try:
+        uploaded.save(tmp)
+        # Validate workbook + at least one recognizable operational layout.
+        calls_layout=_detect_history_layout(tmp,'llamadas')
+        chat_layout=_detect_history_layout(tmp,'chat')
+        if not calls_layout and not chat_layout:
+            raise ValueError('No pude identificar columnas de Fecha y Volumen en el archivo. Revisa la estructura del histórico.')
+        if os.path.exists(HISTORICAL_FILE):
+            backup=os.path.join(WFM_DATA_DIR,'Data Real Servicios_backup.xlsx')
+            try: shutil.copy2(HISTORICAL_FILE,backup)
+            except Exception: pass
+        os.replace(tmp,HISTORICAL_FILE)
+        _invalidate_historical_source_caches()
+        payload=_source_info_payload()
+        payload.update({'uploaded':True,'llamadasLayout':calls_layout,'chatLayout':chat_layout})
+        return jsonify(payload),200
+    except Exception as e:
+        try:
+            if os.path.exists(tmp): os.remove(tmp)
+        except Exception: pass
+        return jsonify({'error':str(e)}),400
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -1561,8 +1714,6 @@ def _forecast_actual_2026(channel):
     if not source:
         return []
 
-    sl,tt,merma,dias,concurrencia,campaign_settings = _forecast_settings(mode)
-    factor_asistencia = max(0.01, 1.0 - (merma / 100.0))
 
     roster_coverage, roster_total_camp, roster_total_day, override_cov, override_day = {},{},{},{},{}
     try:
@@ -1587,21 +1738,6 @@ def _forecast_actual_2026(channel):
         fecha = row['Fecha']
         intervalo = row['Intervalo']
         calls = float(row.get('Llamadas') or 0)
-        aht = float(row.get('AHT_Segundos') or 0)
-        camp_sl,camp_asa = objetivos_campana(camp,sl,tt,campaign_settings)
-
-        factor_cobertura = factor_cobertura_ambulancia(camp) if mode == 'llamadas' else 1.0
-        concurrency = max(1.0,concurrencia) if mode == 'chat' else 1.0
-        aht_efectivo = aht / concurrency if mode == 'chat' else aht
-        try:
-            a_erlang = (calls * aht_efectivo * factor_cobertura) / 1800.0 if calls > 0 and aht_efectivo > 0 else 0.0
-            req_ftes = calcular_agentes_requeridos_erlang_c(
-                a_erlang,aht_efectivo,camp_asa,camp_sl
-            ) if calls > 0 and aht_efectivo > 0 else 0
-            req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
-        except Exception:
-            req_ftes = 0
-            req_hc = 0
 
         day = row['Día_Semana']
         roster_ref = max(
@@ -1616,16 +1752,9 @@ def _forecast_actual_2026(channel):
         )
 
         row.update({
-            'Agentes_Requeridos': req_hc,
-            'HC_Teorico_Real': req_hc,
-            'FTE_Erlang': int(req_ftes),
             'HC_Actual_Roster': roster_ref,
             'Total_Roster_Campana': roster_total_camp.get(camp,0),
             'Total_Roster_Dia': total_day_ref,
-            'Target_SL': camp_sl,
-            'Target_ASA': camp_asa,
-            'Concurrencia_Aplicada': float(concurrency),
-            'Factor_Cobertura_Ambulancia': factor_cobertura,
             'Volumen_Doble_Cobertura': (
                 round(calls * REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'],2)
                 if mode == 'llamadas' and es_ambulancia_servicios(camp) else 0.0
@@ -1722,7 +1851,7 @@ def _forecast_generate_raw(channel):
     mode = _forecast_channel_norm(channel)
     excel_path = buscar_archivo_excel()
     if not excel_path:
-        raise ValueError('No se encontró historico.xlsx para recalcular el forecast.')
+        raise ValueError(f'No se encontró {HISTORICAL_PRIMARY_BASENAME} para recalcular el forecast.')
 
     sl, tt, merma, dias, concurrencia, campaign_settings = _forecast_settings(mode)
 
@@ -3730,7 +3859,8 @@ def source_diagnostics():
         'mode':mode,
         'file':os.path.basename(excel_path) if excel_path else None,
         'fileFound':bool(excel_path),
-        'today':_forecast_today_iso()
+        'today':_forecast_today_iso(),
+        'sourceInfo':_source_info_payload()
     }
     if excel_path:
         try:
@@ -3773,7 +3903,7 @@ def get_latest_forecast():
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    return jsonify([]), 200
+    return jsonify({'error':f'No se encontró una fuente histórica operativa. Carga {HISTORICAL_PRIMARY_BASENAME} desde Fuente histórica.','sourceInfo':_source_info_payload()}),404
 
 @app.route('/api/process', methods=['POST', 'GET'])
 def process_data():
