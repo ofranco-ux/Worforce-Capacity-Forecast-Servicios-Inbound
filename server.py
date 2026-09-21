@@ -1813,25 +1813,19 @@ def _forecast_build_annual_baseline(channel):
 
 def _forecast_annual_view(channel, rolling_data=None):
     """
-    Low-memory full-year 2026 view.
-    Actual and future sets are disjoint, so rows can be concatenated directly.
+    V6.11 operational view:
+    only the current rolling forecast is exposed to the dashboard.
+    No Jan-Aug historical reconstruction and no full-year real/forecast merge.
+    The model forecasts from the day after the latest real record through
+    31-Dec-2026, which restores the lighter September-forward behavior.
     """
     mode = _forecast_channel_norm(channel)
-    actual = _forecast_actual_2026(mode)
     rolling = rolling_data if isinstance(rolling_data,list) else (_leer_cache_forecast(mode) or [])
-    today = _forecast_today_iso()
-
     rows = []
-    for row in actual:
+    for raw in rolling:
+        row = raw
         date = str(row.get('Fecha') or '')[:10]
-        if date.startswith(f'{FORECAST_ANNUAL_YEAR}-') and date <= today:
-            row['Dato_Tipo'] = 'real'
-            row['Forecast_Tipo'] = 'real'
-            rows.append(row)
-
-    for row in rolling:
-        date = str(row.get('Fecha') or '')[:10]
-        if not date.startswith(f'{FORECAST_ANNUAL_YEAR}-') or date <= today:
+        if not date.startswith(f'{FORECAST_ANNUAL_YEAR}-'):
             continue
         row['Dato_Tipo'] = 'forecast'
         row['Forecast_Tipo'] = 'rolling'
@@ -3872,38 +3866,37 @@ def source_diagnostics():
 
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
-    mode = request.args.get('mode', 'llamadas')
-    cache_data = _leer_cache_forecast(mode)
-    if isinstance(cache_data, list) and cache_data:
-        annual_data = _forecast_annual_view(mode,cache_data)
-        cache_data = None
-        controlled = _forecast_apply_control(mode,annual_data)
-        return _stream_json_rows(controlled), 200
-            
-    excel_path = buscar_archivo_excel()
-    if excel_path:
-        try:
-            # Fast/safe startup path: show real historical 2026 immediately.
-            # A future rolling forecast is generated only when the user presses
-            # "Generar Forecast" (or when a persisted cache already exists).
-            actual_only = _forecast_actual_2026(mode)
-            if not actual_only:
-                layout = _detect_history_layout(excel_path,_forecast_channel_norm(mode))
-                return jsonify({
-                    'error':'No pude identificar filas reales de 2026 en el histórico.',
-                    'hint':'Revisa la hoja/encabezados de Fecha, Campaña, Intervalo y Volumen. El diagnóstico de fuente ya está disponible.',
-                    'diagnostics':{
-                        'file':os.path.basename(excel_path),
-                        'layout':layout,
-                        'cache':_actual_cache_summary(mode)
-                    }
-                }),422
-            controlled = _forecast_apply_control(mode, actual_only)
-            return _stream_json_rows(controlled), 200
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+    mode = _forecast_channel_norm(request.args.get('mode','llamadas'))
 
-    return jsonify({'error':f'No se encontró una fuente histórica operativa. Carga {HISTORICAL_PRIMARY_BASENAME} desde Fuente histórica.','sourceInfo':_source_info_payload()}),404
+    cache_data = _leer_cache_forecast(mode)
+    if isinstance(cache_data,list) and cache_data:
+        rolling_data = _forecast_annual_view(mode,cache_data)
+        cache_data = None
+        controlled = _forecast_apply_control(mode,rolling_data)
+        return _stream_json_rows(controlled),200
+
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        return jsonify({
+            'error':f'No se encontró {HISTORICAL_PRIMARY_BASENAME}.',
+            'sourceInfo':_source_info_payload()
+        }),404
+
+    try:
+        # Restore the previous operational behavior:
+        # first load calculates only the FUTURE rolling forecast, not Jan-Aug.
+        with _FORECAST_CALC_LOCK:
+            data = _forecast_generate_raw(mode)
+
+        rolling_data = _forecast_annual_view(mode,data)
+        controlled = _forecast_apply_control(mode,rolling_data)
+        return _stream_json_rows(controlled),200
+    except Exception as e:
+        gc.collect()
+        return jsonify({
+            'error':f'No se pudo generar el forecast de {mode}: {str(e)}'
+        }),500
+
 
 @app.route('/api/process', methods=['POST', 'GET'])
 def process_data():
@@ -3926,8 +3919,8 @@ def process_data():
                 forecast_year=FORECAST_ANNUAL_YEAR
             )
         gc.collect()
-        annual_data = _forecast_annual_view('llamadas')
-        controlled = _forecast_apply_control('llamadas',annual_data)
+        rolling_data = _leer_cache_forecast('llamadas') or []
+        controlled = _forecast_apply_control('llamadas',_forecast_annual_view('llamadas',rolling_data))
         return _stream_json_rows(controlled)
     except Exception as e:
         gc.collect()
@@ -3954,8 +3947,8 @@ def process_chat_data():
                 forecast_year=FORECAST_ANNUAL_YEAR
             )
         gc.collect()
-        annual_data = _forecast_annual_view('chat')
-        controlled = _forecast_apply_control('chat',annual_data)
+        rolling_data = _leer_cache_forecast('chat') or []
+        controlled = _forecast_apply_control('chat',_forecast_annual_view('chat',rolling_data))
         return _stream_json_rows(controlled)
     except Exception as e:
         gc.collect()
