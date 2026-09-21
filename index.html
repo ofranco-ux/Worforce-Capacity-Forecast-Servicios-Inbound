@@ -4817,11 +4817,23 @@
             const main = document.getElementById('dashboardMain');
             const tag = document.getElementById('tagModoOps');
             const ambulanceRule = document.getElementById('ambulanceRule');
+            const forecastControlBtn = document.getElementById('btnForecastControl');
+            const frankLauncher = document.getElementById('wfmAssistantLauncher');
+            const frankPanel = document.getElementById('wfmAssistantPanel');
+            const frankPendingKpi = document.getElementById('rosterKpiCardPending');
+            const isOps = mode === 'ops' || mode === 'operaciones';
 
-            if (mode === 'ops' || mode === 'operaciones') {
+            if (isOps) {
                 if (aside) aside.style.display = 'none';
-                // La regla de Ambulancias es informativa para WFM; no se muestra en Operaciones.
+                // Herramientas de planeación: solo disponibles en WFM.
                 if (ambulanceRule) ambulanceRule.classList.add('hidden');
+                if (forecastControlBtn) forecastControlBtn.classList.add('hidden');
+                if (frankLauncher) {
+                    frankLauncher.classList.add('hidden');
+                    frankLauncher.setAttribute('aria-expanded', 'false');
+                }
+                if (frankPanel) frankPanel.classList.add('hidden');
+                if (frankPendingKpi) frankPendingKpi.classList.add('hidden');
                 if (main) {
                     main.classList.remove('lg:col-span-9');
                     main.classList.add('lg:col-span-12');
@@ -4829,6 +4841,9 @@
                 if (tag) tag.classList.remove('hidden');
             } else {
                 if (tag) tag.classList.add('hidden');
+                if (forecastControlBtn) forecastControlBtn.classList.remove('hidden');
+                if (frankLauncher) frankLauncher.classList.remove('hidden');
+                if (frankPendingKpi) frankPendingKpi.classList.remove('hidden');
                 if (isSidebarVisible) {
                     if (aside) aside.style.display = 'block';
                     if (main) {
@@ -7207,6 +7222,10 @@
         }
 
         async function applyWfmMoveToRoster(actionId,buttonEl=null){
+            if(currentMode === 'ops' || currentMode === 'operaciones'){
+                showWfmToast('Las recomendaciones de Frank solo se aplican desde la vista WFM.','error');
+                return;
+            }
             const move=wfmPlanMovesById[actionId];if(!move)return;
             const who=`${move.agentId||move.agent||'Agente'}${move.fullName?` · ${move.fullName}`:''}`;
             if(!confirm(`Aplicar al roster operativo?\n\n${who}\n${move.date||''}\n${move.currentSchedule||'—'} → ${move.proposedSchedule||'—'}\n\nSe guardará como excepción para esa fecha específica.`))return;
@@ -7447,6 +7466,13 @@
             const panel = document.getElementById('wfmAssistantPanel');
             const launcher = document.getElementById('wfmAssistantLauncher');
             if (!panel || !launcher) return;
+            const isOps = currentMode === 'ops' || currentMode === 'operaciones';
+            if (isOps) {
+                panel.classList.add('hidden');
+                launcher.classList.add('hidden');
+                launcher.setAttribute('aria-expanded', 'false');
+                return;
+            }
             const open = forceOpen === null ? panel.classList.contains('hidden') : !!forceOpen;
             panel.classList.toggle('hidden', !open);
             launcher.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -8183,7 +8209,7 @@
                             <button type="button" class="wfm-action-btn reject" onclick="decideWfmMove('${wfmEsc(move.actionId)}','rejected', this)">Cambiar a descartada</button>`;
                     } else if (status === 'applied') {
                         decisionBadge = '<span class="wfm-action-decision applied">Aplicada</span>';
-                        stateCopy = 'Movimiento aprobado y marcado como aplicado por Operaciones.';
+                        stateCopy = 'Movimiento aprobado y aplicado desde WFM.';
                         controls = `
                             <button type="button" class="wfm-action-btn" onclick="toggleWfmMoveSimulation('${wfmEsc(move.actionId)}')">Ver impacto</button>
                             <button type="button" class="wfm-action-btn apply" disabled>Movimiento aplicado</button>`;
@@ -8234,6 +8260,10 @@
         }
 
         async function decideWfmMove(actionId, decision, buttonEl = null) {
+            if (currentMode === 'ops' || currentMode === 'operaciones') {
+                showWfmToast('Las decisiones de Frank solo se gestionan desde la vista WFM.', 'error');
+                return;
+            }
             const move = wfmPlanMovesById[actionId];
             if (!move) return;
 
@@ -8269,7 +8299,7 @@
                 renderWfmPlanWorkspace(wfmCurrentPlanPayload);
 
                 if (decision === 'accepted') {
-                    showWfmToast('Movimiento aprobado y registrado. Quedó pendiente de aplicación por Operaciones.', 'success');
+                    showWfmToast('Movimiento aprobado y registrado. Quedó pendiente de aplicación desde WFM.', 'success');
                 } else if (decision === 'applied') {
                     showWfmToast('Movimiento marcado como aplicado y registrado en la bitácora.', 'success');
                 } else {
@@ -8314,7 +8344,7 @@
                     <div class="wfm-log-kpi"><div class="wfm-log-kpi-label">Autonomía Ops*</div><div class="wfm-log-kpi-value">${Number(stats.opsAutonomy||0)}%</div></div>
                 </div>
                 <section class="wfm-v5-section" style="margin-top:0">
-                    <div class="wfm-v5-section-head"><div><div class="wfm-v5-section-title">Bitácora de decisiones</div><div class="wfm-v5-section-copy">*Autonomía Ops = porcentaje de decisiones registradas desde modo Operaciones sobre las recomendaciones resueltas.</div></div></div>
+                    <div class="wfm-v5-section-head"><div><div class="wfm-v5-section-title">Bitácora de decisiones</div><div class="wfm-v5-section-copy">*Las recomendaciones de Frank se gestionan exclusivamente desde la vista WFM.</div></div></div>
                     <div class="wfm-log-list">`;
 
             if (!rows.length) {
@@ -9078,7 +9108,7 @@
         <div id="wfmAssistantLogView" class="wfm-workspace-view wfm-log-workspace hidden" role="tabpanel">
             <div class="wfm-plan-empty">
                 <div class="wfm-plan-empty-title">Sin decisiones registradas</div>
-                <div class="wfm-plan-empty-copy">Aquí quedará la trazabilidad de recomendaciones aprobadas o descartadas por Operaciones/WFM.</div>
+                <div class="wfm-plan-empty-copy">Aquí quedará la trazabilidad de recomendaciones aprobadas, descartadas o aplicadas desde WFM.</div>
             </div>
         </div>
 
