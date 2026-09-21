@@ -4881,22 +4881,41 @@
 
         async function fetchModeData(mode, force = false) {
             mode = mode === 'chat' ? 'chat' : 'llamadas';
-            if (!force && Array.isArray(modeDataCache[mode]) && modeDataCache[mode].length) {
-                return modeDataCache[mode];
+            const previous = Array.isArray(modeDataCache[mode]) ? modeDataCache[mode] : null;
+            if (!force && previous && previous.length) {
+                return previous;
             }
             if (modeFetchPromises[mode]) return modeFetchPromises[mode];
 
             const promise = (async () => {
-                const response = await fetch('/api/latest?mode=' + mode, { cache: force ? 'no-cache' : 'default' });
-                let data = null;
-                try { data = await response.json(); } catch (_) { data = null; }
-                if (!response.ok) {
-                    throw new Error((data && data.error) || `HTTP ${response.status}`);
+                try {
+                    const response = await fetch('/api/latest?mode=' + mode, { cache: force ? 'no-cache' : 'default' });
+                    let data = null;
+                    try { data = await response.json(); } catch (_) { data = null; }
+                    if (!response.ok) {
+                        throw new Error((data && data.error) || `HTTP ${response.status}`);
+                    }
+                    const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
+                    const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
+
+                    // Nunca sustituir el último forecast válido por una respuesta vacía
+                    // durante una actualización automática. Operaciones conserva la
+                    // fotografía anterior hasta que llegue un cálculo nuevo completo.
+                    if (prepared.length) {
+                        modeDataCache[mode] = prepared;
+                        return prepared;
+                    }
+                    if (previous && previous.length) return previous;
+
+                    modeDataCache[mode] = prepared;
+                    return prepared;
+                } catch (error) {
+                    if (previous && previous.length) {
+                        console.warn(`Se conserva el último forecast válido de ${mode}:`, error);
+                        return previous;
+                    }
+                    throw error;
                 }
-                const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
-                const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
-                modeDataCache[mode] = prepared;
-                return prepared;
             })();
 
             modeFetchPromises[mode] = promise;
@@ -4929,6 +4948,12 @@
                     nextData = [...inData, ...chatData];
                 } else {
                     nextData = await fetchModeData(mode, force);
+                }
+
+                // Una respuesta vacía de una actualización automática no debe
+                // borrar el dashboard que Operaciones ya estaba viendo.
+                if (!nextData.length && isBackground && Array.isArray(globalData) && globalData.length) {
+                    return;
                 }
 
                 globalData = nextData;
@@ -5009,7 +5034,7 @@
                     setRunStatus('Listo', 'green');
                     await loadSourceMeta();
                 } else {
-                    const msg = globalData.error || "Asegúrate de que 'historico.xlsx' esté cargado.";
+                    const msg = globalData.error || "Asegúrate de que 'Data Real Hexalud.xlsx' esté cargado.";
                     const box=document.getElementById('dashboardError'); box.innerText='Error: '+msg; box.classList.remove('hidden'); setRunStatus('Falló el cálculo', 'red');
                 }
             } catch (e) {
@@ -6348,6 +6373,64 @@
         let rosterScheduleDay = 'Lunes';
         let rosterForecastRefreshTimer = null;
         let rosterForecastRefreshSequence = 0;
+        let rosterHistoryCache = [];
+        const ROSTER_UI_CACHE_KEY = 'wfmRosterUiSnapshotV2';
+        const ROSTER_HISTORY_CACHE_KEY = 'wfmRosterHistorySnapshotV2';
+
+        function saveRosterUiSnapshot() {
+            try {
+                const payload = {
+                    savedAt: new Date().toISOString(),
+                    agents: rosterAgents, stats: rosterStats, campaigns: rosterCampaigns,
+                    supervisors: rosterSupervisors, coordinators: rosterCoordinators,
+                    temporaryChanges: rosterTemporaryChanges, vacations: rosterVacations
+                };
+                localStorage.setItem(ROSTER_UI_CACHE_KEY, JSON.stringify(payload));
+            } catch (e) {
+                console.warn('No se pudo guardar el respaldo visual del roster:', e);
+            }
+        }
+
+        function restoreRosterUiSnapshot() {
+            try {
+                const raw = localStorage.getItem(ROSTER_UI_CACHE_KEY);
+                if (!raw) return false;
+                const data = JSON.parse(raw);
+                if (!Array.isArray(data?.agents) || !data.agents.length) return false;
+                rosterAgents = data.agents;
+                rosterStats = data.stats || {};
+                rosterCampaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
+                rosterSupervisors = Array.isArray(data.supervisors) ? data.supervisors : [];
+                rosterCoordinators = Array.isArray(data.coordinators) ? data.coordinators : [];
+                rosterTemporaryChanges = Array.isArray(data.temporaryChanges) ? data.temporaryChanges : [];
+                rosterVacations = Array.isArray(data.vacations) ? data.vacations : [];
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function saveRosterHistorySnapshot(rows) {
+            rosterHistoryCache = Array.isArray(rows) ? rows : [];
+            try {
+                localStorage.setItem(ROSTER_HISTORY_CACHE_KEY, JSON.stringify({savedAt:new Date().toISOString(),rows:rosterHistoryCache}));
+            } catch (e) {
+                console.warn('No se pudo guardar el respaldo visual del historial:', e);
+            }
+        }
+
+        function restoreRosterHistorySnapshot() {
+            if (Array.isArray(rosterHistoryCache) && rosterHistoryCache.length) return rosterHistoryCache;
+            try {
+                const raw = localStorage.getItem(ROSTER_HISTORY_CACHE_KEY);
+                if (!raw) return [];
+                const data = JSON.parse(raw);
+                rosterHistoryCache = Array.isArray(data?.rows) ? data.rows : [];
+                return rosterHistoryCache;
+            } catch (e) {
+                return [];
+            }
+        }
 
         function setRosterSyncStatus(state='ready', text='Sincronizado') {
             const el=document.getElementById('rosterSyncStatus');
@@ -6361,8 +6444,9 @@
         }
 
         function scheduleRosterForecastRefresh(delay=350) {
-            modeDataCache.llamadas=null;
-            modeDataCache.chat=null;
+            // No vaciar el último forecast visible. El servidor marcará el dato
+            // como pendiente de refresco y lo reemplazará únicamente cuando el
+            // nuevo cálculo sea válido.
             wfmAutopilotLastSignature='';
             wfmAutopilotPayload=null;
             invalidateWfmAssistantContext();
@@ -6398,6 +6482,12 @@
         async function openRosterManager() {
             document.getElementById('rosterManagerOverlay')?.classList.remove('hidden');
             document.body.style.overflow = 'hidden';
+            if ((!Array.isArray(rosterAgents) || !rosterAgents.length) && restoreRosterUiSnapshot()) {
+                updateRosterKpis();
+                populateRosterFilters();
+                renderRosterTable();
+                setRosterSyncStatus('ready','Última actualización guardada');
+            }
             await Promise.all([loadRosterData(), loadWfmDecisionLog()]);
             updateRosterKpis();
             setRosterView('agents');
@@ -6449,7 +6539,16 @@
 
         async function loadRosterData() {
             const tbody = document.getElementById('rosterTableBody');
-            if (tbody) tbody.innerHTML = '<tr><td colspan="18" style="padding:30px;text-align:center;color:#7D8FA1">Cargando roster operativo…</td></tr>';
+            let hadRoster = Array.isArray(rosterAgents) && rosterAgents.length > 0;
+            if (!hadRoster && restoreRosterUiSnapshot()) {
+                hadRoster = true;
+                updateRosterKpis();
+                populateRosterFilters();
+                renderRosterTable();
+                setRosterSyncStatus('recalculating','Última actualización · verificando…');
+            }
+            if (tbody && !hadRoster) tbody.innerHTML = '<tr><td colspan="18" style="padding:30px;text-align:center;color:#7D8FA1">Cargando roster operativo…</td></tr>';
+            if (hadRoster) setRosterSyncStatus('recalculating','Actualizando…');
             try {
                 const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
                 const data = await response.json();
@@ -6469,8 +6568,17 @@
                 updateRosterKpis();
                 populateRosterFilters();
                 renderRosterTable();
+                saveRosterUiSnapshot();
+                setRosterSyncStatus('ready','Sincronizado · persistente');
             } catch (error) {
-                if (tbody) tbody.innerHTML = `<tr><td colspan="18" style="padding:30px;text-align:center;color:#A75264">${rosterSafe(error.message)}</td></tr>`;
+                // Si ya había un roster visible, conservarlo ante una falla temporal
+                // en lugar de reemplazar la gestión de horarios por una pantalla vacía.
+                if (hadRoster) {
+                    setRosterSyncStatus('error','Última actualización conservada');
+                    renderRosterTable();
+                } else if (tbody) {
+                    tbody.innerHTML = `<tr><td colspan="18" style="padding:30px;text-align:center;color:#A75264">${rosterSafe(error.message)}</td></tr>`;
+                }
             }
         }
 
@@ -7200,20 +7308,32 @@
             if(view==='history')await loadRosterHistory();
         }
 
+        function renderRosterHistoryRows(rows, cached=false){
+            const list=document.getElementById('rosterHistoryList');if(!list)return;
+            if(!rows.length){list.innerHTML='<div class="roster-empty"><strong>Sin cambios registrados</strong><span>Las modificaciones aparecerán aquí y permanecerán guardadas en el historial.</span></div>';return;}
+            const stale=cached?'<div class="roster-empty" style="padding:10px 14px"><strong>Mostrando último historial guardado</strong><span>Se actualizará cuando el servidor vuelva a estar disponible.</span></div>':'';
+            list.innerHTML=stale+rows.map(r=>{
+                const before=r.before||{},after=r.after||{};let type=r.changeType;
+                if(type==='agent_updated')type='Horario / datos actualizados';if(type==='agent_created')type='Agente agregado';if(type==='frank_recommendation_applied')type='Recomendación de Frank aplicada';if(type==='temporary_schedule_created')type='Horario temporal creado';if(type==='temporary_schedule_cancelled')type='Horario temporal cancelado';if(type==='vacation_created')type='Vacaciones registradas';if(type==='vacation_status_changed')type='Estado de vacaciones actualizado';
+                const detail=(before.schedule||after.schedule)?`${before.date||after.date||''} · ${before.schedule||'—'} → ${after.schedule||'—'}`:`${after.fullName||before.fullName||'Sin nombre'} · ${after.campaign||before.campaign||''}`;
+                return `<div class="roster-history-card"><div class="roster-history-title">${rosterSafe(r.agentId||'—')} · ${rosterSafe(type)}</div><div class="roster-history-meta">${rosterSafe(String(r.changedAt||'').replace('T',' '))} · ${rosterSafe(r.changedBy||'')}</div><div class="roster-history-change">${rosterSafe(detail)}${r.reason?` · ${rosterSafe(r.reason)}`:''}</div></div>`;
+            }).join('');
+        }
+
         async function loadRosterHistory(){
             const list=document.getElementById('rosterHistoryList');if(!list)return;
-            list.innerHTML='<div class="roster-empty"><strong>Cargando historial…</strong></div>';
+            const cached=restoreRosterHistorySnapshot();
+            if(cached.length) renderRosterHistoryRows(cached,true);
+            else list.innerHTML='<div class="roster-empty"><strong>Cargando historial…</strong></div>';
             try{
-                const response=await fetch('/api/roster/history?limit=250',{cache:'no-store'});const rows=await response.json();
+                const response=await fetch('/api/roster/history?limit=1000',{cache:'no-store'});const rows=await response.json();
                 if(!response.ok)throw new Error(rows.error||'No se pudo cargar el historial.');
-                if(!rows.length){list.innerHTML='<div class="roster-empty"><strong>Sin cambios registrados</strong><span>Las modificaciones aparecerán aquí.</span></div>';return;}
-                list.innerHTML=rows.map(r=>{
-                    const before=r.before||{},after=r.after||{};let type=r.changeType;
-                    if(type==='agent_updated')type='Horario / datos actualizados';if(type==='agent_created')type='Agente agregado';if(type==='frank_recommendation_applied')type='Recomendación de Frank aplicada';if(type==='temporary_schedule_created')type='Horario temporal creado';if(type==='temporary_schedule_cancelled')type='Horario temporal cancelado';if(type==='vacation_created')type='Vacaciones registradas';if(type==='vacation_status_changed')type='Estado de vacaciones actualizado';
-                    const detail=(before.schedule||after.schedule)?`${before.date||after.date||''} · ${before.schedule||'—'} → ${after.schedule||'—'}`:`${after.fullName||before.fullName||'Sin nombre'} · ${after.campaign||before.campaign||''}`;
-                    return `<div class="roster-history-card"><div class="roster-history-title">${rosterSafe(r.agentId||'—')} · ${rosterSafe(type)}</div><div class="roster-history-meta">${rosterSafe(String(r.changedAt||'').replace('T',' '))} · ${rosterSafe(r.changedBy||'')}</div><div class="roster-history-change">${rosterSafe(detail)}${r.reason?` · ${rosterSafe(r.reason)}`:''}</div></div>`;
-                }).join('');
-            }catch(error){list.innerHTML=`<div class="roster-empty"><strong>Error</strong><span>${rosterSafe(error.message)}</span></div>`}
+                saveRosterHistorySnapshot(rows);
+                renderRosterHistoryRows(rows,false);
+            }catch(error){
+                if(cached.length) renderRosterHistoryRows(cached,true);
+                else list.innerHTML=`<div class="roster-empty"><strong>Error</strong><span>${rosterSafe(error.message)}</span></div>`;
+            }
         }
 
         async function refreshForecastAfterRosterChange(){
@@ -8247,7 +8367,7 @@
                     <div class="wfm-quality-grid">
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Filas forecast</div><div class="wfm-quality-value">${Number(quality.forecastRows ?? context.rowCount ?? 0).toLocaleString()}</div></div>
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Roster disponible</div><div class="wfm-quality-value">${quality.rosterAvailable === false ? 'No confirmado' : `${Number(quality.rosterAgents || 0)} agentes`}</div></div>
-                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'historico.xlsx')}</div></div>
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Data Real Hexalud.xlsx')}</div></div>
                     </div>
                     <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Frank no inventará ese dato.</div>
                 </section>`;
