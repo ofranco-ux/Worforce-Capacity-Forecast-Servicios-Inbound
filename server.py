@@ -8,75 +8,33 @@ import threading
 import hashlib
 import time
 import sqlite3
-import shutil
 import io
 import csv
-import importlib
-import resource
 from functools import lru_cache
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from flask import Flask, request, jsonify, send_from_directory, make_response, send_file, Response, stream_with_context
+from flask import Flask, request, jsonify, send_from_directory, make_response, send_file
 from flask_cors import CORS
-from openpyxl import load_workbook
-from openpyxl.utils.datetime import from_excel
-
-class _LazyModule:
-    def __init__(self, module_name):
-        self.module_name = module_name
-        self._module = None
-    def _load(self):
-        if self._module is None:
-            self._module = importlib.import_module(self.module_name)
-        return self._module
-    def __getattr__(self, name):
-        return getattr(self._load(), name)
-
-# Legacy/admin functionality can still use pandas/numpy, but the normal forecast
-# request no longer imports them into the 512 MB worker.
-pd = _LazyModule('pandas')
-np = _LazyModule('numpy')
-
-def _rss_mb():
-    try:
-        # Linux ru_maxrss is KB.
-        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0, 1)
-    except Exception:
-        return None
-
-def _log_memory(stage):
-    value = _rss_mb()
-    if value is not None:
-        print(f"[MEM] {stage}: {value} MB", flush=True)
-
+import pandas as pd
+import numpy as np
 
 # Dependencias locales del forecast. Se distribuyen junto al servidor para que
 # el calendario de México y el modelo de machine learning estén siempre activos.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-WFM_DATA_DIR = os.path.abspath(os.environ.get('WFM_DATA_DIR', BASE_DIR))
-os.makedirs(WFM_DATA_DIR, exist_ok=True)
-HISTORICAL_PRIMARY_BASENAME = 'Data Real Servicios.xlsx'
-HISTORICAL_FILE = os.path.join(WFM_DATA_DIR, HISTORICAL_PRIMARY_BASENAME)
-LEGACY_HISTORICAL_FILE = os.path.join(WFM_DATA_DIR, 'historico.xlsx')
 VENDOR_DIR = os.path.join(BASE_DIR, 'vendor')
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
     sys.path.insert(0, VENDOR_DIR)
 
+import holidays
+from sklearn.ensemble import RandomForestRegressor
 
 CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
 CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
-ANNUAL_BASE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_annual_base_2026_llamadas.json')
-ANNUAL_BASE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_annual_base_2026_chat.json')
-ACTUAL_2026_FILE_LLAMADAS = os.path.join(BASE_DIR, 'actual_2026_llamadas.json')
-ACTUAL_2026_FILE_CHAT = os.path.join(BASE_DIR, 'actual_2026_chat.json')
-ACTUAL_2026_META_LLAMADAS = os.path.join(BASE_DIR, 'actual_2026_llamadas.meta.json')
-ACTUAL_2026_META_CHAT = os.path.join(BASE_DIR, 'actual_2026_chat.meta.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
-EXCEL_DEFAULT = HISTORICAL_FILE
+EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
 WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
 WFM_ROSTER_DB = os.path.join(BASE_DIR, 'wfm_roster.db')
 WFM_TIMEZONE = os.environ.get('WFM_TIMEZONE','America/Mexico_City')
-FORECAST_ANNUAL_YEAR = 2026
 _WFM_ROSTER_LOCK = threading.RLock()
 _ROSTER_DB_READY = False
 _WFM_ACTION_LOG_LOCK = threading.RLock()
@@ -87,9 +45,6 @@ _WFM_ACTION_LOG_LOCK = threading.RLock()
 _FORECAST_MEMORY_CACHE = {'llamadas': None, 'chat': None}
 _FORECAST_CACHE_GENERATION = {'llamadas': 0, 'chat': 0}
 _FORECAST_CACHE_LOCK = threading.RLock()
-_FORECAST_CALC_LOCK = threading.Lock()
-_ANNUAL_BASE_MEMORY = {'llamadas': None, 'chat': None}
-_ANNUAL_BASE_LOCK = threading.RLock()
 _EXCEL_INFO_CACHE = {}
 _ASSISTANT_PLAN_CACHE = {}
 _ASSISTANT_PLAN_CACHE_LOCK = threading.RLock()
@@ -99,70 +54,39 @@ _ASSISTANT_PLAN_CACHE_TTL = 600
 def _cache_path(mode):
     return CACHE_FILE_CHAT if str(mode).lower() == 'chat' else CACHE_FILE_LLAMADAS
 
-def _annual_base_path(mode):
-    return ANNUAL_BASE_FILE_CHAT if str(mode).lower() == 'chat' else ANNUAL_BASE_FILE_LLAMADAS
-
-def _leer_annual_base(mode):
-    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
-    with _ANNUAL_BASE_LOCK:
-        mem = _ANNUAL_BASE_MEMORY.get(mode)
-    if isinstance(mem, list) and mem:
-        return mem
-    target = _annual_base_path(mode)
-    if not os.path.exists(target):
-        return None
-    try:
-        with open(target, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        if isinstance(data, list) and data:
-            with _ANNUAL_BASE_LOCK:
-                _ANNUAL_BASE_MEMORY[mode] = data
-            return data
-    except Exception as e:
-        print(f"No se pudo leer baseline anual {mode}: {e}")
-    return None
-
-def _guardar_annual_base(mode, data):
-    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
-    if not isinstance(data, list) or not data:
-        return
-    with _ANNUAL_BASE_LOCK:
-        _ANNUAL_BASE_MEMORY[mode] = data
-        target = _annual_base_path(mode)
-        tmp = target + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
-        os.replace(tmp, target)
-
 def _guardar_cache_forecast(mode, data):
-    """
-    Persist forecast with a streaming JSON encoder.
-    The full dataset is not pinned in _FORECAST_MEMORY_CACHE and no second
-    giant json.dumps() string is created in a background thread.
-    """
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
-    target = _cache_path(mode)
-    tmp = target + '.tmp'
-    encoder = json.JSONEncoder(ensure_ascii=False, separators=(',', ':'))
-    try:
-        with open(tmp, 'w', encoding='utf-8') as f:
-            for chunk in encoder.iterencode(data):
-                f.write(chunk)
-        os.replace(tmp, target)
-        with _FORECAST_CACHE_LOCK:
-            _FORECAST_MEMORY_CACHE[mode] = None
-            _FORECAST_CACHE_GENERATION[mode] += 1
-    except Exception as e:
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        except Exception:
-            pass
-        print(f"No se pudo persistir caché {mode}: {e}")
+    with _FORECAST_CACHE_LOCK:
+        _FORECAST_MEMORY_CACHE[mode] = data
+        _FORECAST_CACHE_GENERATION[mode] += 1
+        generation = _FORECAST_CACHE_GENERATION[mode]
 
+    # Persistir en segundo plano evita que json.dump bloquee la respuesta HTTP.
+    # Si se lanza un cálculo nuevo antes de terminar, el resultado anterior no
+    # sobreescribe al más reciente.
+    def _persistir():
+        try:
+            payload = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+            with _FORECAST_CACHE_LOCK:
+                if generation != _FORECAST_CACHE_GENERATION[mode]:
+                    return
+                target = _cache_path(mode)
+                tmp = f"{target}.{generation}.tmp"
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    f.write(payload)
+                os.replace(tmp, target)
+        except Exception as e:
+            print(f"No se pudo persistir caché {mode}: {e}")
+
+    threading.Thread(target=_persistir, daemon=True, name=f'wfm-cache-{mode}').start()
 
 def _leer_cache_forecast(mode):
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    with _FORECAST_CACHE_LOCK:
+        mem = _FORECAST_MEMORY_CACHE.get(mode)
+    if isinstance(mem, list) and mem:
+        return mem
+
     target = _cache_path(mode)
     if not os.path.exists(target):
         return None
@@ -170,73 +94,12 @@ def _leer_cache_forecast(mode):
         with open(target, 'r', encoding='utf-8') as f:
             data = json.load(f)
         if isinstance(data, list) and data:
+            with _FORECAST_CACHE_LOCK:
+                _FORECAST_MEMORY_CACHE[mode] = data
             return data
     except Exception:
         pass
     return None
-
-def _stream_json_rows(rows, status=200):
-    encoder = json.JSONEncoder(ensure_ascii=False, separators=(',', ':'))
-
-    def generate():
-        try:
-            yield '['
-            first = True
-            for row in rows:
-                if not first:
-                    yield ','
-                first = False
-                for chunk in encoder.iterencode(row):
-                    yield chunk
-            yield ']'
-        finally:
-            gc.collect()
-
-    response = Response(
-        stream_with_context(generate()),
-        status=status,
-        mimetype='application/json'
-    )
-    response.headers['Cache-Control'] = 'no-store'
-    return response
-
-def _norm_header(value):
-    text = str(value or '').strip().lower()
-    text = (
-        text.replace('á','a').replace('é','e').replace('í','i')
-            .replace('ó','o').replace('ú','u').replace('ü','u').replace('ñ','n')
-    )
-    return re.sub(r'\s+',' ',text)
-
-def _header_index(headers, aliases):
-    norm_aliases = [_norm_header(x) for x in aliases]
-    for idx,value in enumerate(headers):
-        norm = _norm_header(value)
-        if any(a in norm for a in norm_aliases):
-            return idx
-    return None
-
-def _light_sheet_name(excel_path, mode):
-    wb = load_workbook(excel_path, read_only=True, data_only=True)
-    try:
-        names = wb.sheetnames
-        if not names:
-            return None
-        if str(mode).lower() == 'chat':
-            for name in names:
-                low = name.lower()
-                if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ('plantilla','roster','platilla')):
-                    return name
-            return None
-        selected = names[0]
-        for name in names:
-            low = name.lower()
-            if 'llam' in low or 'hist' in low or 'datos' in low:
-                selected = name
-                break
-        return selected
-    finally:
-        wb.close()
 
 def _excel_signature(excel_path):
     try:
@@ -258,10 +121,15 @@ def _cache_excel_info_set(excel_path, key, value):
     return value
 
 # =====================================================================
-# V6.10.2 · CACHÉ PERSISTENTE
+# 🧨 EXTERMINADOR DE CACHÉ
 # =====================================================================
-# Los forecast_cache_*.json ya no se eliminan al arrancar.
-# Si existe un forecast previamente generado, se reutiliza después de un reinicio.
+for cache_file in [CACHE_FILE_LLAMADAS, CACHE_FILE_CHAT]:
+    try:
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+            print(f"Borrando caché viejo: {cache_file}")
+    except Exception as e:
+        print(f"No se pudo borrar {cache_file}: {str(e)}")
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -439,7 +307,6 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         return [max(0.0, float(df_diario_campana.tail(7)[col_calls].mean()))] * dias_futuros
 
     features = ['dia_semana', 'es_inicio_mes', 'es_quincena', 'es_festivo']
-    from sklearn.ensemble import RandomForestRegressor
     modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2)
     modelo.fit(df_train[features], df_train['ratio_smooth'])
 
@@ -467,162 +334,15 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
 
     return preds_finales
 
-def _is_history_candidate(filename):
-    low=str(filename or '').strip().lower()
-    if not low.endswith(('.xlsx','.xlsm')) or low.startswith('~'):
-        return False
-    excluded=('plantilla_carga_masiva_roster','plantilla','roster','template','forecast_cache','actual_2026')
-    if any(x in low for x in excluded):
-        return False
-    return True
-
 def buscar_archivo_excel():
-    """
-    Historical source resolution is explicit and conservative.
-    The roster upload template is NEVER accepted as operational history.
-    """
     try:
-        env_file=str(os.environ.get('WFM_HISTORICAL_FILE','') or '').strip()
-        if env_file:
-            env_path=os.path.abspath(env_file)
-            if os.path.isfile(env_path) and _is_history_candidate(os.path.basename(env_path)):
-                return env_path
-
-        # Prefer the real operational workbook name used by this project.
-        if os.path.isfile(HISTORICAL_FILE):
-            return HISTORICAL_FILE
-        # Backward compatibility with versions that renamed uploads to historico.xlsx.
-        if os.path.isfile(LEGACY_HISTORICAL_FILE):
-            return LEGACY_HISTORICAL_FILE
-
-        roots=[]
-        for root in (WFM_DATA_DIR,BASE_DIR,os.getcwd()):
-            root=os.path.abspath(root)
-            if root not in roots and os.path.isdir(root): roots.append(root)
-
-        preferred=[]; fallback=[]
-        for root in roots:
-            for name in os.listdir(root):
-                if not _is_history_candidate(name):
-                    continue
-                path=os.path.join(root,name)
-                if not os.path.isfile(path): continue
-                low=name.lower()
-                if low == HISTORICAL_PRIMARY_BASENAME.lower():
-                    preferred.insert(0,path)
-                elif any(x in low for x in ('data real servicios','historico','histórico','history','data','servicios','volumen')):
-                    preferred.append(path)
-                else:
-                    fallback.append(path)
-        if preferred:
-            exact=[p for p in preferred if os.path.basename(p).lower()==HISTORICAL_PRIMARY_BASENAME.lower()]
-            if exact:
-                return sorted(exact,key=lambda p: os.path.getmtime(p),reverse=True)[0]
-            return sorted(preferred,key=lambda p: os.path.getmtime(p),reverse=True)[0]
-        # Only use an unnamed fallback if it is the sole plausible operational workbook.
-        if len(fallback)==1:
-            return fallback[0]
-        return None
-    except Exception as e:
-        print(f'No se pudo resolver la fuente histórica: {e}')
-        return None
-
-def _invalidate_historical_source_caches():
-    global _EXCEL_INFO_CACHE
-    _EXCEL_INFO_CACHE={}
-    with _FORECAST_CACHE_LOCK:
-        for mode in ('llamadas','chat'):
-            _FORECAST_MEMORY_CACHE[mode]=None
-            _FORECAST_CACHE_GENERATION[mode]+=1
-    with _ANNUAL_BASE_LOCK:
-        _ANNUAL_BASE_MEMORY['llamadas']=None
-        _ANNUAL_BASE_MEMORY['chat']=None
-    for path in (
-        CACHE_FILE_LLAMADAS,CACHE_FILE_CHAT,
-        ACTUAL_2026_FILE_LLAMADAS,ACTUAL_2026_FILE_CHAT,
-        ACTUAL_2026_META_LLAMADAS,ACTUAL_2026_META_CHAT,
-        ANNUAL_BASE_FILE_LLAMADAS,ANNUAL_BASE_FILE_CHAT
-    ):
-        try:
-            if os.path.exists(path): os.remove(path)
-        except Exception:
-            pass
-
-def _source_info_payload():
-    selected=buscar_archivo_excel()
-    candidates=[]
-    roots=[]
-    for root in (WFM_DATA_DIR,BASE_DIR,os.getcwd()):
-        root=os.path.abspath(root)
-        if root not in roots and os.path.isdir(root): roots.append(root)
-    for root in roots:
-        try:
-            for name in os.listdir(root):
-                if _is_history_candidate(name):
-                    path=os.path.join(root,name)
-                    if os.path.isfile(path):
-                        candidates.append({
-                            'name':name,
-                            'sizeBytes':os.path.getsize(path),
-                            'modifiedAt':datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec='seconds'),
-                            'selected':bool(selected and os.path.abspath(path)==os.path.abspath(selected))
-                        })
-        except Exception:
-            pass
-    # Deduplicate by name/size/modified tuple for repeated roots.
-    uniq=[]; seen=set()
-    for item in candidates:
-        key=(item['name'],item['sizeBytes'],item['modifiedAt'])
-        if key not in seen:
-            seen.add(key); uniq.append(item)
-    return {
-        'ok':True,
-        'sourceFound':bool(selected),
-        'selectedFile':os.path.basename(selected) if selected else None,
-        'selectedSizeBytes':os.path.getsize(selected) if selected and os.path.exists(selected) else 0,
-        'selectedModifiedAt':datetime.fromtimestamp(os.path.getmtime(selected)).isoformat(timespec='seconds') if selected and os.path.exists(selected) else None,
-        'expectedFile':HISTORICAL_PRIMARY_BASENAME,
-        'dataDirConfigured':bool(os.environ.get('WFM_DATA_DIR')),
-        'candidates':uniq,
-        'message':'Fuente histórica lista.' if selected else f'No se encontró {HISTORICAL_PRIMARY_BASENAME}. La plantilla de roster no se usa como histórico.'
-    }
-
-@app.route('/api/source-info', methods=['GET'])
-def source_info():
-    return jsonify(_source_info_payload()),200
-
-@app.route('/api/source-upload', methods=['POST'])
-def source_upload():
-    uploaded=request.files.get('file')
-    if not uploaded or not uploaded.filename:
-        return jsonify({'error':'Selecciona un archivo .xlsx con el histórico operativo.'}),400
-    filename=os.path.basename(uploaded.filename)
-    if not filename.lower().endswith('.xlsx'):
-        return jsonify({'error':'La fuente histórica debe ser un archivo .xlsx.'}),400
-
-    os.makedirs(WFM_DATA_DIR,exist_ok=True)
-    tmp=HISTORICAL_FILE+'.uploading'
-    try:
-        uploaded.save(tmp)
-        # Validate workbook + at least one recognizable operational layout.
-        calls_layout=_detect_history_layout(tmp,'llamadas')
-        chat_layout=_detect_history_layout(tmp,'chat')
-        if not calls_layout and not chat_layout:
-            raise ValueError('No pude identificar columnas de Fecha y Volumen en el archivo. Revisa la estructura del histórico.')
-        if os.path.exists(HISTORICAL_FILE):
-            backup=os.path.join(WFM_DATA_DIR,'Data Real Servicios_backup.xlsx')
-            try: shutil.copy2(HISTORICAL_FILE,backup)
-            except Exception: pass
-        os.replace(tmp,HISTORICAL_FILE)
-        _invalidate_historical_source_caches()
-        payload=_source_info_payload()
-        payload.update({'uploaded':True,'llamadasLayout':calls_layout,'chatLayout':chat_layout})
-        return jsonify(payload),200
-    except Exception as e:
-        try:
-            if os.path.exists(tmp): os.remove(tmp)
-        except Exception: pass
-        return jsonify({'error':str(e)}),400
+        archivos = [f for f in os.listdir(BASE_DIR) if f.lower().endswith('.xlsx') and not f.startswith('~')]
+        if not archivos: return None
+        for f in archivos:
+            if 'data' in f.lower() or 'servicios' in f.lower() or 'historico' in f.lower(): 
+                return os.path.join(BASE_DIR, f)
+        return os.path.join(BASE_DIR, archivos[0])
+    except: return None
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -659,76 +379,47 @@ def manage_config():
             except: pass
         return jsonify({'targetSl': 80, 'targetTime': 20, 'merma': 30}), 200
 
-def _value_is_nan(value):
-    try:
-        return isinstance(value, float) and math.isnan(value)
-    except Exception:
-        return False
-
 def clean_num(val, default=0.0):
-    if val is None or _value_is_nan(val):
-        return default
+    if pd.isna(val) or val is None: return default
     try:
         val_str = str(val).strip().replace(',', '.')
         val_str = re.sub(r'[^0-9.]', '', val_str)
         return float(val_str) if val_str else default
-    except Exception:
-        return default
+    except: return default
 
 def parse_aht_to_seconds(val):
-    if val is None or _value_is_nan(val):
-        return 180.0
-    if isinstance(val, (int, float)):
-        num = float(val)
-        return num if num > 15 else num * 60.0
+    if pd.isna(val) or val is None: return 180.0
+    if isinstance(val, (int, float)): return float(val) if float(val) > 15 else float(val) * 60.0
     val_str = str(val).strip()
     if ':' in val_str:
         p = val_str.split(':')
         try:
-            if len(p) == 3:
-                return int(p[0]) * 3600 + int(p[1]) * 60 + float(p[2])
-            if len(p) == 2:
-                return int(p[0]) * 60 + float(p[1])
-        except Exception:
-            pass
+            if len(p) == 3: return int(p[0]) * 3600 + int(p[1]) * 60 + float(p[2])
+            elif len(p) == 2: return int(p[0]) * 60 + float(p[1])
+        except: pass
     return clean_num(val_str, 180.0)
 
 def format_aht_str(seconds):
-    if seconds is None or _value_is_nan(seconds) or seconds <= 0:
-        return "00:00:00"
+    if pd.isna(seconds) or seconds is None or seconds <= 0: return "00:00:00"
     secs = int(round(seconds))
     return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
 
 def clean_interval_str(val):
     try:
-        if val is None or _value_is_nan(val):
-            return "00:00"
-
-        # Excel time fraction.
-        if isinstance(val,(int,float)) and 0 <= float(val) < 1:
-            total_minutes = int(round(float(val) * 24 * 60))
-            hh = (total_minutes // 60) % 24
-            mm = total_minutes % 60
-        elif hasattr(val, 'hour') and hasattr(val, 'minute'):
-            hh, mm = int(val.hour), int(val.minute)
+        if pd.isna(val): return "00:00"
+        val_str = str(val).strip()
+        if hasattr(val, 'hour') and hasattr(val, 'minute'): hh, mm = val.hour, val.minute
         else:
-            val_str = str(val).strip()
             m = re.search(r'(\d{1,2}):(\d{2})', val_str)
-            if not m:
-                return "00:00"
-            hh, mm = int(m.group(1)), int(m.group(2))
-
-        if mm < 15:
-            mm_round = 0
-        elif mm < 45:
-            mm_round = 30
+            if m: hh, mm = int(m.group(1)), int(m.group(2))
+            else: return "00:00"
+        if mm < 15: mm_round = 0
+        elif mm < 45: mm_round = 30
         else:
             mm_round = 0
             hh = (hh + 1) % 24
         return f"{hh:02d}:{mm_round:02d}"
-    except Exception:
-        return "00:00"
-
+    except: return "00:00"
 
 ERLANG_CACHE = {}
 def erlang_c_sl_optimizado(A, N, AHT, target_time):
@@ -1019,7 +710,7 @@ def _roster_db_init():
             for col_name, ddl in forecast_row_migrations.items():
                 if col_name not in forecast_row_columns:
                     conn.execute(ddl)
-            should_seed = False  # V6.11.2: roster is managed independently; never seed from historical Excel.
+            should_seed = conn.execute("SELECT COUNT(*) FROM roster_agents").fetchone()[0] == 0
             conn.commit()
             _ROSTER_DB_READY = True
         finally:
@@ -1363,93 +1054,85 @@ def _forecast_lock_rows_map(lock_ids):
 
 def _forecast_apply_control(channel, data):
     """
-    Governance rules:
-    - Real historical volume is never replaced by a reconstructed forecast.
-    - A closed month can still expose its original/official forecast in metadata.
-    - Locked HC remains authoritative for a closed month.
-    - Future forecast can change only through rolling/reforecast rules.
+    Closed month rules:
+    - HC required is always the value locked with Operations.
+    - Forecast is the official value stored in the lock. It changes only through
+      an explicit future reforecast/anomaly revision.
+    - Roster / HC actual remains live.
+    - Past/today rows are never changed by a reforecast operation.
     """
     if not isinstance(data,list) or not data:
         return data
 
     mode = _forecast_channel_norm(channel)
     locks = _forecast_active_locks(mode)
-    rows_map = _forecast_lock_rows_map([v['id'] for v in locks.values()]) if locks else {}
-    for row in data:
-        is_real = str(row.get('Dato_Tipo') or row.get('Forecast_Tipo') or '').lower() == 'real'
+    if not locks:
+        result = []
+        for raw in data:
+            row = dict(raw)
+            row['Forecast_Control_Estado'] = 'rolling'
+            row['HC_Bloqueado'] = False
+            row['Forecast_Rolling'] = _forecast_num(row.get('Llamadas'),0)
+            row['Forecast_Oficial'] = _forecast_num(row.get('Llamadas'),0)
+            row['Forecast_Al_Cierre'] = None
+            row['Lock_Version'] = None
+            result.append(row)
+        return result
+
+    rows_map = _forecast_lock_rows_map([v['id'] for v in locks.values()])
+    result = []
+    for raw in data:
+        row = dict(raw)
         month_key = _forecast_month_key_from_date(row.get('Fecha'))
         lock = locks.get((month_key,mode))
-        current_value = _forecast_num(row.get('Llamadas'),0)
-        current_hc = int(round(_forecast_num(row.get('Agentes_Requeridos'),0)))
+        rolling_forecast = _forecast_num(row.get('Llamadas'),0)
+        rolling_hc = int(round(_forecast_num(row.get('Agentes_Requeridos'),0)))
 
-        if is_real:
-            row['Volumen_Real'] = current_value
-            row['Forecast_Rolling'] = None
-            row['Agentes_Requeridos_Rolling'] = None
-        else:
-            row['Forecast_Rolling'] = current_value
-            row['Agentes_Requeridos_Rolling'] = current_hc
+        row['Forecast_Rolling'] = rolling_forecast
+        row['Agentes_Requeridos_Rolling'] = rolling_hc
 
         if not lock:
-            if is_real:
-                row['Forecast_Control_Estado'] = 'historical_real'
-                row['HC_Bloqueado'] = False
-                row['Forecast_Oficial'] = None
-                row['Forecast_Al_Cierre'] = None
-                row['Lock_Version'] = None
-            else:
-                row['Forecast_Control_Estado'] = 'rolling'
-                row['HC_Bloqueado'] = False
-                row['Forecast_Oficial'] = current_value
-                row['Forecast_Al_Cierre'] = None
-                row['Lock_Version'] = None
+            row['Forecast_Control_Estado'] = 'rolling'
+            row['HC_Bloqueado'] = False
+            row['Forecast_Oficial'] = rolling_forecast
+            row['Forecast_Al_Cierre'] = None
+            row['Lock_Version'] = None
+            result.append(row)
             continue
 
         key = _forecast_row_key(row)
-        snap = rows_map.get((int(lock['id']),key[0],key[1],key[2]))
-        row['Lock_Id'] = int(lock['id'])
-        row['Lock_Version'] = int(lock['version'])
-        row['HC_Bloqueado'] = True
-
+        snap = rows_map.get((int(lock['id']), key[0], key[1], key[2]))
         if not snap:
-            if is_real:
-                # Real demand appeared outside the closing snapshot.
-                # Preserve the real volume, but do not invent official HC.
-                row['Forecast_Control_Estado'] = 'closed_actual_missing_snapshot'
-                row['Forecast_Al_Cierre'] = 0
-                row['Forecast_Oficial'] = 0
-                row['HC_Teorico_Real'] = current_hc
-                row['Agentes_Requeridos'] = 0
-                row['FTE_Erlang'] = 0
-            else:
-                row['Forecast_Control_Estado'] = 'closed_missing_snapshot'
-                row['Agentes_Requeridos'] = 0
-                row['Forecast_Oficial'] = 0
-                row['Llamadas'] = 0
-                row['Forecast_Al_Cierre'] = 0
+            # A new campaign/interval that did not exist at close cannot silently
+            # change the agreed HC. It remains visible as "sin snapshot".
+            row['Forecast_Control_Estado'] = 'closed_missing_snapshot'
+            row['HC_Bloqueado'] = True
+            row['Agentes_Requeridos'] = 0
+            row['Forecast_Oficial'] = 0
+            row['Llamadas'] = 0
+            row['Forecast_Al_Cierre'] = 0
+            row['Lock_Version'] = int(lock['version'])
+            row['Lock_Id'] = int(lock['id'])
+            result.append(row)
             continue
 
         official = _forecast_num(snap['official_forecast'],0)
+        row['Forecast_Control_Estado'] = 'closed'
+        row['HC_Bloqueado'] = True
+        row['Lock_Id'] = int(lock['id'])
+        row['Lock_Version'] = int(lock['version'])
         row['Forecast_Al_Cierre'] = _forecast_num(snap['forecast_at_close'],0)
         row['Forecast_Oficial'] = official
 
-        if is_real:
-            # Keep actual volume/AHT. Only the agreed HC/assumptions remain locked.
-            row['Forecast_Control_Estado'] = 'closed_actual'
-            row['HC_Teorico_Real'] = current_hc
-            row['Agentes_Requeridos'] = int(snap['required_hc_locked'] or 0)
-            row['FTE_Erlang'] = int(round(_forecast_num(snap['fte_locked'],0)))
-        else:
-            row['Forecast_Control_Estado'] = 'closed'
-            row['Llamadas'] = int(round(official))
-            row['Agentes_Requeridos'] = int(snap['required_hc_locked'] or 0)
-            row['AHT'] = snap['aht_text'] or row.get('AHT','')
-            row['AHT_Segundos'] = int(round(_forecast_num(snap['aht_seconds'],0)))
-            row['FTE_Erlang'] = int(round(_forecast_num(snap['fte_locked'],row.get('FTE_Erlang',0))))
-
+        # Only forecast can move after close, via an explicit reforecast.
+        row['Llamadas'] = int(round(official))
+        row['Agentes_Requeridos'] = int(snap['required_hc_locked'] or 0)
+        row['AHT'] = snap['aht_text'] or row.get('AHT','')
+        row['AHT_Segundos'] = int(round(_forecast_num(snap['aht_seconds'],0)))
         row['Target_SL'] = _forecast_num(snap['target_sl'],row.get('Target_SL',0))
         row['Target_ASA'] = _forecast_num(snap['target_asa'],row.get('Target_ASA',0))
         row['Concurrencia_Aplicada'] = _forecast_num(snap['concurrencia'],row.get('Concurrencia_Aplicada',1))
+        row['FTE_Erlang'] = int(round(_forecast_num(snap['fte_locked'],row.get('FTE_Erlang',0))))
         row['Lock_Merma_Pct'] = _forecast_num(snap['merma_pct'],0)
         row['Lock_Jornada_Horas'] = _forecast_num(snap['jornada_hours'],8)
         row['Lock_Nocturno'] = bool(snap['nocturno'])
@@ -1459,945 +1142,51 @@ def _forecast_apply_control(channel, data):
             row['Factor_Cobertura_Ambulancia'] = _forecast_num(
                 snap['factor_cobertura'],row.get('Factor_Cobertura_Ambulancia',1)
             )
-    return data
-
+        result.append(row)
+    return result
 
 def _forecast_raw_month_rows(channel, month_key, data=None):
     mode = _forecast_channel_norm(channel)
-    source = data if isinstance(data,list) else _forecast_annual_view(mode)
+    source = data if isinstance(data,list) else (_leer_cache_forecast(mode) or [])
     return [
         dict(r) for r in source
         if _forecast_month_key_from_date((r or {}).get('Fecha')) == month_key
     ]
 
-def _forecast_settings(mode):
-    mode = _forecast_channel_norm(mode)
-    sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 365, 3.0
+def _forecast_generate_raw(channel):
+    mode = _forecast_channel_norm(channel)
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        raise ValueError('No se encontró historico.xlsx para recalcular el forecast.')
+
+    sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
     campaign_settings = {}
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            with open(CONFIG_FILE,'r',encoding='utf-8') as f:
                 cfg = json.load(f)
-            sl = float(cfg.get('targetSl', 80.0))
-            tt = float(cfg.get('targetTime', 20.0))
-            merma_data = cfg.get('merma', 30.0)
-            merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
-            dias = int(clean_num(cfg.get('dias'), dias))
-            concurrencia = float(clean_num(cfg.get('concurrencia'), concurrencia))
-            all_settings = cfg.get('campaignSettings', {})
-            campaign_settings = all_settings.get(mode, {}) if isinstance(all_settings, dict) else {}
+            sl = float(cfg.get('targetSl',80.0))
+            tt = float(cfg.get('targetTime',20.0))
+            merma_data = cfg.get('merma',30.0)
+            merma = float(merma_data.get(mode,30.0)) if isinstance(merma_data,dict) else float(merma_data)
+            dias = int(clean_num(cfg.get('dias'),dias))
+            concurrencia = float(clean_num(cfg.get('concurrencia'),concurrencia))
+            all_settings = cfg.get('campaignSettings',{})
+            campaign_settings = all_settings.get(mode,{}) if isinstance(all_settings,dict) else {}
         except Exception:
             pass
-    return sl, tt, merma, dias, concurrencia, campaign_settings
 
-ACTUAL_EXTRACTOR_VERSION = 4
-
-def _parse_excel_date_robust(value, epoch=None):
-    if value is None:
-        return None
-    try:
-        if isinstance(value, datetime):
-            return value.date()
-
-        if hasattr(value,'year') and hasattr(value,'month') and hasattr(value,'day'):
-            return datetime(int(value.year),int(value.month),int(value.day)).date()
-
-        if isinstance(value,(int,float)) and not isinstance(value,bool):
-            if float(value) > 1000:
-                try:
-                    converted = from_excel(value, epoch=epoch)
-                    if isinstance(converted,datetime):
-                        return converted.date()
-                    if hasattr(converted,'year'):
-                        return datetime(converted.year,converted.month,converted.day).date()
-                except Exception:
-                    pass
-
-        text = str(value).strip()
-        if not text:
-            return None
-
-        candidates = [
-            text[:10],
-            text.split('T',1)[0],
-            text.split(' ',1)[0],
-        ]
-        formats = (
-            '%Y-%m-%d','%d/%m/%Y','%d-%m-%Y',
-            '%Y/%m/%d','%m/%d/%Y'
+    if mode == 'chat':
+        return procesar_archivo_chat(
+            excel_path,target_sl=sl,target_time=tt,merma=merma/100.0,
+            concurrencia=concurrencia,dias_futuros=dias,campaign_settings=campaign_settings
         )
-        for candidate in candidates:
-            for fmt in formats:
-                try:
-                    return datetime.strptime(candidate,fmt).date()
-                except Exception:
-                    pass
-        return None
-    except Exception:
-        return None
-
-
-def _history_column_map(header):
-    return {
-        'date': _header_index(header,['fecha','date','dia','día']),
-        'campaign': _header_index(header,['campaña','campana','skill','servicio','ring group','queue','cola','grupo']),
-        'interval': _header_index(header,['intervalo','interval','hora','time','franja','media hora']),
-        'volume': _header_index(header,[
-            'recibidos','recibidas','llamadas','calls','volumen','ofrecidas','offered',
-            'entrada','entrantes','received','contactos','contacts','interacciones','tickets','casos'
-        ]),
-        'aht': _header_index(header,['aht','tmo','handle','duracion','duración','talk time','tiempo medio'])
-    }
-
-def _detect_history_layout(excel_path, mode):
-    """
-    Searches the first 12 rows of every plausible sheet and chooses the row that
-    most resembles the operational history header. This avoids assuming row 1 or
-    relying only on the worksheet name.
-    """
-    wb=load_workbook(excel_path,read_only=True,data_only=True)
-    try:
-        best=None
-        for sheet_name in wb.sheetnames:
-            low=sheet_name.lower()
-            if any(x in low for x in ('plantilla','roster','platilla','config','parametro')):
-                continue
-            ws=wb[sheet_name]
-            for row_num,values in enumerate(
-                ws.iter_rows(min_row=1,max_row=min(12,ws.max_row or 12),values_only=True),
-                start=1
-            ):
-                header=list(values or [])
-                mapping=_history_column_map(header)
-                # Date + volume are mandatory; campaign/interval improve confidence.
-                if mapping['date'] is None or mapping['volume'] is None:
-                    continue
-                score=10
-                if mapping['campaign'] is not None: score+=4
-                if mapping['interval'] is not None: score+=3
-                if mapping['aht'] is not None: score+=2
-                if mode=='chat' and ('chat' in low or 'mensaje' in low): score+=5
-                if mode=='llamadas' and ('llam' in low or 'call' in low or 'hist' in low or 'dato' in low): score+=5
-                if mode=='llamadas' and ('chat' in low or 'mensaje' in low): score-=6
-                candidate={
-                    'sheet':sheet_name,
-                    'headerRow':row_num,
-                    'columns':mapping,
-                    'headers':[str(x or '') for x in header],
-                    'score':score
-                }
-                if best is None or score>best['score']:
-                    best=candidate
-        return best
-    finally:
-        wb.close()
-
-def _actual_cache_summary(mode):
-    data_path,meta_path=_forecast_actual_cache_paths(mode)
-    result={'rows':0,'firstDate':None,'lastDate':None,'cached':False}
-    try:
-        if os.path.exists(meta_path):
-            with open(meta_path,'r',encoding='utf-8') as f:
-                meta=json.load(f)
-            result['meta']=meta
-        if os.path.exists(data_path):
-            with open(data_path,'r',encoding='utf-8') as f:
-                data=json.load(f)
-            if isinstance(data,list):
-                dates=[str(r.get('Fecha') or '')[:10] for r in data if r.get('Fecha')]
-                result.update({
-                    'rows':len(data),
-                    'firstDate':min(dates) if dates else None,
-                    'lastDate':max(dates) if dates else None,
-                    'cached':len(data)>0
-                })
-    except Exception as e:
-        result['error']=str(e)
-    return result
-
-def _forecast_actual_cache_paths(mode):
-    if _forecast_channel_norm(mode) == 'chat':
-        return ACTUAL_2026_FILE_CHAT, ACTUAL_2026_META_CHAT
-    return ACTUAL_2026_FILE_LLAMADAS, ACTUAL_2026_META_LLAMADAS
-
-def _forecast_actual_source_2026(channel):
-    """
-    Robust actual 2026 extractor:
-    - auto-detects worksheet + header row;
-    - supports Excel serial dates, datetime cells and text dates;
-    - ignores stale/empty caches from previous extractor versions;
-    - streams rows with openpyxl read_only.
-    """
-    mode=_forecast_channel_norm(channel)
-    excel_path=buscar_archivo_excel()
-    if not excel_path:
-        return []
-
-    data_path,meta_path=_forecast_actual_cache_paths(mode)
-    signature=list(_excel_signature(excel_path))
-    today=_forecast_today_iso()
-
-    try:
-        if os.path.exists(data_path) and os.path.exists(meta_path):
-            with open(meta_path,'r',encoding='utf-8') as f:
-                meta=json.load(f)
-            cache_ok=(
-                meta.get('signature')==signature and
-                meta.get('today')==today and
-                int(meta.get('extractorVersion') or 0)==ACTUAL_EXTRACTOR_VERSION and
-                int(meta.get('rows') or 0)>0
-            )
-            if cache_ok:
-                with open(data_path,'r',encoding='utf-8') as f:
-                    cached=json.load(f)
-                if isinstance(cached,list) and cached:
-                    return cached
-    except Exception:
-        pass
-
-    layout=_detect_history_layout(excel_path,mode)
-    if not layout:
-        return []
-
-    wb=load_workbook(excel_path,read_only=True,data_only=True)
-    try:
-        ws=wb[layout['sheet']]
-        mapping=layout['columns']
-        header_row=int(layout['headerRow'])
-        today_ts=pd.Timestamp(today)
-        agg={}
-        examined=0
-        accepted=0
-
-        for values in ws.iter_rows(min_row=header_row+1,values_only=True):
-            examined+=1
-            try:
-                date_idx=mapping['date']
-                vol_idx=mapping['volume']
-                raw_date=values[date_idx] if date_idx is not None and date_idx<len(values) else None
-                dt=_parse_excel_date_robust(raw_date,wb.epoch)
-                if dt is None or dt.year!=FORECAST_ANNUAL_YEAR or dt>today_ts:
-                    continue
-
-                volume=clean_num(values[vol_idx] if vol_idx is not None and vol_idx<len(values) else 0,0.0)
-                if volume<=0:
-                    continue
-
-                camp_idx=mapping['campaign']
-                if camp_idx is not None and camp_idx<len(values) and values[camp_idx] is not None:
-                    campaign=str(values[camp_idx]).strip().title()
-                else:
-                    campaign='General'
-                if not campaign or campaign.lower()=='nan':
-                    campaign='General'
-
-                int_idx=mapping['interval']
-                if int_idx is not None and int_idx<len(values):
-                    interval=clean_interval_str(values[int_idx])
-                else:
-                    interval='00:00'
-
-                aht_idx=mapping['aht']
-                if aht_idx is not None and aht_idx<len(values):
-                    raw_aht=values[aht_idx]
-                    # Excel time fraction, e.g. 00:05:30 stored as fraction of a day.
-                    if isinstance(raw_aht,(int,float)) and 0<float(raw_aht)<1:
-                        aht=float(raw_aht)*86400.0
-                    else:
-                        aht=parse_aht_to_seconds(raw_aht)
-                else:
-                    aht=600.0 if mode=='chat' else 180.0
-                if not aht or aht<=0:
-                    aht=600.0 if mode=='chat' else 180.0
-
-                key=(dt.strftime('%Y-%m-%d'),campaign,interval)
-                handle=float(volume)*float(aht)
-                current=agg.get(key)
-                if current is None:
-                    agg[key]=[float(volume),handle]
-                else:
-                    current[0]+=float(volume)
-                    current[1]+=handle
-                accepted+=1
-            except Exception:
-                continue
-    finally:
-        wb.close()
-
-    meses=['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
-           'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-    dias=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-    result=[]
-    for (date,campaign,interval),(volume,handle) in agg.items():
-        dt=pd.Timestamp(date)
-        aht=(handle/volume) if volume>0 else 0.0
-        result.append({
-            'Campaña':campaign,
-            'Fecha':date,
-            'Mes':f"{meses[dt.month]} {dt.year}",
-            'Día_Semana':dias[dt.weekday()],
-            'Intervalo':interval,
-            'Llamadas':int(round(volume)),
-            'AHT_Segundos':int(round(aht)),
-            'AHT':format_aht_str(aht)
-        })
-    result.sort(key=lambda x:(x['Fecha'],x['Campaña'],x['Intervalo']))
-
-    try:
-        encoder=json.JSONEncoder(ensure_ascii=False,separators=(',',':'))
-        tmp=data_path+'.tmp'
-        with open(tmp,'w',encoding='utf-8') as f:
-            for chunk in encoder.iterencode(result):
-                f.write(chunk)
-        os.replace(tmp,data_path)
-        dates=[r['Fecha'] for r in result]
-        with open(meta_path,'w',encoding='utf-8') as f:
-            json.dump({
-                'signature':signature,
-                'today':today,
-                'extractorVersion':ACTUAL_EXTRACTOR_VERSION,
-                'rows':len(result),
-                'firstDate':min(dates) if dates else None,
-                'lastDate':max(dates) if dates else None,
-                'sheet':layout['sheet'],
-                'headerRow':layout['headerRow'],
-                'columns':layout['columns'],
-                'examinedRows':examined,
-                'acceptedRows':accepted
-            },f,ensure_ascii=False,separators=(',',':'))
-    except Exception as e:
-        print(f"No se pudo guardar cache real 2026 {mode}: {e}")
-
-    return result
-
-
-def _forecast_actual_2026(channel):
-    """
-    Enriches real historical volume with a THEORETICAL staffing view.
-    Theoretical HC is explicitly not an original/approved historical HC.
-    Current roster values are reference-only because historical roster snapshots
-    do not exist in the source data.
-    """
-    mode = _forecast_channel_norm(channel)
-    source = _forecast_actual_source_2026(mode)
-    if not source:
-        return []
-
-
-    roster_coverage, roster_total_camp, roster_total_day, override_cov, override_day = {},{},{},{},{}
-    try:
-        df_db = _roster_dataframe('Chat' if mode == 'chat' else 'Llamadas')
-        if not df_db.empty:
-            roster_coverage, roster_total_camp, roster_total_day = procesar_hoja_roster(df_db)
-            override_cov, override_day = _roster_override_deltas(
-                'Chat' if mode == 'chat' else 'Llamadas', df_db
-            )
-            absence_cov, absence_day = _roster_absence_deltas(
-                'Chat' if mode == 'chat' else 'Llamadas', df_db
-            )
-            for key,value in absence_cov.items():
-                override_cov[key] = override_cov.get(key,0) + value
-            for key,value in absence_day.items():
-                override_day[key] = override_day.get(key,0) + value
-    except Exception as e:
-        print(f'Roster de referencia histórico ({mode}): {e}')
-
-    for row in source:
-        camp = row['Campaña']
-        fecha = row['Fecha']
-        intervalo = row['Intervalo']
-        calls = float(row.get('Llamadas') or 0)
-
-        day = row['Día_Semana']
-        roster_ref = max(
-            0,
-            roster_coverage.get((camp,day,intervalo),0) +
-            override_cov.get((camp,fecha,intervalo),0)
-        )
-        total_day_ref = max(
-            0,
-            roster_total_day.get((camp,day),0) +
-            override_day.get((camp,fecha),0)
-        )
-
-        row.update({
-            'HC_Actual_Roster': roster_ref,
-            'Total_Roster_Campana': roster_total_camp.get(camp,0),
-            'Total_Roster_Dia': total_day_ref,
-            'Volumen_Doble_Cobertura': (
-                round(calls * REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'],2)
-                if mode == 'llamadas' and es_ambulancia_servicios(camp) else 0.0
-            ),
-            'Factor_Correccion': 1.0,
-            'Dato_Tipo': 'real',
-            'Forecast_Tipo': 'real',
-            'HC_Tipo': 'teorico_real',
-            'Roster_Tipo': 'actual_referencia',
-            'Volumen_Real': int(round(calls)),
-            'Forecast_Base_Anual': False
-        })
-    return source
-
-def _forecast_build_annual_baseline(channel):
-    """
-    Baseline Jan-Dec 2026 trained only with information through 2025-12-31.
-    Once generated, it is persisted separately and never auto-deleted.
-    """
-    mode = _forecast_channel_norm(channel)
-    cached = _leer_annual_base(mode)
-    if isinstance(cached, list) and cached:
-        return cached
-
-    excel_path = buscar_archivo_excel()
-    if not excel_path:
-        return []
-
-    sl, tt, merma, dias, concurrencia, campaign_settings = _forecast_settings(mode)
-    common = dict(
-        target_sl=sl,
-        target_time=tt,
-        merma=merma / 100.0,
-        dias_futuros=365,
-        campaign_settings=campaign_settings,
-        forecast_year=FORECAST_ANNUAL_YEAR,
-        history_cutoff=f'{FORECAST_ANNUAL_YEAR - 1}-12-31',
-        forecast_start_date=f'{FORECAST_ANNUAL_YEAR}-01-01',
-        forecast_end_date=f'{FORECAST_ANNUAL_YEAR}-12-31',
-        persist_cache=False
-    )
-    try:
-        if mode == 'chat':
-            data = procesar_archivo_chat(excel_path, concurrencia=concurrencia, **common)
-        else:
-            data = procesar_archivo_llamadas(excel_path, **common)
-    except Exception as e:
-        print(f"No se pudo construir baseline anual {mode}: {e}")
-        return []
-
-    for row in data:
-        row['Forecast_Tipo'] = 'annual_baseline'
-        row['Forecast_Base_Anual'] = True
-    _guardar_annual_base(mode, data)
-    return data
-
-def _forecast_annual_view(channel, rolling_data=None):
-    """
-    V6.11 operational view:
-    only the current rolling forecast is exposed to the dashboard.
-    No Jan-Aug historical reconstruction and no full-year real/forecast merge.
-    The model forecasts from the day after the latest real record through
-    31-Dec-2026, which restores the lighter September-forward behavior.
-    """
-    mode = _forecast_channel_norm(channel)
-    rolling = rolling_data if isinstance(rolling_data,list) else (_leer_cache_forecast(mode) or [])
-    rows = []
-    for raw in rolling:
-        row = raw
-        date = str(row.get('Fecha') or '')[:10]
-        if not date.startswith(f'{FORECAST_ANNUAL_YEAR}-'):
-            continue
-        row['Dato_Tipo'] = 'forecast'
-        row['Forecast_Tipo'] = 'rolling'
-        row['HC_Tipo'] = 'rolling'
-        row['Forecast_Base_Anual'] = False
-        rows.append(row)
-
-    rows.sort(key=lambda r:(
-        str(r.get('Fecha') or ''),
-        str(r.get('Campaña') or r.get('Campana') or ''),
-        str(r.get('Intervalo') or '')
-    ))
-    return rows
-
-
-
-def _quick_schedule_intervals(schedule):
-    raw = str(schedule or 'DD-DD').strip().upper()
-    if raw == 'DD-DD' or '-' not in raw:
-        return set()
-    left,right = raw.split('-',1)
-    s = parse_time_str(left.strip())
-    e = parse_time_str(right.strip())
-    if s is None or e is None:
-        return set()
-    return set(generar_intervalos_cobertura(s,e))
-
-def _quick_roster_metrics(channel):
-    """
-    Pure SQLite roster calculation: no pandas, no Excel migration.
-    """
-    cov,total_camp,total_day,override_cov,override_day = {},{},{},{},{}
-    label = 'Chat' if _forecast_channel_norm(channel) == 'chat' else 'Llamadas'
-    _roster_db_init()
-
-    day_columns = {
-        'Lunes':'lunes','Martes':'martes','Miércoles':'miercoles','Jueves':'jueves',
-        'Viernes':'viernes','Sábado':'sabado','Domingo':'domingo'
-    }
-
-    conn = _roster_conn()
-    try:
-        agents = conn.execute(
-            """SELECT agent_id,campaign,lunes,martes,miercoles,jueves,viernes,sabado,domingo
-               FROM roster_agents
-               WHERE lower(status)='activo' AND lower(channel)=lower(?)""",
-            (label,)
-        ).fetchall()
-
-        by_agent = {}
-        for row in agents:
-            agent_id = str(row['agent_id'])
-            camp = str(row['campaign'] or '').strip().title()
-            if not camp:
-                continue
-            schedules = {day:str(row[col] or 'DD-DD') for day,col in day_columns.items()}
-            by_agent[agent_id] = (camp,schedules)
-
-            total_camp[camp] = total_camp.get(camp,0) + 1
-            for day,schedule in schedules.items():
-                covered = _quick_schedule_intervals(schedule)
-                if covered:
-                    total_day[(camp,day)] = total_day.get((camp,day),0) + 1
-                    for interval in covered:
-                        cov[(camp,day,interval)] = cov.get((camp,day,interval),0) + 1
-
-        overrides = conn.execute(
-            """SELECT o.agent_id,o.work_date,o.schedule,a.campaign
-               FROM roster_overrides o
-               JOIN roster_agents a ON a.agent_id=o.agent_id
-               WHERE lower(a.status)='activo' AND lower(a.channel)=lower(?)""",
-            (label,)
-        ).fetchall()
-
-        override_sets = {}
-        for row in overrides:
-            agent_id = str(row['agent_id'])
-            base = by_agent.get(agent_id)
-            if not base:
-                continue
-            camp,schedules = base
-            date_text = str(row['work_date'])[:10]
-            try:
-                dt = datetime.strptime(date_text,'%Y-%m-%d')
-            except Exception:
-                continue
-            day = _ROSTER_DAYS[dt.weekday()]
-            base_set = _quick_schedule_intervals(schedules.get(day,'DD-DD'))
-            new_set = _quick_schedule_intervals(row['schedule'])
-            override_sets[(agent_id,date_text)] = new_set
-
-            for interval in base_set - new_set:
-                override_cov[(camp,date_text,interval)] = override_cov.get((camp,date_text,interval),0) - 1
-            for interval in new_set - base_set:
-                override_cov[(camp,date_text,interval)] = override_cov.get((camp,date_text,interval),0) + 1
-            if bool(base_set) != bool(new_set):
-                override_day[(camp,date_text)] = override_day.get((camp,date_text),0) + (1 if new_set else -1)
-
-        vacations = conn.execute(
-            """SELECT v.agent_id,v.start_date,v.end_date
-               FROM roster_absences v
-               JOIN roster_agents a ON a.agent_id=v.agent_id
-               WHERE v.absence_type='vacation'
-                 AND v.status='approved'
-                 AND lower(a.status)='activo'
-                 AND lower(a.channel)=lower(?)""",
-            (label,)
-        ).fetchall()
-
-        processed = set()
-        for vac in vacations:
-            agent_id = str(vac['agent_id'])
-            base = by_agent.get(agent_id)
-            if not base:
-                continue
-            camp,schedules = base
-            try:
-                current = datetime.strptime(str(vac['start_date'])[:10],'%Y-%m-%d')
-                end_dt = datetime.strptime(str(vac['end_date'])[:10],'%Y-%m-%d')
-            except Exception:
-                continue
-
-            while current <= end_dt:
-                date_text = current.strftime('%Y-%m-%d')
-                token = (agent_id,date_text)
-                if token not in processed:
-                    processed.add(token)
-                    day = _ROSTER_DAYS[current.weekday()]
-                    covered = override_sets.get(
-                        token,
-                        _quick_schedule_intervals(schedules.get(day,'DD-DD'))
-                    )
-                    if covered:
-                        for interval in covered:
-                            override_cov[(camp,date_text,interval)] = override_cov.get((camp,date_text,interval),0) - 1
-                        override_day[(camp,date_text)] = override_day.get((camp,date_text),0) - 1
-                current += timedelta(days=1)
-    finally:
-        conn.close()
-
-    return cov,total_camp,total_day,override_cov,override_day
-
-
-def _quick_forecast_streaming(
-    channel,
-    target_sl=None,
-    target_time=None,
-    merma_pct=None,
-    concurrencia=None,
-    campaign_settings=None,
-    persist_cache=True
-):
-    """
-    Memory-safe forecast for 512 MB instances.
-
-    Reads Data Real Servicios.xlsx with openpyxl read_only in two passes:
-    1) find the latest real date;
-    2) aggregate only the last 56 days.
-
-    Forecast method:
-    - weekday average by campaign over recent history;
-    - mild recent trend adjustment (clamped 0.85-1.15);
-    - intraday distribution from observed weekday interval profile;
-    - existing Erlang C / SL / ASA / shrinkage / ambulance / chat rules.
-
-    It deliberately avoids pandas DataFrames and RandomForest during normal use.
-    """
-    mode = _forecast_channel_norm(channel)
-    _log_memory('forecast:start')
-    excel_path = buscar_archivo_excel()
-    if not excel_path:
-        raise ValueError(f'No se encontró {HISTORICAL_PRIMARY_BASENAME}.')
-
-    sl_cfg,tt_cfg,merma_cfg,_,conc_cfg,settings_cfg = _forecast_settings(mode)
-    target_sl = float(sl_cfg if target_sl is None else target_sl)
-    target_time = float(tt_cfg if target_time is None else target_time)
-    merma_pct = float(merma_cfg if merma_pct is None else merma_pct)
-    concurrencia = float(conc_cfg if concurrencia is None else concurrencia)
-    campaign_settings = campaign_settings if isinstance(campaign_settings,dict) else settings_cfg
-
-    layout = _detect_history_layout(excel_path,mode)
-    if not layout:
-        raise ValueError('No se pudo detectar la hoja histórica con Fecha y Volumen.')
-
-    # ---------------- Pass 1: latest real date ----------------
-    wb = load_workbook(excel_path,read_only=True,data_only=True)
-    try:
-        ws = wb[layout['sheet']]
-        mapping = layout['columns']
-        header_row = int(layout['headerRow'])
-        max_date = None
-        today = datetime.strptime(_forecast_today_iso(),'%Y-%m-%d').date()
-
-        for values in ws.iter_rows(min_row=header_row+1,values_only=True):
-            try:
-                di = mapping['date']
-                vi = mapping['volume']
-                raw_date = values[di] if di is not None and di < len(values) else None
-                dt = _parse_excel_date_robust(raw_date,wb.epoch)
-                if dt is None or dt > today:
-                    continue
-                volume = clean_num(values[vi] if vi is not None and vi < len(values) else 0,0.0)
-                if volume <= 0:
-                    continue
-                if max_date is None or dt > max_date:
-                    max_date = dt
-            except Exception:
-                continue
-    finally:
-        wb.close()
-
-    _log_memory('forecast:after-pass1')
-
-    if max_date is None:
-        raise ValueError('No se encontraron datos reales con volumen mayor a cero.')
-
-    forecast_start = max_date + timedelta(days=1)
-    forecast_end = datetime(FORECAST_ANNUAL_YEAR,12,31).date()
-    if forecast_start > forecast_end:
-        return []
-
-    # Last 56 days only: enough for weekday patterns and trend, much smaller footprint.
-    window_start = max_date - timedelta(days=55)
-
-    daily = {}               # (campaign,date) -> volume
-    profile = {}             # (campaign,weekday,interval) -> [volume, handle_seconds]
-    global_profile = {}      # (campaign,interval) -> [volume, handle_seconds]
-
-    # ---------------- Pass 2: recent aggregates only ----------------
-    wb = load_workbook(excel_path,read_only=True,data_only=True)
-    try:
-        ws = wb[layout['sheet']]
-        mapping = layout['columns']
-        header_row = int(layout['headerRow'])
-
-        for values in ws.iter_rows(min_row=header_row+1,values_only=True):
-            try:
-                di = mapping['date']
-                vi = mapping['volume']
-                raw_date = values[di] if di is not None and di < len(values) else None
-                dt = _parse_excel_date_robust(raw_date,wb.epoch)
-                if dt is None or dt < window_start or dt > max_date:
-                    continue
-
-                volume = clean_num(values[vi] if vi is not None and vi < len(values) else 0,0.0)
-                if volume <= 0:
-                    continue
-
-                ci = mapping['campaign']
-                campaign = (
-                    str(values[ci]).strip().title()
-                    if ci is not None and ci < len(values) and values[ci] is not None
-                    else 'General'
-                )
-                if not campaign or campaign.lower() == 'nan':
-                    campaign = 'General'
-
-                ii = mapping['interval']
-                interval = clean_interval_str(
-                    values[ii] if ii is not None and ii < len(values) else '00:00'
-                )
-
-                ai = mapping['aht']
-                if ai is not None and ai < len(values):
-                    raw_aht = values[ai]
-                    if isinstance(raw_aht,(int,float)) and 0 < float(raw_aht) < 1:
-                        aht = float(raw_aht) * 86400.0
-                    else:
-                        aht = parse_aht_to_seconds(raw_aht)
-                else:
-                    aht = 600.0 if mode == 'chat' else 180.0
-                if not aht or aht <= 0:
-                    aht = 600.0 if mode == 'chat' else 180.0
-
-                date_key = dt.strftime('%Y-%m-%d')
-                daily[(campaign,date_key)] = daily.get((campaign,date_key),0.0) + float(volume)
-
-                weekday = int(dt.weekday())
-                pkey = (campaign,weekday,interval)
-                gkey = (campaign,interval)
-                handle = float(volume) * float(aht)
-
-                if pkey not in profile:
-                    profile[pkey] = [0.0,0.0]
-                profile[pkey][0] += float(volume)
-                profile[pkey][1] += handle
-
-                if gkey not in global_profile:
-                    global_profile[gkey] = [0.0,0.0]
-                global_profile[gkey][0] += float(volume)
-                global_profile[gkey][1] += handle
-            except Exception:
-                continue
-    finally:
-        wb.close()
-
-    _log_memory('forecast:after-pass2')
-
-    campaigns = sorted({k[0] for k in daily.keys()})
-    if not campaigns:
-        raise ValueError('No se encontraron campañas con volumen reciente.')
-
-    # Roster data is taken only from SQLite.
-    roster_cov,roster_total_camp,roster_total_day,override_cov,override_day = _quick_roster_metrics(mode)
-    _log_memory('forecast:after-roster')
-
-    factor_asistencia = max(0.01,1.0-(merma_pct/100.0))
-    meses = ['', 'Enero','Febrero','Marzo','Abril','Mayo','Junio',
-             'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-    dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-
-    output = []
-
-    for campaign in campaigns:
-        camp_daily = sorted(
-            [(datetime.strptime(date,'%Y-%m-%d').date(),vol) for (camp,date),vol in daily.items() if camp == campaign],
-            key=lambda x:x[0]
-        )
-        if not camp_daily:
-            continue
-
-        # Weekday averages.
-        weekday_values = {i:[] for i in range(7)}
-        all_values = []
-        for dt,vol in camp_daily:
-            weekday_values[int(dt.weekday())].append(float(vol))
-            all_values.append(float(vol))
-        overall_avg = sum(all_values)/len(all_values) if all_values else 0.0
-
-        # Mild trend: latest 14 observations vs previous 14.
-        last14 = [x[1] for x in camp_daily[-14:]]
-        prev14 = [x[1] for x in camp_daily[-28:-14]]
-        last_avg = (sum(last14)/len(last14)) if last14 else overall_avg
-        prev_avg = (sum(prev14)/len(prev14)) if prev14 else last_avg
-        trend = (last_avg/prev_avg) if prev_avg > 0 else 1.0
-        trend = min(1.15,max(0.85,trend))
-
-        camp_target_sl,camp_target_time = objetivos_campana(
-            campaign,target_sl,target_time,campaign_settings
-        )
-
-        # Observed interval sets.
-        global_intervals = sorted({
-            interval for (camp,interval),vals in global_profile.items()
-            if camp == campaign and vals[0] > 0 and esta_en_ventana_servicio(campaign,interval)
-        })
-
-        day_count = int((forecast_end - forecast_start).days) + 1
-        for d in range(day_count):
-            dt = forecast_start + timedelta(days=d)
-            weekday = int(dt.weekday())
-            values = weekday_values.get(weekday) or []
-            base_daily = (sum(values)/len(values)) if values else overall_avg
-            forecast_daily = max(0.0,base_daily*trend)
-            if forecast_daily <= 0:
-                continue
-
-            day_intervals = sorted({
-                interval for (camp,wd,interval),vals in profile.items()
-                if camp == campaign and wd == weekday and vals[0] > 0
-                and esta_en_ventana_servicio(campaign,interval)
-            })
-            intervals = day_intervals or global_intervals
-            if not intervals:
-                continue
-
-            weights = []
-            for interval in intervals:
-                day_vals = profile.get((campaign,weekday,interval))
-                glob_vals = global_profile.get((campaign,interval))
-                vol = day_vals[0] if day_vals and day_vals[0] > 0 else (glob_vals[0] if glob_vals else 0.0)
-                weights.append(max(0.0,vol))
-
-            total_weight = sum(weights)
-            if total_weight <= 0:
-                weights = [1.0/len(intervals)]*len(intervals)
-            else:
-                weights = [w/total_weight for w in weights]
-
-            exact = [forecast_daily*w for w in weights]
-            floors = [int(math.floor(x)) for x in exact]
-            remainder = int(round(forecast_daily)) - sum(floors)
-            order = sorted(range(len(exact)),key=lambda i: exact[i]-floors[i],reverse=True)
-            for i in range(max(0,remainder)):
-                if i < len(order):
-                    floors[order[i]] += 1
-
-            str_date = dt.strftime('%Y-%m-%d')
-            day_name = dias[weekday]
-            month_name = f"{meses[dt.month]} {dt.year}"
-
-            for idx,interval in enumerate(intervals):
-                calls = floors[idx]
-                if calls <= 0:
-                    continue
-
-                day_vals = profile.get((campaign,weekday,interval))
-                glob_vals = global_profile.get((campaign,interval))
-                source_vals = day_vals if day_vals and day_vals[0] > 0 else glob_vals
-                if source_vals and source_vals[0] > 0:
-                    aht = source_vals[1]/source_vals[0]
-                else:
-                    aht = 600.0 if mode == 'chat' else 180.0
-
-                concurrency = max(1.0,concurrencia) if mode == 'chat' else 1.0
-                effective_aht = aht/concurrency if mode == 'chat' else aht
-                coverage_factor = factor_cobertura_ambulancia(campaign) if mode == 'llamadas' else 1.0
-                erlangs = (float(calls)*effective_aht*coverage_factor)/1800.0 if effective_aht > 0 else 0.0
-
-                try:
-                    req_ftes = calcular_agentes_requeridos_erlang_c(
-                        erlangs,effective_aht,camp_target_time,camp_target_sl
-                    ) if erlangs > 0 else 0
-                except Exception:
-                    req_ftes = 0
-                req_hc = math.ceil(req_ftes/factor_asistencia) if req_ftes > 0 else 0
-
-                roster = max(
-                    0,
-                    roster_cov.get((campaign,day_name,interval),0) +
-                    override_cov.get((campaign,str_date,interval),0)
-                )
-                total_day = max(
-                    0,
-                    roster_total_day.get((campaign,day_name),0) +
-                    override_day.get((campaign,str_date),0)
-                )
-
-                row = {
-                    'Campaña':campaign,
-                    'Fecha':str_date,
-                    'Mes':month_name,
-                    'Día_Semana':day_name,
-                    'Intervalo':interval,
-                    'Llamadas':int(calls),
-                    'AHT':format_aht_str(aht),
-                    'AHT_Segundos':int(round(aht)),
-                    'Agentes_Requeridos':int(req_hc),
-                    'HC_Actual_Roster':int(roster),
-                    'Total_Roster_Campana':int(roster_total_camp.get(campaign,0)),
-                    'Total_Roster_Dia':int(total_day),
-                    'Target_SL':float(camp_target_sl),
-                    'Target_ASA':float(camp_target_time),
-                    'FTE_Erlang':int(req_ftes),
-                    'Concurrencia_Aplicada':float(concurrency),
-                    'Factor_Correccion':1.0,
-                    'Forecast_Motor':'lightweight_streaming'
-                }
-                if mode == 'llamadas':
-                    row['Factor_Cobertura_Ambulancia'] = float(coverage_factor)
-                    row['Volumen_Doble_Cobertura'] = (
-                        round(float(calls)*REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'],2)
-                        if es_ambulancia_servicios(campaign) else 0.0
-                    )
-                output.append(row)
-
-    output.sort(key=lambda r:(r['Fecha'],r['Campaña'],r['Intervalo']))
-    if persist_cache:
-        _guardar_cache_forecast(mode,output)
-    _log_memory('forecast:before-return')
-    gc.collect()
-    return output
-
-def _forecast_generate_raw(channel):
-    mode = _forecast_channel_norm(channel)
-    sl,tt,merma,_,concurrencia,campaign_settings = _forecast_settings(mode)
-    return _quick_forecast_streaming(
-        mode,
-        target_sl=sl,
-        target_time=tt,
-        merma_pct=merma,
-        concurrencia=concurrencia,
-        campaign_settings=campaign_settings,
-        persist_cache=True
+    return procesar_archivo_llamadas(
+        excel_path,target_sl=sl,target_time=tt,merma=merma/100.0,
+        dias_futuros=dias,campaign_settings=campaign_settings
     )
 
-def _forecast_month_temporal_state(month_key):
-    try:
-        start = datetime.strptime(str(month_key)[:7] + '-01', '%Y-%m-%d')
-        if start.month == 12:
-            next_month = datetime(start.year + 1,1,1)
-        else:
-            next_month = datetime(start.year,start.month + 1,1)
-        end = next_month - timedelta(days=1)
-        today = datetime.strptime(_forecast_today_iso(),'%Y-%m-%d')
-        if end < today:
-            return 'historical'
-        if start <= today <= end:
-            return 'current'
-        return 'future'
-    except Exception:
-        return 'unknown'
-
-def _forecast_month_end(month_key):
-    try:
-        start = datetime.strptime(str(month_key)[:7] + '-01','%Y-%m-%d')
-        if start.month == 12:
-            return datetime(start.year + 1,1,1) - timedelta(days=1)
-        return datetime(start.year,start.month + 1,1) - timedelta(days=1)
-    except Exception:
-        return None
-
-def _forecast_control_status(month_key, channel, source_rows=None):
+def _forecast_control_status(month_key, channel):
     mode = _forecast_channel_norm(channel)
     _roster_db_init()
     conn = _roster_conn()
@@ -2415,39 +1204,19 @@ def _forecast_control_status(month_key, channel, source_rows=None):
             (month_key,mode)
         ).fetchone()
 
-        raw_rows = (
-            [dict(r) for r in source_rows if _forecast_month_key_from_date((r or {}).get('Fecha')) == month_key]
-            if isinstance(source_rows,list)
-            else _forecast_raw_month_rows(mode,month_key)
-        )
+        raw_rows = _forecast_raw_month_rows(mode,month_key)
         rolling_total = sum(_forecast_num(r.get('Llamadas'),0) for r in raw_rows)
         rolling_peak_hc = max([int(round(_forecast_num(r.get('Agentes_Requeridos'),0))) for r in raw_rows] or [0])
-        real_rows = [r for r in raw_rows if str(r.get('Dato_Tipo') or '').lower() == 'real']
-        forecast_rows = [r for r in raw_rows if str(r.get('Dato_Tipo') or '').lower() == 'forecast']
-        actual_total = sum(_forecast_num(r.get('Llamadas'),0) for r in real_rows)
-        future_forecast_total = sum(_forecast_num(r.get('Llamadas'),0) for r in forecast_rows)
 
-        temporal_state = _forecast_month_temporal_state(month_key)
-        effective_status = 'closed' if active else ('historical' if temporal_state == 'historical' else 'rolling')
         payload = {
             'monthKey':month_key,
             'monthLabel':_forecast_month_label_from_key(month_key),
             'channel':mode,
-            'status':effective_status,
-            'temporalState':temporal_state,
+            'status':'closed' if active else 'rolling',
             'rollingForecastTotal':round(rolling_total,2),
             'rollingPeakRequiredHC':rolling_peak_hc,
             'availableRows':len(raw_rows),
-            'realRows':len(real_rows),
-            'forecastRows':len(forecast_rows),
-            'actualVolumeTotal':round(actual_total,2),
-            'futureForecastTotal':round(future_forecast_total,2),
-            'projectedCloseTotal':round(actual_total + future_forecast_total,2),
-            'latestVersion':int(latest['version']) if latest else 0,
-            'canClose': bool(not active and temporal_state in ('current','future') and len(raw_rows) > 0),
-            'canReforecast': False,
-            'canReopen': False,
-            'annualYear': FORECAST_ANNUAL_YEAR
+            'latestVersion':int(latest['version']) if latest else 0
         }
 
         if active:
@@ -2473,9 +1242,7 @@ def _forecast_control_status(month_key, channel, source_rows=None):
                 'rowCount':len(rows),
                 'protectedRows':sum(1 for r in rows if str(r['work_date']) <= today),
                 'futureRows':sum(1 for r in rows if str(r['work_date']) > today),
-                'lastRevision':dict(revisions) if revisions else None,
-                'canReforecast': bool(temporal_state in ('current','future') and sum(1 for r in rows if str(r['work_date']) > today) > 0),
-                'canReopen': bool(temporal_state in ('current','future'))
+                'lastRevision':dict(revisions) if revisions else None
             })
         elif latest:
             payload.update({
@@ -2490,8 +1257,6 @@ def _forecast_control_status(month_key, channel, source_rows=None):
 
 def _forecast_close_month(month_key, channel, actor='wfm', comment=''):
     mode = _forecast_channel_norm(channel)
-    if _forecast_month_temporal_state(month_key) == 'historical':
-        raise ValueError('El pasado es inmutable. No se puede crear un cierre retrospectivo con el modelo actual.')
     _roster_db_init()
     rows = _forecast_raw_month_rows(mode,month_key)
     if not rows:
@@ -2585,8 +1350,6 @@ def _forecast_close_month(month_key, channel, actor='wfm', comment=''):
 
 def _forecast_reopen_month(month_key, channel, actor='wfm', reason=''):
     mode = _forecast_channel_norm(channel)
-    if _forecast_month_temporal_state(month_key) == 'historical':
-        raise ValueError('El pasado es inmutable. Un mes ya concluido no puede reabrirse.')
     if not str(reason or '').strip():
         raise ValueError('La reapertura requiere un motivo.')
     _roster_db_init()
@@ -2636,8 +1399,6 @@ def _forecast_reforecast_future(month_key, channel, actor='wfm', reason=''):
     forecast values strictly AFTER today. It never modifies locked HC or past/today.
     """
     mode = _forecast_channel_norm(channel)
-    if _forecast_month_temporal_state(month_key) == 'historical':
-        raise ValueError('El pasado es inmutable. El reforecast solo puede aplicarse a periodos con fechas futuras.')
     if not str(reason or '').strip():
         raise ValueError('El reforecast requiere un motivo.')
     _roster_db_init()
@@ -3786,7 +2547,7 @@ def roster_apply_recommendation():
         return jsonify({'error':f'No se pudo aplicar el movimiento al roster: {str(e)}'}),500
 
 
-def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None, forecast_year=None, history_cutoff=None, forecast_start_date=None, forecast_end_date=None, persist_cache=True):
+def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_calls = xls_file.sheet_names[0]
     for s in xls_file.sheet_names:
@@ -3794,41 +2555,26 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
             
     roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Llamadas')
 
-    header_df = pd.read_excel(xls_file, sheet_name=sheet_calls, engine='openpyxl', nrows=0)
-    col_calls = encontrar_columna(header_df, ['recibidas', 'llamadas', 'calls', 'volumen', 'ofrecidas', 'entrada'])
-    col_aht = encontrar_columna(header_df, ['aht', 'tmo', 'handle', 'duracion'])
-    col_camp = encontrar_columna(header_df, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
-    col_inter = encontrar_columna(header_df, ['intervalo', 'hora', 'time'])
-    col_fecha = encontrar_columna(header_df, ['fecha', 'date'])
+    df_raw = pd.read_excel(xls_file, sheet_name=sheet_calls, engine='openpyxl')
+    col_calls = encontrar_columna(df_raw, ['recibidas', 'llamadas', 'calls', 'volumen', 'ofrecidas', 'entrada'])
+    col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
+    col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
+    col_inter = encontrar_columna(df_raw, ['intervalo', 'hora', 'time'])
+    col_fecha = encontrar_columna(df_raw, ['fecha', 'date'])
 
-    cols = list(header_df.columns)
-    if not col_camp: col_camp = cols[0]
-    if not col_fecha: col_fecha = cols[1]
-    if not col_inter: col_inter = cols[2]
-    if not col_calls: col_calls = cols[3]
-
-    usecols = []
-    for c in [col_camp, col_fecha, col_inter, col_calls, col_aht]:
-        if c and c not in usecols:
-            usecols.append(c)
-
-    df_raw = pd.read_excel(
-        xls_file, sheet_name=sheet_calls, engine='openpyxl', usecols=usecols
-    )
-    del header_df
+    if not col_camp: col_camp = df_raw.columns[0]
+    if not col_fecha: col_fecha = df_raw.columns[1]
+    if not col_inter: col_inter = df_raw.columns[2]
+    if not col_calls: col_calls = df_raw.columns[3]
 
     df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
     df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
     df_raw = df_raw.dropna(subset=[col_fecha])
     df_raw[col_calls] = [clean_num(x, 0.0) for x in df_raw[col_calls]]
 
-    if history_cutoff:
-        cutoff_ts = pd.Timestamp(history_cutoff).normalize()
-        df_raw = df_raw[df_raw[col_fecha] <= cutoff_ts].copy()
-
     df_valido = df_raw[df_raw[col_calls] > 0]
     if df_valido.empty: raise ValueError("El archivo de Llamadas no tiene volumen mayor a cero.")
-
+    
     max_fecha_real = df_valido[col_fecha].max()
     df_raw = df_raw[df_raw[col_fecha] <= max_fecha_real]
 
@@ -3846,18 +2592,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
     meses_espanol = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
     df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
 
-    fecha_inicio_forecast = pd.Timestamp(forecast_start_date).normalize() if forecast_start_date else (max_fecha_real + timedelta(days=1))
-    if forecast_end_date:
-        fecha_fin_forecast = pd.Timestamp(forecast_end_date).normalize()
-        dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
-    elif forecast_year:
-        forecast_year = int(forecast_year)
-        fecha_fin_forecast = pd.Timestamp(year=forecast_year, month=12, day=31)
-        dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
-    if dias_futuros <= 0:
-        if persist_cache:
-            _guardar_cache_forecast('llamadas', [])
-        return []
+    fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
     campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
@@ -3909,8 +2644,6 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
-            if forecast_year and fecha_actual.year != int(forecast_year):
-                continue
             str_fecha = fecha_actual.strftime('%Y-%m-%d')
             str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
             nombre_dia = dias_espanol[fecha_actual.weekday()]
@@ -3943,9 +2676,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
             aht_global = aht_global_campana.get(camp, 180.0)
             for idx_inter, inter in enumerate(intervalos_validos):
                 calls_int = floor_calls[idx_inter]
-                calls_float = exact_calls[idx_inter]
-                if calls_int <= 0:
-                    continue
+                calls_float = exact_calls[idx_inter] 
 
                 info_p = mapa_dia.get((camp, nombre_dia, inter), {})
                 aht_real = info_p.get('aht', 0.0)
@@ -3980,11 +2711,10 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
         df_final = forzar_cuadre_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
-    if persist_cache:
-        _guardar_cache_forecast('llamadas', data_processed)
+    _guardar_cache_forecast('llamadas', data_processed)
     return data_processed
 
-def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None, forecast_year=None, history_cutoff=None, forecast_start_date=None, forecast_end_date=None, persist_cache=True):
+def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
     sheet_chat = None
     for s in xls_file.sheet_names:
@@ -3994,41 +2724,26 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Chat')
 
-    header_df = pd.read_excel(xls_file, sheet_name=sheet_chat, engine='openpyxl', nrows=0)
-    col_calls = encontrar_columna(header_df, ['recibidos', 'recibidas', 'llamadas', 'chats', 'mensajes'])
-    col_aht = encontrar_columna(header_df, ['aht', 'tmo', 'handle', 'duracion'])
-    col_camp = encontrar_columna(header_df, ['campaña', 'campana', 'skill'])
-    col_inter = encontrar_columna(header_df, ['intervalo', 'hora', 'time'])
-    col_fecha = encontrar_columna(header_df, ['fecha', 'date'])
+    df_raw = pd.read_excel(xls_file, sheet_name=sheet_chat, engine='openpyxl')
+    col_calls = encontrar_columna(df_raw, ['recibidos', 'recibidas', 'llamadas', 'chats', 'mensajes'])
+    col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
+    col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill'])
+    col_inter = encontrar_columna(df_raw, ['intervalo', 'hora', 'time'])
+    col_fecha = encontrar_columna(df_raw, ['fecha', 'date'])
 
-    cols = list(header_df.columns)
-    if not col_camp: col_camp = cols[0]
-    if not col_fecha: col_fecha = cols[1]
-    if not col_inter: col_inter = cols[2]
-    if not col_calls: col_calls = cols[3]
-
-    usecols = []
-    for c in [col_camp, col_fecha, col_inter, col_calls, col_aht]:
-        if c and c not in usecols:
-            usecols.append(c)
-
-    df_raw = pd.read_excel(
-        xls_file, sheet_name=sheet_chat, engine='openpyxl', usecols=usecols
-    )
-    del header_df
+    if not col_camp: col_camp = df_raw.columns[0]
+    if not col_fecha: col_fecha = df_raw.columns[1]
+    if not col_inter: col_inter = df_raw.columns[2]
+    if not col_calls: col_calls = df_raw.columns[3]
 
     df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
     df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
     df_raw = df_raw.dropna(subset=[col_fecha])
     df_raw[col_calls] = [clean_num(x, 0.0) for x in df_raw[col_calls]]
 
-    if history_cutoff:
-        cutoff_ts = pd.Timestamp(history_cutoff).normalize()
-        df_raw = df_raw[df_raw[col_fecha] <= cutoff_ts].copy()
-
     df_valido = df_raw[df_raw[col_calls] > 0]
     if df_valido.empty: raise ValueError("El archivo Chat no tiene volumen mayor a cero.")
-
+    
     max_fecha_real = df_valido[col_fecha].max()
     df_raw = df_raw[df_raw[col_fecha] <= max_fecha_real]
 
@@ -4046,18 +2761,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     meses_espanol = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
     df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
 
-    fecha_inicio_forecast = pd.Timestamp(forecast_start_date).normalize() if forecast_start_date else (max_fecha_real + timedelta(days=1))
-    if forecast_end_date:
-        fecha_fin_forecast = pd.Timestamp(forecast_end_date).normalize()
-        dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
-    elif forecast_year:
-        forecast_year = int(forecast_year)
-        fecha_fin_forecast = pd.Timestamp(year=forecast_year, month=12, day=31)
-        dias_futuros = max(0, int((fecha_fin_forecast - fecha_inicio_forecast).days) + 1)
-    if dias_futuros <= 0:
-        if persist_cache:
-            _guardar_cache_forecast('chat', [])
-        return []
+    fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 600.0).to_dict()
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
     campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
@@ -4108,8 +2812,6 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
-            if forecast_year and fecha_actual.year != int(forecast_year):
-                continue
             str_fecha = fecha_actual.strftime('%Y-%m-%d')
             str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
             nombre_dia = dias_espanol[fecha_actual.weekday()]
@@ -4141,9 +2843,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
             aht_global = aht_global_campana.get(camp, 600.0)
             for idx_inter, inter in enumerate(intervalos_validos):
                 calls_int = floor_calls[idx_inter]
-                calls_float = exact_calls[idx_inter]
-                if calls_int <= 0:
-                    continue
+                calls_float = exact_calls[idx_inter] 
                 info_p = mapa_dia.get((camp, nombre_dia, inter), {})
                 aht_real = info_p.get('aht', 0.0)
                 if aht_real > 0 and not pd.isna(aht_real): aht = aht_real
@@ -4174,117 +2874,76 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
         df_final = forzar_cuadre_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
-    if persist_cache:
-        _guardar_cache_forecast('chat', data_processed)
+    _guardar_cache_forecast('chat', data_processed)
     return data_processed
 
 @app.route('/api/campaigns', methods=['GET'])
 def get_campaigns():
-    mode = _forecast_channel_norm(request.args.get('mode','llamadas'))
-    campaigns = set()
-
-    # Current real-data cache, if already built.
+    mode = request.args.get('mode', 'llamadas').lower()
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        return jsonify([]), 200
+    cached = _cache_excel_info_get(excel_path, f'campaigns:{mode}')
+    if cached is not None:
+        return jsonify(cached), 200
     try:
-        data_path, _ = _forecast_actual_cache_paths(mode)
-        if os.path.exists(data_path):
-            with open(data_path,'r',encoding='utf-8') as f:
-                data = json.load(f)
-            for row in data if isinstance(data,list) else []:
-                value = str(row.get('Campaña') or row.get('Campana') or '').strip()
-                if value:
-                    campaigns.add(value)
-            data = None
-    except Exception:
-        pass
-
-    # Persisted rolling cache, if it exists.
-    try:
-        cache_data = _leer_cache_forecast(mode)
-        if isinstance(cache_data,list):
-            for row in cache_data:
-                value = str(row.get('Campaña') or row.get('Campana') or '').strip()
-                if value:
-                    campaigns.add(value)
-        cache_data = None
-    except Exception:
-        pass
-
-    # Operational roster is fast and usually contains the full campaign catalog.
-    try:
-        _roster_db_init()
-        conn = _roster_conn()
-        try:
-            rows = conn.execute(
-                """SELECT DISTINCT campaign FROM roster_agents
-                   WHERE trim(campaign)<>'' AND lower(channel)=lower(?)
-                   ORDER BY campaign""",
-                ('Chat' if mode=='chat' else 'Llamadas',)
-            ).fetchall()
-            for r in rows:
-                value = str(r['campaign'] or '').strip()
-                if value:
-                    campaigns.add(value)
-        finally:
-            conn.close()
-    except Exception:
-        pass
-
-    return jsonify(sorted(campaigns)), 200
-
+        xls = pd.ExcelFile(excel_path, engine='openpyxl')
+        sheet = None
+        if mode == 'chat':
+            for sh in xls.sheet_names:
+                low = sh.lower()
+                if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ['plantilla', 'roster', 'platilla']):
+                    sheet = sh
+                    break
+        else:
+            sheet = xls.sheet_names[0]
+            for sh in xls.sheet_names:
+                low = sh.lower()
+                if 'llam' in low or 'hist' in low or 'datos' in low:
+                    sheet = sh
+                    break
+        if not sheet:
+            return jsonify([]), 200
+        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
+        col_camp = encontrar_columna(preview, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
+        if not col_camp:
+            return jsonify([]), 200
+        campanas = sorted({str(x).strip().title() for x in preview[col_camp].dropna().tolist() if str(x).strip() and str(x).strip().lower() != 'nan'})
+        _cache_excel_info_set(excel_path, f'campaigns:{mode}', campanas)
+        return jsonify(campanas), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/status', methods=['GET'])
 def get_forecast_status():
     excel_path = buscar_archivo_excel()
     if not excel_path:
-        return jsonify({
-            'archivo':None,
-            'ultimo_dato':None,
-            'actualizacion':datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }),200
-
+        return jsonify({'archivo': None, 'ultimo_dato': None, 'actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}), 200
+    cached = _cache_excel_info_get(excel_path, 'status')
+    if cached is not None:
+        return jsonify(cached), 200
     ultimo_dato = None
     try:
-        # Prefer the already-built real cache. No Excel scan required.
-        dates = []
-        for mode in ('llamadas','chat'):
-            data_path,_ = _forecast_actual_cache_paths(mode)
-            if not os.path.exists(data_path):
-                continue
-            with open(data_path,'r',encoding='utf-8') as f:
-                data = json.load(f)
-            for row in data if isinstance(data,list) else []:
-                value = str(row.get('Fecha') or '')[:10]
-                if value:
-                    dates.append(value)
-            data = None
-        if dates:
-            ultimo_dato = max(dates)
+        xls = pd.ExcelFile(excel_path, engine='openpyxl')
+        sheet = xls.sheet_names[0]
+        for sh in xls.sheet_names:
+            if 'llam' in sh.lower() or 'hist' in sh.lower() or 'datos' in sh.lower():
+                sheet = sh; break
+        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
+        col_fecha = encontrar_columna(preview, ['fecha', 'date'])
+        if col_fecha:
+            fechas = pd.to_datetime(preview[col_fecha], dayfirst=True, errors='coerce').dropna()
+            if not fechas.empty: ultimo_dato = fechas.max().strftime('%Y-%m-%d')
     except Exception:
-        ultimo_dato = None
+        pass
+    payload = {
+        'archivo': os.path.basename(excel_path),
+        'ultimo_dato': ultimo_dato,
+        'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S')
+    }
+    _cache_excel_info_set(excel_path, 'status', payload)
+    return jsonify(payload), 200
 
-    return jsonify({
-        'archivo':os.path.basename(excel_path),
-        'ultimo_dato':ultimo_dato,
-        'actualizacion':datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S')
-    }),200
-
-
-
-@app.route('/api/forecast-control/year', methods=['GET'])
-def forecast_control_year():
-    try:
-        year = int(request.args.get('year') or FORECAST_ANNUAL_YEAR)
-    except Exception:
-        year = FORECAST_ANNUAL_YEAR
-    channel = _forecast_channel_norm(request.args.get('channel'))
-    annual_rows = _forecast_annual_view(channel)
-    months = []
-    for month in range(1,13):
-        month_key = f"{year:04d}-{month:02d}"
-        months.append(_forecast_control_status(month_key,channel,source_rows=annual_rows))
-    annual_rows = None
-    gc.collect()
-    return jsonify({'year':year,'channel':channel,'months':months}),200
 
 @app.route('/api/forecast-control/status', methods=['GET'])
 def forecast_control_status():
@@ -4357,110 +3016,868 @@ def forecast_control_history():
     channel = _forecast_channel_norm(request.args.get('channel'))
     return jsonify({'history':_forecast_control_history(month_key,channel)}),200
 
-@app.route('/api/source-diagnostics', methods=['GET'])
-def source_diagnostics():
-    mode=_forecast_channel_norm(request.args.get('mode','llamadas'))
-    excel_path=buscar_archivo_excel()
-    payload={
-        'mode':mode,
-        'file':os.path.basename(excel_path) if excel_path else None,
-        'fileFound':bool(excel_path),
-        'today':_forecast_today_iso(),
-        'sourceInfo':_source_info_payload()
-    }
-    if excel_path:
-        try:
-            payload['layout']=_detect_history_layout(excel_path,mode)
-        except Exception as e:
-            payload['layoutError']=str(e)
-    payload['cache']=_actual_cache_summary(mode)
-    return jsonify(payload),200
-
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
-    mode = _forecast_channel_norm(request.args.get('mode','llamadas'))
-
+    mode = request.args.get('mode', 'llamadas')
     cache_data = _leer_cache_forecast(mode)
-    if isinstance(cache_data,list) and cache_data:
-        rolling_data = _forecast_annual_view(mode,cache_data)
-        cache_data = None
-        controlled = _forecast_apply_control(mode,rolling_data)
-        return _stream_json_rows(controlled),200
-
+    if isinstance(cache_data, list) and cache_data:
+        return jsonify(_forecast_apply_control(mode,cache_data)), 200
+            
     excel_path = buscar_archivo_excel()
-    if not excel_path:
-        return jsonify({
-            'error':f'No se encontró {HISTORICAL_PRIMARY_BASENAME}.',
-            'sourceInfo':_source_info_payload()
-        }),404
+    if excel_path:
+        try:
+            sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
+            campaign_settings = {}
+            if os.path.exists(CONFIG_FILE):
+                try:
+                    with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                        cfg = json.load(f)
+                        sl, tt = float(cfg.get('targetSl', 80.0)), float(cfg.get('targetTime', 20.0))
+                        merma_data = cfg.get('merma', 30.0)
+                        merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
+                        dias = int(clean_num(cfg.get('dias'), dias))
+                        concurrencia = float(clean_num(cfg.get('concurrencia'), concurrencia))
+                        all_settings = cfg.get('campaignSettings', {})
+                        campaign_settings = all_settings.get(mode, {}) if isinstance(all_settings, dict) else {}
+                except: pass
+            
+            merma_pct = merma / 100.0
+            if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings)
+            else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
+            gc.collect()
+            return jsonify(_forecast_apply_control(mode,data)), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
-    try:
-        # Restore the previous operational behavior:
-        # first load calculates only the FUTURE rolling forecast, not Jan-Aug.
-        with _FORECAST_CALC_LOCK:
-            data = _forecast_generate_raw(mode)
-
-        rolling_data = _forecast_annual_view(mode,data)
-        controlled = _forecast_apply_control(mode,rolling_data)
-        return _stream_json_rows(controlled),200
-    except Exception as e:
-        gc.collect()
-        return jsonify({
-            'error':f'No se pudo generar el forecast de {mode}: {str(e)}'
-        }),500
-
+    return jsonify([]), 200
 
 @app.route('/api/process', methods=['POST', 'GET'])
 def process_data():
-    if request.method == 'GET':
-        return jsonify({'status':'API activa','engine':'lightweight_streaming'}),200
-
+    if request.method == 'GET': return jsonify({'status': 'API activa'}), 200
+    excel_path = buscar_archivo_excel()
+    if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
     try:
         try:
-            campaign_settings = json.loads(request.form.get('campaign_settings','{}') or '{}')
+            campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
         except Exception:
             campaign_settings = {}
-
-        with _FORECAST_CALC_LOCK:
-            data = _quick_forecast_streaming(
-                'llamadas',
-                target_sl=float(clean_num(request.form.get('target_sl'),80.0)),
-                target_time=float(clean_num(request.form.get('target_time'),20.0)),
-                merma_pct=float(clean_num(request.form.get('merma'),30.0)),
-                campaign_settings=campaign_settings,
-                persist_cache=True
-            )
-        controlled = _forecast_apply_control('llamadas',_forecast_annual_view('llamadas',data))
-        return _stream_json_rows(controlled)
+        data = procesar_archivo_llamadas(
+            excel_path, 
+            float(clean_num(request.form.get('target_sl'), 80.0)), 
+            float(clean_num(request.form.get('target_time'), 20.0)), 
+            float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
+            int(clean_num(request.form.get('dias'), 45)),
+            campaign_settings=campaign_settings
+        )
+        gc.collect()
+        return jsonify(_forecast_apply_control('llamadas',data))
     except Exception as e:
         gc.collect()
-        return jsonify({'error':str(e)}),500
-
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/process_chat', methods=['POST'])
 def process_chat_data():
+    excel_path = buscar_archivo_excel()
+    if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
     try:
         try:
-            campaign_settings = json.loads(request.form.get('campaign_settings','{}') or '{}')
+            campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
         except Exception:
             campaign_settings = {}
-
-        with _FORECAST_CALC_LOCK:
-            data = _quick_forecast_streaming(
-                'chat',
-                target_sl=float(clean_num(request.form.get('target_sl'),80.0)),
-                target_time=float(clean_num(request.form.get('target_time'),20.0)),
-                merma_pct=float(clean_num(request.form.get('merma'),30.0)),
-                concurrencia=float(clean_num(request.form.get('concurrencia'),3.0)),
-                campaign_settings=campaign_settings,
-                persist_cache=True
-            )
-        controlled = _forecast_apply_control('chat',_forecast_annual_view('chat',data))
-        return _stream_json_rows(controlled)
+        data = procesar_archivo_chat(
+            excel_path, 
+            float(clean_num(request.form.get('target_sl'), 80.0)),
+            float(clean_num(request.form.get('target_time'), 20.0)),
+            float(clean_num(request.form.get('merma'), 30.0)) / 100.0, 
+            float(clean_num(request.form.get('concurrencia'), 3.0)), 
+            int(clean_num(request.form.get('dias'), 45)),
+            campaign_settings=campaign_settings
+        )
+        gc.collect()
+        return jsonify(_forecast_apply_control('chat',data))
     except Exception as e:
         gc.collect()
-        return jsonify({'error':str(e)}),500
+        return jsonify({'error': str(e)}), 500
 
+
+# =====================================================================
+# ASISTENTE WFM · MOTOR DETERMINÍSTICO SOBRE EL CONTEXTO DEL DASHBOARD
+# =====================================================================
+def _assistant_norm(text):
+    return re.sub(r'\s+', ' ', str(text or '').strip().lower())
+
+def _assistant_minutes(hhmm):
+    try:
+        h, m = str(hhmm).split(':')[:2]
+        return int(h) * 60 + int(m)
+    except Exception:
+        return 0
+
+def _assistant_hhmm_minutes(minutes):
+    minutes = int(minutes) % (24 * 60)
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+def _assistant_movement_actions(deficits, surpluses, limit=4):
+    actions = []
+    used = set()
+
+    for d in deficits:
+        missing = abs(int(round(float(d.get('gap', 0)))))
+        if missing <= 0:
+            continue
+
+        d_date = str(d.get('date', ''))
+        d_channel = str(d.get('channel', ''))
+        d_min = _assistant_minutes(d.get('interval', '00:00'))
+
+        candidates = []
+        for idx, s in enumerate(surpluses):
+            if idx in used:
+                continue
+            if str(s.get('date', '')) != d_date or str(s.get('channel', '')) != d_channel:
+                continue
+            extra = int(round(float(s.get('gap', 0))))
+            if extra <= 0:
+                continue
+            s_min = _assistant_minutes(s.get('interval', '00:00'))
+            distance = abs(s_min - d_min)
+            if distance <= 240:
+                candidates.append((distance, idx, s, extra))
+
+        candidates.sort(key=lambda x: (x[0], -x[3]))
+        if not candidates:
+            continue
+
+        _, idx, source, extra = candidates[0]
+        move = min(missing, extra)
+        if move <= 0:
+            continue
+        used.add(idx)
+
+        source_time = source.get('interval', '—')
+        target_time = d.get('interval', '—')
+        channel = d_channel or 'canal'
+        actions.append(
+            f"Revisar hasta {move} HC de {channel} alrededor de {source_time} para reforzar {target_time} "
+            f"({d_date}). Priorizar ajustes de entrada y salida antes de mover plantilla entre campañas."
+        )
+        if len(actions) >= limit:
+            break
+
+    return actions
+
+def _assistant_cards(context):
+    period = context.get('periodCapacity') or {}
+    worst = context.get('worst') or {}
+    cards = []
+
+    required = int(round(float(period.get('required', 0) or 0)))
+    actual = int(round(float(period.get('actual', 0) or 0)))
+    gap = int(round(float(period.get('gap', actual - required) or 0)))
+    coverage = int(round(float(period.get('coverage', 100) or 100)))
+
+    cards.append({
+        'title': 'HC requerido',
+        'value': f"{required} HC",
+        'detail': str(context.get('scopeLabel') or 'Periodo')
+    })
+    cards.append({
+        'title': 'HC actual',
+        'value': f"{actual} HC",
+        'detail': f"Cobertura {coverage}%"
+    })
+    cards.append({
+        'title': 'Brecha de plantilla',
+        'value': f"{gap} HC",
+        'detail': 'Actual - requerido'
+    })
+
+    if worst:
+        cards.append({
+            'title': 'Intervalo más crítico',
+            'value': f"{abs(int(round(float(worst.get('gap', 0)))))} HC",
+            'detail': f"{worst.get('date','')} · {worst.get('interval','')}"
+        })
+    return cards[:4]
+
+def _assistant_explain_metric(question):
+    q = _assistant_norm(question)
+    glossary = [
+        (['shrinkage', 'merma'], 'Shrinkage o merma representa el porcentaje de tiempo pagado que no está disponible para atender demanda, por ejemplo descansos, capacitación, incidencias o actividades no productivas. A mayor merma, mayor HC requerido.'),
+        (['aht', 'tmo', 'tiempo medio'], 'AHT/TMO es el tiempo promedio de manejo por interacción. Si aumenta el AHT con el mismo volumen, aumenta la carga y normalmente también el HC requerido.'),
+        (['asa'], 'ASA objetivo es el tiempo medio de espera que se busca mantener. Un ASA más exigente normalmente requiere más capacidad.'),
+        (['nivel de servicio', 'sl ', 'service level'], 'El Nivel de Servicio define el porcentaje objetivo de interacciones que deben atenderse dentro del tiempo objetivo. Una meta más alta suele incrementar el HC requerido.'),
+        (['erlang'], 'Erlang C convierte volumen, AHT y objetivo de servicio en agentes simultáneos requeridos para llamadas. El dashboard después ajusta ese requerimiento por merma para llegar al HC necesario.'),
+        (['concurrencia'], 'En Chat, la concurrencia indica cuántas conversaciones puede manejar un agente simultáneamente. Una mayor concurrencia reduce la carga efectiva por conversación, aunque debe mantenerse dentro de límites operativos realistas.')
+    ]
+    for keys, answer in glossary:
+        if any(k in q for k in keys):
+            return answer
+    return None
+
+
+def _assistant_roster_detail(excel_path):
+    """Extract person-level schedules; V6 uses the operational roster DB first."""
+    try:
+        db_agents = _roster_fetch_agents(include_inactive=False)
+        if db_agents:
+            agents = []
+            for a in db_agents:
+                schedules = {}
+                for day, raw in (a.get('schedules') or {}).items():
+                    if raw == 'DD-DD' or '-' not in str(raw):
+                        continue
+                    p = str(raw).split('-', 1)
+                    start, end = parse_time_str(p[0].strip()), parse_time_str(p[1].strip())
+                    if start is not None and end is not None:
+                        schedules[day] = {'raw': raw, 'start': int(start), 'end': int(end)}
+                if schedules:
+                    agents.append({
+                        'agent': a.get('fullName') or a.get('agentId'),
+                        'agentId': a.get('agentId'),
+                        'fullName': a.get('fullName') or '',
+                        'supervisor': a.get('supervisor') or '',
+                        'coordinator': a.get('coordinator') or '',
+                        'campaign': a.get('campaign') or '',
+                        'channel': a.get('channel') or '',
+                        'schedules': schedules
+                    })
+            if agents:
+                return {'available':True,'sheet':'wfm_roster.db','agents':agents,'reason':''}
+    except Exception as e:
+        print(f'Frank roster DB fallback: {e}')
+
+    cached = _cache_excel_info_get(excel_path, 'assistant_roster_detail:v2')
+    if cached is not None:
+        return cached
+
+    result = {'available': False, 'sheet': None, 'agents': [], 'reason': ''}
+    try:
+        xls = pd.ExcelFile(excel_path, engine='openpyxl')
+        roster_sheet = None
+        for sh in xls.sheet_names:
+            low = sh.lower()
+            if 'roster' in low or 'plantilla' in low or 'platilla' in low or 'horario' in low:
+                roster_sheet = sh
+                break
+        if not roster_sheet:
+            result['reason'] = 'No se encontró una hoja de roster/plantilla.'
+            return _cache_excel_info_set(excel_path, 'assistant_roster_detail:v2', result)
+
+        df_roster = pd.read_excel(xls, sheet_name=roster_sheet, engine='openpyxl')
+        col_camp = encontrar_columna(df_roster, ['campaña', 'campana', 'skill', 'servicio'])
+        col_agent = encontrar_columna(df_roster, ['agente', 'nombre', 'asesor', 'ejecutivo', 'id'])
+        col_channel = encontrar_columna(df_roster, ['canal', 'channel'])
+
+        if not col_camp:
+            result['reason'] = 'La hoja de roster no contiene una columna de campaña/skill.'
+            return _cache_excel_info_set(excel_path, 'assistant_roster_detail:v2', result)
+
+        dias_map = {
+            'lunes': 'Lunes', 'martes': 'Martes', 'miércoles': 'Miércoles', 'miercoles': 'Miércoles',
+            'jueves': 'Jueves', 'viernes': 'Viernes', 'sábado': 'Sábado', 'sabado': 'Sábado',
+            'domingo': 'Domingo'
+        }
+        day_columns = {}
+        for col in df_roster.columns:
+            key = str(col).strip().lower()
+            if key in dias_map:
+                day_columns[dias_map[key]] = col
+
+        agents = []
+        for row_idx, row in df_roster.iterrows():
+            campaign = str(row.get(col_camp, '')).strip()
+            if not campaign or campaign.lower() == 'nan':
+                continue
+
+            agent = str(row.get(col_agent, '')).strip() if col_agent else ''
+            if not agent or agent.lower() == 'nan':
+                agent = f'Agente {row_idx + 1}'
+
+            channel = ''
+            if col_channel:
+                channel = str(row.get(col_channel, '')).strip()
+                if channel.lower() == 'nan':
+                    channel = ''
+
+            schedules = {}
+            for day_name, col in day_columns.items():
+                raw = str(row.get(col, '')).strip().upper()
+                if not raw or raw == 'NAN' or raw == 'DD-DD' or '-' not in raw:
+                    continue
+                parts = raw.split('-', 1)
+                if len(parts) != 2:
+                    continue
+                start = parse_time_str(parts[0].strip())
+                end = parse_time_str(parts[1].strip())
+                if start is None or end is None:
+                    continue
+                schedules[day_name] = {
+                    'raw': raw,
+                    'start': int(start),
+                    'end': int(end)
+                }
+
+            if schedules:
+                agents.append({
+                    'agent': agent,
+                    'campaign': str(campaign).title(),
+                    'channel': channel.title() if channel else '',
+                    'schedules': schedules
+                })
+
+        result = {
+            'available': bool(agents),
+            'sheet': roster_sheet,
+            'agents': agents,
+            'reason': '' if agents else 'No se encontraron horarios válidos por persona en el roster.'
+        }
+    except Exception as e:
+        result['reason'] = f'No se pudo leer el roster: {str(e)}'
+
+    return _cache_excel_info_set(excel_path, 'assistant_roster_detail:v2', result)
+
+def _assistant_span_intervals(start_min, end_min):
+    start_min = int(start_min) % (24 * 60)
+    end_min = int(end_min) % (24 * 60)
+    return generar_intervalos_cobertura(start_min, end_min)
+
+def _assistant_schedule_text(start_min, end_min):
+    return f"{_assistant_hhmm_minutes(start_min)}-{_assistant_hhmm_minutes(end_min)}"
+
+def _assistant_day_name(date_text):
+    try:
+        dt = datetime.strptime(str(date_text)[:10], '%Y-%m-%d')
+        return ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][dt.weekday()]
+    except Exception:
+        return ''
+
+def _assistant_norm_channel(value):
+    v = _assistant_norm(value)
+    if 'chat' in v or 'mensaje' in v:
+        return 'chat'
+    if 'llam' in v or 'call' in v:
+        return 'llamadas'
+    return v
+
+def _assistant_optimizer_state(slots):
+    state = {}
+    for row in slots:
+        try:
+            date = str(row.get('date', ''))[:10]
+            interval = str(row.get('interval', '00:00'))
+            campaign = normalizar_nombre_campana(row.get('campaign', ''))
+            channel = _assistant_norm_channel(row.get('channel', ''))
+            required = float(row.get('required', 0) or 0)
+            actual = float(row.get('actual', 0) or 0)
+        except Exception:
+            continue
+        if not date or not campaign or not interval:
+            continue
+        key = (date, campaign, channel, interval)
+        if key not in state:
+            state[key] = {'required': 0.0, 'actual': actual}
+        state[key]['required'] += required
+        # HC actual is a roster snapshot for the campaign/interval, so use max
+        # rather than summing duplicates from repeated source rows.
+        state[key]['actual'] = max(state[key]['actual'], actual)
+    return state
+
+def _assistant_state_metrics(state):
+    total_deficit = 0.0
+    worst_gap = 0.0
+    deficit_slots = 0
+    for row in state.values():
+        gap = float(row['actual']) - float(row['required'])
+        if gap < 0:
+            total_deficit += -gap
+            deficit_slots += 1
+            worst_gap = min(worst_gap, gap)
+    return {
+        'total_deficit': round(total_deficit, 2),
+        'worst_gap': round(worst_gap, 2),
+        'deficit_slots': deficit_slots
+    }
+
+def _assistant_apply_shift_to_state(state, date, campaign_norm, channel_norm, old_intervals, new_intervals):
+    updated = {k: {'required': v['required'], 'actual': v['actual']} for k, v in state.items()}
+    old_set, new_set = set(old_intervals), set(new_intervals)
+    for interval in old_set - new_set:
+        key = (date, campaign_norm, channel_norm, interval)
+        if key in updated:
+            updated[key]['actual'] = max(0.0, updated[key]['actual'] - 1.0)
+    for interval in new_set - old_set:
+        key = (date, campaign_norm, channel_norm, interval)
+        if key in updated:
+            updated[key]['actual'] += 1.0
+    return updated
+
+def _assistant_new_deficits_created(before, after):
+    created = 0
+    for key, b in before.items():
+        a = after.get(key, b)
+        before_gap = float(b['actual']) - float(b['required'])
+        after_gap = float(a['actual']) - float(a['required'])
+        if before_gap >= 0 and after_gap < 0:
+            created += 1
+    return created
+
+def _assistant_improved_intervals(before, after, limit=10):
+    improvements = []
+    for key, b in before.items():
+        a = after.get(key, b)
+        b_def = max(0.0, float(b['required']) - float(b['actual']))
+        a_def = max(0.0, float(a['required']) - float(a['actual']))
+        if a_def + 1e-9 < b_def:
+            date, campaign, channel, interval = key
+            improvements.append({
+                'date': date,
+                'campaign': campaign.title(),
+                'channel': channel.title(),
+                'interval': interval,
+                'beforeGap': round(float(b['actual']) - float(b['required']), 1),
+                'afterGap': round(float(a['actual']) - float(a['required']), 1),
+                'improvement': round(b_def - a_def, 1)
+            })
+    improvements.sort(key=lambda x: (-x['improvement'], x['date'], x['interval']))
+    return improvements[:limit]
+
+
+def _assistant_context_signature(context, excel_path, max_moves):
+    client_sig = str(context.get('contextSignature') or '').strip()
+    excel_sig = _excel_signature(excel_path)
+    if client_sig:
+        base = f"{client_sig}|{excel_sig}|{int(max_moves)}"
+        return hashlib.sha1(base.encode('utf-8')).hexdigest()
+
+    slots = context.get('optimizationSlots') or context.get('campaignSlots') or []
+    compact = []
+    for row in slots:
+        compact.append((
+            str(row.get('date', ''))[:10],
+            str(row.get('interval', '')),
+            normalizar_nombre_campana(row.get('campaign', '')),
+            _assistant_norm_channel(row.get('channel', '')),
+            round(float(row.get('required', 0) or 0), 2),
+            round(float(row.get('actual', 0) or 0), 2)
+        ))
+    compact.sort()
+    payload = {
+        'mode': context.get('mode'),
+        'worst': context.get('worst'),
+        'slots': compact,
+        'excel': excel_sig,
+        'moves': int(max_moves)
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha1(raw.encode('utf-8')).hexdigest()
+
+def _assistant_plan_cache_get(key):
+    now = time.time()
+    with _ASSISTANT_PLAN_CACHE_LOCK:
+        item = _ASSISTANT_PLAN_CACHE.get(key)
+        if not item:
+            return None
+        created, value = item
+        if now - created > _ASSISTANT_PLAN_CACHE_TTL:
+            _ASSISTANT_PLAN_CACHE.pop(key, None)
+            return None
+        return value
+
+def _assistant_plan_cache_set(key, value):
+    now = time.time()
+    with _ASSISTANT_PLAN_CACHE_LOCK:
+        _ASSISTANT_PLAN_CACHE[key] = (now, value)
+        if len(_ASSISTANT_PLAN_CACHE) > _ASSISTANT_PLAN_CACHE_MAX:
+            oldest = sorted(_ASSISTANT_PLAN_CACHE.items(), key=lambda kv: kv[1][0])
+            for stale_key, _ in oldest[:max(1, len(oldest) - _ASSISTANT_PLAN_CACHE_MAX)]:
+                _ASSISTANT_PLAN_CACHE.pop(stale_key, None)
+    return value
+
+def _assistant_candidate_effect(state, cand, current_metrics):
+    old_set = set(cand['oldIntervals'])
+    new_set = set(cand['newIntervals'])
+    lost = old_set - new_set
+    gained = new_set - old_set
+
+    deficit_before = 0.0
+    deficit_after = 0.0
+    worst_relief = 0.0
+    touched = False
+
+    for interval, delta in [(x, -1.0) for x in lost] + [(x, 1.0) for x in gained]:
+        key = (cand['date'], cand['campaignNorm'], cand['channelNorm'], interval)
+        row = state.get(key)
+        if not row:
+            continue
+        touched = True
+        req = float(row['required'])
+        actual = float(row['actual'])
+        before_gap = actual - req
+        after_actual = max(0.0, actual + delta)
+        after_gap = after_actual - req
+
+        # Never create a brand-new deficit in a previously covered interval.
+        if before_gap >= 0 and after_gap < 0:
+            return None
+
+        deficit_before += max(0.0, -before_gap)
+        deficit_after += max(0.0, -after_gap)
+
+        if before_gap <= float(current_metrics.get('worst_gap', 0)) + 1e-9 and after_gap > before_gap:
+            worst_relief = max(worst_relief, after_gap - before_gap)
+
+    if not touched:
+        return None
+
+    reduction = deficit_before - deficit_after
+    if reduction <= 0:
+        return None
+
+    score = reduction * 100.0 + worst_relief * 12.0 - (abs(cand['deltaMinutes']) / 30.0)
+    return {
+        'score': score,
+        'reduction': reduction,
+        'worst_relief': worst_relief
+    }
+
+def _assistant_apply_shift_inplace(state, cand):
+    old_set = set(cand['oldIntervals'])
+    new_set = set(cand['newIntervals'])
+    for interval in old_set - new_set:
+        key = (cand['date'], cand['campaignNorm'], cand['channelNorm'], interval)
+        if key in state:
+            state[key]['actual'] = max(0.0, float(state[key]['actual']) - 1.0)
+    for interval in new_set - old_set:
+        key = (cand['date'], cand['campaignNorm'], cand['channelNorm'], interval)
+        if key in state:
+            state[key]['actual'] = float(state[key]['actual']) + 1.0
+
+def _assistant_optimize_roster(context, max_moves=6):
+    slots = context.get('optimizationSlots') or context.get('campaignSlots') or []
+    if not isinstance(slots, list) or not slots:
+        return {
+            'available': False,
+            'reason': 'No se recibió el detalle por campaña e intervalo necesario para optimizar horarios.',
+            'moves': []
+        }
+
+    excel_path = buscar_archivo_excel()
+    if not excel_path:
+        return {'available': False, 'reason': 'No se encontró el Excel fuente del roster.', 'moves': []}
+
+    cache_key = _assistant_context_signature(context, excel_path, max_moves)
+    cached_plan = _assistant_plan_cache_get(cache_key)
+    if cached_plan is not None:
+        return cached_plan
+
+    roster = _assistant_roster_detail(excel_path)
+    if not roster.get('available'):
+        return _assistant_plan_cache_set(cache_key, {
+            'available': False,
+            'reason': roster.get('reason') or 'Roster no disponible.',
+            'moves': [],
+            'cached': False
+        })
+
+    baseline = _assistant_optimizer_state(slots)
+    if not baseline:
+        return _assistant_plan_cache_set(cache_key, {
+            'available': False,
+            'reason': 'No fue posible construir la cobertura base.',
+            'moves': [],
+            'cached': False
+        })
+
+    baseline_metrics = _assistant_state_metrics(baseline)
+    if baseline_metrics['total_deficit'] <= 0:
+        return _assistant_plan_cache_set(cache_key, {
+            'available': True,
+            'reason': 'La selección no tiene déficit que requiera movimientos.',
+            'baseline': baseline_metrics,
+            'after': baseline_metrics,
+            'moves': [],
+            'impactIntervals': [],
+            'candidateCount': 0,
+            'cached': False
+        })
+
+    active_campaigns = {key[1] for key in baseline.keys()}
+    active_dates = sorted({key[0] for key in baseline.keys()})
+    channels = sorted({key[2] for key in baseline.keys() if key[2]})
+    worst = context.get('worst') or {}
+    target_channel = _assistant_norm_channel(worst.get('channel', ''))
+    if not target_channel:
+        mode = _assistant_norm(context.get('mode', ''))
+        target_channel = 'chat' if mode == 'chat' else ('llamadas' if mode == 'llamadas' else (channels[0] if len(channels) == 1 else ''))
+
+    # Index channels once instead of scanning the whole state for every agent/date.
+    state_channels_by_campaign_date = {}
+    baseline_deficit_keys = set()
+    for key, row in baseline.items():
+        date, campaign_norm, channel_norm, interval = key
+        state_channels_by_campaign_date.setdefault((date, campaign_norm), set()).add(channel_norm)
+        if float(row['actual']) - float(row['required']) < 0:
+            baseline_deficit_keys.add(key)
+
+    candidate_instances = []
+    for roster_agent in roster.get('agents', []):
+        campaign_norm = normalizar_nombre_campana(roster_agent.get('campaign', ''))
+        if campaign_norm not in active_campaigns:
+            continue
+
+        roster_channel = _assistant_norm_channel(roster_agent.get('channel', ''))
+        if roster_channel and target_channel and roster_channel != target_channel:
+            continue
+
+        for date in active_dates:
+            day_name = _assistant_day_name(date)
+            sched = (roster_agent.get('schedules') or {}).get(day_name)
+            if not sched:
+                continue
+
+            state_channels = sorted(state_channels_by_campaign_date.get((date, campaign_norm), set()))
+            if target_channel and target_channel in state_channels:
+                channel_norm = target_channel
+            elif roster_channel and roster_channel in state_channels:
+                channel_norm = roster_channel
+            elif len(state_channels) == 1:
+                channel_norm = state_channels[0]
+            else:
+                channel_norm = target_channel or (state_channels[0] if state_channels else '')
+            if not channel_norm:
+                continue
+
+            start, end = int(sched['start']), int(sched['end'])
+            old_intervals = _assistant_span_intervals(start, end)
+            if not old_intervals:
+                continue
+
+            for delta in (-90, -60, -30, 30, 60, 90):
+                new_start_abs = start + delta
+                end_abs = end if end > start else end + (24 * 60)
+                new_end_abs = end_abs + delta
+                if new_start_abs < 0 or new_start_abs >= 24 * 60:
+                    continue
+                if new_end_abs <= new_start_abs or new_end_abs > 2 * 24 * 60:
+                    continue
+
+                new_start = new_start_abs % (24 * 60)
+                new_end = new_end_abs % (24 * 60)
+                new_intervals = _assistant_span_intervals(new_start, new_end)
+                if not new_intervals:
+                    continue
+                if any(not esta_en_ventana_servicio(roster_agent.get('campaign', ''), interval) for interval in new_intervals):
+                    continue
+
+                old_set, new_set = set(old_intervals), set(new_intervals)
+                gained = new_set - old_set
+
+                # Major pruning: only evaluate moves that add coverage to a known deficit.
+                if not any((date, campaign_norm, channel_norm, inv) in baseline_deficit_keys for inv in gained):
+                    continue
+
+                candidate_instances.append({
+                    'agent': roster_agent.get('agent', 'Agente'),
+                    'agentId': roster_agent.get('agentId') or roster_agent.get('agent', 'Agente'),
+                    'fullName': roster_agent.get('fullName', ''),
+                    'supervisor': roster_agent.get('supervisor', ''),
+                    'coordinator': roster_agent.get('coordinator', ''),
+                    'campaign': roster_agent.get('campaign', ''),
+                    'campaignNorm': campaign_norm,
+                    'channelNorm': channel_norm,
+                    'channel': channel_norm.title(),
+                    'date': date,
+                    'day': day_name,
+                    'currentSchedule': _assistant_schedule_text(start, end),
+                    'proposedSchedule': _assistant_schedule_text(new_start, new_end),
+                    'deltaMinutes': delta,
+                    'oldIntervals': old_intervals,
+                    'newIntervals': new_intervals
+                })
+
+    if not candidate_instances:
+        return _assistant_plan_cache_set(cache_key, {
+            'available': False,
+            'reason': 'El roster tiene horarios, pero no encontré movimientos compatibles que agreguen cobertura a las franjas con déficit.',
+            'baseline': baseline_metrics,
+            'moves': [],
+            'candidateCount': 0,
+            'cached': False
+        })
+
+    # Mutable copy only once. Candidate evaluation no longer copies the full state.
+    current = {k: {'required': float(v['required']), 'actual': float(v['actual'])} for k, v in baseline.items()}
+    selected = []
+    used_agent_dates = set()
+
+    for _ in range(max(1, min(int(max_moves), 10))):
+        current_metrics = _assistant_state_metrics(current)
+        best = None
+
+        for cand in candidate_instances:
+            identity = (cand['agent'], cand['date'])
+            if identity in used_agent_dates:
+                continue
+
+            effect = _assistant_candidate_effect(current, cand, current_metrics)
+            if not effect:
+                continue
+
+            if best is None or effect['score'] > best['effect']['score']:
+                best = {'candidate': cand, 'effect': effect}
+
+        if best is None:
+            break
+
+        cand = best['candidate']
+        before_metrics = current_metrics
+
+        touched_intervals = set(cand['oldIntervals']) | set(cand['newIntervals'])
+        touched_before = {}
+        for interval in touched_intervals:
+            key = (cand['date'], cand['campaignNorm'], cand['channelNorm'], interval)
+            if key in current:
+                touched_before[key] = {
+                    'required': float(current[key]['required']),
+                    'actual': float(current[key]['actual'])
+                }
+
+        _assistant_apply_shift_inplace(current, cand)
+        after_metrics = _assistant_state_metrics(current)
+        used_agent_dates.add((cand['agent'], cand['date']))
+
+        touched_after = {}
+        for key in touched_before:
+            if key in current:
+                touched_after[key] = {
+                    'required': float(current[key]['required']),
+                    'actual': float(current[key]['actual'])
+                }
+
+        move_impact = _assistant_improved_intervals(touched_before, touched_after, limit=8)
+        action_raw = '|'.join([
+            cache_key,
+            str(cand['agent']),
+            str(cand['campaign']),
+            str(cand['date']),
+            str(cand['currentSchedule']),
+            str(cand['proposedSchedule'])
+        ])
+        action_id = hashlib.sha1(action_raw.encode('utf-8')).hexdigest()[:18]
+
+        selected.append({
+            'actionId': action_id,
+            'agent': cand['agent'],
+            'agentId': cand.get('agentId', cand['agent']),
+            'fullName': cand.get('fullName', ''),
+            'supervisor': cand.get('supervisor', ''),
+            'coordinator': cand.get('coordinator', ''),
+            'campaign': cand['campaign'],
+            'channel': cand['channel'],
+            'date': cand['date'],
+            'day': cand['day'],
+            'currentSchedule': cand['currentSchedule'],
+            'proposedSchedule': cand['proposedSchedule'],
+            'deltaMinutes': cand['deltaMinutes'],
+            'deficitReduction': round(before_metrics['total_deficit'] - after_metrics['total_deficit'], 1),
+            'worstGapBefore': before_metrics['worst_gap'],
+            'worstGapAfter': after_metrics['worst_gap'],
+            'impactIntervals': move_impact,
+            'guardrail': 'Sin déficit nuevo dentro del alcance analizado'
+        })
+
+        if after_metrics['total_deficit'] <= 0:
+            break
+
+    after_metrics = _assistant_state_metrics(current)
+    impact = _assistant_improved_intervals(baseline, current, limit=12)
+
+    result = {
+        'available': True,
+        'sheet': roster.get('sheet'),
+        'baseline': baseline_metrics,
+        'after': after_metrics,
+        'moves': selected,
+        'impactIntervals': impact,
+        'candidateCount': len(candidate_instances),
+        'scopeDates': active_dates[:8],
+        'reason': '' if selected else 'No encontré movimientos de ±30/60/90 min que reduzcan déficit sin crear otro faltante dentro del alcance analizado.',
+        'cached': False
+    }
+    return _assistant_plan_cache_set(cache_key, result)
+
+
+def _assistant_data_quality(context):
+    excel_path = buscar_archivo_excel()
+    info = {
+        'forecastRows': int(context.get('rowCount', 0) or 0),
+        'optimizationSlots': len(context.get('optimizationSlots') or []),
+        'rosterAvailable': False,
+        'rosterAgents': 0,
+        'sourceFile': '',
+        'sourceModified': ''
+    }
+    if not excel_path:
+        return info
+    try:
+        roster = _assistant_roster_detail(excel_path)
+        info['rosterAvailable'] = bool(roster.get('available'))
+        info['rosterAgents'] = len(roster.get('agents') or [])
+        info['sourceFile'] = os.path.basename(excel_path)
+        st = os.stat(excel_path)
+        info['sourceModified'] = datetime.fromtimestamp(st.st_mtime).isoformat(timespec='minutes')
+    except Exception:
+        pass
+    return info
+
+def _wfm_action_log_read():
+    with _WFM_ACTION_LOG_LOCK:
+        if not os.path.exists(WFM_ACTION_LOG_FILE):
+            return []
+        try:
+            with open(WFM_ACTION_LOG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+def _wfm_action_log_write(records):
+    with _WFM_ACTION_LOG_LOCK:
+        tmp = WFM_ACTION_LOG_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, WFM_ACTION_LOG_FILE)
+
+def _wfm_action_stats(records):
+    total = len(records)
+    accepted = sum(1 for r in records if r.get('decision') == 'accepted')
+    rejected = sum(1 for r in records if r.get('decision') == 'rejected')
+    applied = sum(1 for r in records if r.get('implementationStatus') == 'applied')
+    pending = sum(
+        1 for r in records
+        if r.get('decision') == 'accepted' and r.get('implementationStatus') != 'applied'
+    )
+    ops_resolved = sum(1 for r in records if _assistant_norm(r.get('actorMode')) in ('ops', 'operaciones'))
+    accepted_reduction = sum(
+        float((r.get('move') or {}).get('deficitReduction', 0) or 0)
+        for r in records if r.get('decision') == 'accepted'
+    )
+    applied_reduction = sum(
+        float((r.get('move') or {}).get('deficitReduction', 0) or 0)
+        for r in records if r.get('implementationStatus') == 'applied'
+    )
+    return {
+        'resolved': total,
+        'accepted': accepted,
+        'rejected': rejected,
+        'applied': applied,
+        'pendingApplication': pending,
+        'opsResolved': ops_resolved,
+        'opsAutonomy': round((ops_resolved / total) * 100) if total else 0,
+        'acceptedEstimatedDeficitReduction': round(accepted_reduction, 1),
+        'appliedEstimatedDeficitReduction': round(applied_reduction, 1)
+    }
 
 @app.route('/api/wfm_action_decisions', methods=['GET'])
 def wfm_action_decisions():
