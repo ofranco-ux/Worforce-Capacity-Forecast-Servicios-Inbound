@@ -3940,7 +3940,7 @@
                         <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte del forecast</label>
                         <div class="input-clean p-3 rounded-xl">
                             <div class="text-sm font-mono-num font-bold text-brand-accentViolet">Septiembre → Diciembre 2026</div>
-                            <div class="text-[9px] text-slate-500 mt-1">Se proyecta desde la siguiente fecha real disponible hasta 31/12/2026 con motor ligero para 512 MB. Enero–Agosto no se cargan.</div>
+                            <div class="text-[9px] text-slate-500 mt-1">Se proyecta desde la siguiente fecha real disponible hasta 31/12/2026 con motor ultraligero sin pandas/RandomForest en la carga normal. Enero–Agosto no se cargan.</div>
                         </div>
                         <input type="hidden" name="dias" id="dias" value="365">
                     </div>
@@ -5470,7 +5470,7 @@
             setRunStatus('Validando fuente histórica…','amber');
             loadHistoricalSourceInfo().then(info=>{
                 if(info&&info.sourceFound){
-                    setRunStatus('Generando forecast ligero…','amber');
+                    setRunStatus('Generando forecast ultraligero…','amber');
                     return fetchLatestData(forecastMode);
                 }
                 limpiarPantalla();

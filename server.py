@@ -11,15 +11,44 @@ import sqlite3
 import shutil
 import io
 import csv
+import importlib
+import resource
 from functools import lru_cache
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, send_from_directory, make_response, send_file, Response, stream_with_context
 from flask_cors import CORS
-import pandas as pd
-import numpy as np
 from openpyxl import load_workbook
 from openpyxl.utils.datetime import from_excel
+
+class _LazyModule:
+    def __init__(self, module_name):
+        self.module_name = module_name
+        self._module = None
+    def _load(self):
+        if self._module is None:
+            self._module = importlib.import_module(self.module_name)
+        return self._module
+    def __getattr__(self, name):
+        return getattr(self._load(), name)
+
+# Legacy/admin functionality can still use pandas/numpy, but the normal forecast
+# request no longer imports them into the 512 MB worker.
+pd = _LazyModule('pandas')
+np = _LazyModule('numpy')
+
+def _rss_mb():
+    try:
+        # Linux ru_maxrss is KB.
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0, 1)
+    except Exception:
+        return None
+
+def _log_memory(stage):
+    value = _rss_mb()
+    if value is not None:
+        print(f"[MEM] {stage}: {value} MB", flush=True)
+
 
 # Dependencias locales del forecast. Se distribuyen junto al servidor para que
 # el calendario de México y el modelo de machine learning estén siempre activos.
@@ -630,47 +659,76 @@ def manage_config():
             except: pass
         return jsonify({'targetSl': 80, 'targetTime': 20, 'merma': 30}), 200
 
+def _value_is_nan(value):
+    try:
+        return isinstance(value, float) and math.isnan(value)
+    except Exception:
+        return False
+
 def clean_num(val, default=0.0):
-    if pd.isna(val) or val is None: return default
+    if val is None or _value_is_nan(val):
+        return default
     try:
         val_str = str(val).strip().replace(',', '.')
         val_str = re.sub(r'[^0-9.]', '', val_str)
         return float(val_str) if val_str else default
-    except: return default
+    except Exception:
+        return default
 
 def parse_aht_to_seconds(val):
-    if pd.isna(val) or val is None: return 180.0
-    if isinstance(val, (int, float)): return float(val) if float(val) > 15 else float(val) * 60.0
+    if val is None or _value_is_nan(val):
+        return 180.0
+    if isinstance(val, (int, float)):
+        num = float(val)
+        return num if num > 15 else num * 60.0
     val_str = str(val).strip()
     if ':' in val_str:
         p = val_str.split(':')
         try:
-            if len(p) == 3: return int(p[0]) * 3600 + int(p[1]) * 60 + float(p[2])
-            elif len(p) == 2: return int(p[0]) * 60 + float(p[1])
-        except: pass
+            if len(p) == 3:
+                return int(p[0]) * 3600 + int(p[1]) * 60 + float(p[2])
+            if len(p) == 2:
+                return int(p[0]) * 60 + float(p[1])
+        except Exception:
+            pass
     return clean_num(val_str, 180.0)
 
 def format_aht_str(seconds):
-    if pd.isna(seconds) or seconds is None or seconds <= 0: return "00:00:00"
+    if seconds is None or _value_is_nan(seconds) or seconds <= 0:
+        return "00:00:00"
     secs = int(round(seconds))
     return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
 
 def clean_interval_str(val):
     try:
-        if pd.isna(val): return "00:00"
-        val_str = str(val).strip()
-        if hasattr(val, 'hour') and hasattr(val, 'minute'): hh, mm = val.hour, val.minute
+        if val is None or _value_is_nan(val):
+            return "00:00"
+
+        # Excel time fraction.
+        if isinstance(val,(int,float)) and 0 <= float(val) < 1:
+            total_minutes = int(round(float(val) * 24 * 60))
+            hh = (total_minutes // 60) % 24
+            mm = total_minutes % 60
+        elif hasattr(val, 'hour') and hasattr(val, 'minute'):
+            hh, mm = int(val.hour), int(val.minute)
         else:
+            val_str = str(val).strip()
             m = re.search(r'(\d{1,2}):(\d{2})', val_str)
-            if m: hh, mm = int(m.group(1)), int(m.group(2))
-            else: return "00:00"
-        if mm < 15: mm_round = 0
-        elif mm < 45: mm_round = 30
+            if not m:
+                return "00:00"
+            hh, mm = int(m.group(1)), int(m.group(2))
+
+        if mm < 15:
+            mm_round = 0
+        elif mm < 45:
+            mm_round = 30
         else:
             mm_round = 0
             hh = (hh + 1) % 24
         return f"{hh:02d}:{mm_round:02d}"
-    except: return "00:00"
+    except Exception:
+        return "00:00"
+
 
 ERLANG_CACHE = {}
 def erlang_c_sl_optimizado(A, N, AHT, target_time):
@@ -961,7 +1019,7 @@ def _roster_db_init():
             for col_name, ddl in forecast_row_migrations.items():
                 if col_name not in forecast_row_columns:
                     conn.execute(ddl)
-            should_seed = conn.execute("SELECT COUNT(*) FROM roster_agents").fetchone()[0] == 0
+            should_seed = False  # V6.11.2: roster is managed independently; never seed from historical Excel.
             conn.commit()
             _ROSTER_DB_READY = True
         finally:
@@ -1438,34 +1496,46 @@ def _parse_excel_date_robust(value, epoch=None):
     if value is None:
         return None
     try:
-        if isinstance(value, pd.Timestamp):
-            return value.normalize()
         if isinstance(value, datetime):
-            return pd.Timestamp(value).normalize()
-        # date-like openpyxl value
+            return value.date()
+
         if hasattr(value,'year') and hasattr(value,'month') and hasattr(value,'day'):
-            return pd.Timestamp(value).normalize()
+            return datetime(int(value.year),int(value.month),int(value.day)).date()
+
         if isinstance(value,(int,float)) and not isinstance(value,bool):
-            # Excel serial dates are typically > 20000 for modern dates.
             if float(value) > 1000:
                 try:
-                    return pd.Timestamp(from_excel(value, epoch=epoch)).normalize()
+                    converted = from_excel(value, epoch=epoch)
+                    if isinstance(converted,datetime):
+                        return converted.date()
+                    if hasattr(converted,'year'):
+                        return datetime(converted.year,converted.month,converted.day).date()
                 except Exception:
                     pass
-        text=str(value).strip()
+
+        text = str(value).strip()
         if not text:
             return None
-        for fmt in ('%Y-%m-%d','%d/%m/%Y','%d-%m-%Y','%Y/%m/%d','%m/%d/%Y'):
-            try:
-                return pd.Timestamp(datetime.strptime(text[:10],fmt)).normalize()
-            except Exception:
-                pass
-        dt=pd.to_datetime(text,dayfirst=True,errors='coerce')
-        if pd.isna(dt):
-            return None
-        return pd.Timestamp(dt).normalize()
+
+        candidates = [
+            text[:10],
+            text.split('T',1)[0],
+            text.split(' ',1)[0],
+        ]
+        formats = (
+            '%Y-%m-%d','%d/%m/%Y','%d-%m-%Y',
+            '%Y/%m/%d','%m/%d/%Y'
+        )
+        for candidate in candidates:
+            for fmt in formats:
+                try:
+                    return datetime.strptime(candidate,fmt).date()
+                except Exception:
+                    pass
+        return None
     except Exception:
         return None
+
 
 def _history_column_map(header):
     return {
@@ -1841,28 +1911,130 @@ def _forecast_annual_view(channel, rolling_data=None):
 
 
 
+def _quick_schedule_intervals(schedule):
+    raw = str(schedule or 'DD-DD').strip().upper()
+    if raw == 'DD-DD' or '-' not in raw:
+        return set()
+    left,right = raw.split('-',1)
+    s = parse_time_str(left.strip())
+    e = parse_time_str(right.strip())
+    if s is None or e is None:
+        return set()
+    return set(generar_intervalos_cobertura(s,e))
+
 def _quick_roster_metrics(channel):
     """
-    Uses the operational SQLite roster only. It never opens the historical Excel
-    to look for a roster sheet, keeping forecast generation lightweight.
+    Pure SQLite roster calculation: no pandas, no Excel migration.
     """
     cov,total_camp,total_day,override_cov,override_day = {},{},{},{},{}
+    label = 'Chat' if _forecast_channel_norm(channel) == 'chat' else 'Llamadas'
+    _roster_db_init()
+
+    day_columns = {
+        'Lunes':'lunes','Martes':'martes','Miércoles':'miercoles','Jueves':'jueves',
+        'Viernes':'viernes','Sábado':'sabado','Domingo':'domingo'
+    }
+
+    conn = _roster_conn()
     try:
-        label = 'Chat' if _forecast_channel_norm(channel) == 'chat' else 'Llamadas'
-        df_db = _roster_dataframe(label)
-        if df_db is None or df_db.empty:
-            return cov,total_camp,total_day,override_cov,override_day
+        agents = conn.execute(
+            """SELECT agent_id,campaign,lunes,martes,miercoles,jueves,viernes,sabado,domingo
+               FROM roster_agents
+               WHERE lower(status)='activo' AND lower(channel)=lower(?)""",
+            (label,)
+        ).fetchall()
 
-        cov,total_camp,total_day = procesar_hoja_roster(df_db)
-        override_cov,override_day = _roster_override_deltas(label,df_db)
-        absence_cov,absence_day = _roster_absence_deltas(label,df_db)
+        by_agent = {}
+        for row in agents:
+            agent_id = str(row['agent_id'])
+            camp = str(row['campaign'] or '').strip().title()
+            if not camp:
+                continue
+            schedules = {day:str(row[col] or 'DD-DD') for day,col in day_columns.items()}
+            by_agent[agent_id] = (camp,schedules)
 
-        for key,value in absence_cov.items():
-            override_cov[key] = override_cov.get(key,0) + value
-        for key,value in absence_day.items():
-            override_day[key] = override_day.get(key,0) + value
-    except Exception as e:
-        print(f'Roster ligero ({channel}): {e}')
+            total_camp[camp] = total_camp.get(camp,0) + 1
+            for day,schedule in schedules.items():
+                covered = _quick_schedule_intervals(schedule)
+                if covered:
+                    total_day[(camp,day)] = total_day.get((camp,day),0) + 1
+                    for interval in covered:
+                        cov[(camp,day,interval)] = cov.get((camp,day,interval),0) + 1
+
+        overrides = conn.execute(
+            """SELECT o.agent_id,o.work_date,o.schedule,a.campaign
+               FROM roster_overrides o
+               JOIN roster_agents a ON a.agent_id=o.agent_id
+               WHERE lower(a.status)='activo' AND lower(a.channel)=lower(?)""",
+            (label,)
+        ).fetchall()
+
+        override_sets = {}
+        for row in overrides:
+            agent_id = str(row['agent_id'])
+            base = by_agent.get(agent_id)
+            if not base:
+                continue
+            camp,schedules = base
+            date_text = str(row['work_date'])[:10]
+            try:
+                dt = datetime.strptime(date_text,'%Y-%m-%d')
+            except Exception:
+                continue
+            day = _ROSTER_DAYS[dt.weekday()]
+            base_set = _quick_schedule_intervals(schedules.get(day,'DD-DD'))
+            new_set = _quick_schedule_intervals(row['schedule'])
+            override_sets[(agent_id,date_text)] = new_set
+
+            for interval in base_set - new_set:
+                override_cov[(camp,date_text,interval)] = override_cov.get((camp,date_text,interval),0) - 1
+            for interval in new_set - base_set:
+                override_cov[(camp,date_text,interval)] = override_cov.get((camp,date_text,interval),0) + 1
+            if bool(base_set) != bool(new_set):
+                override_day[(camp,date_text)] = override_day.get((camp,date_text),0) + (1 if new_set else -1)
+
+        vacations = conn.execute(
+            """SELECT v.agent_id,v.start_date,v.end_date
+               FROM roster_absences v
+               JOIN roster_agents a ON a.agent_id=v.agent_id
+               WHERE v.absence_type='vacation'
+                 AND v.status='approved'
+                 AND lower(a.status)='activo'
+                 AND lower(a.channel)=lower(?)""",
+            (label,)
+        ).fetchall()
+
+        processed = set()
+        for vac in vacations:
+            agent_id = str(vac['agent_id'])
+            base = by_agent.get(agent_id)
+            if not base:
+                continue
+            camp,schedules = base
+            try:
+                current = datetime.strptime(str(vac['start_date'])[:10],'%Y-%m-%d')
+                end_dt = datetime.strptime(str(vac['end_date'])[:10],'%Y-%m-%d')
+            except Exception:
+                continue
+
+            while current <= end_dt:
+                date_text = current.strftime('%Y-%m-%d')
+                token = (agent_id,date_text)
+                if token not in processed:
+                    processed.add(token)
+                    day = _ROSTER_DAYS[current.weekday()]
+                    covered = override_sets.get(
+                        token,
+                        _quick_schedule_intervals(schedules.get(day,'DD-DD'))
+                    )
+                    if covered:
+                        for interval in covered:
+                            override_cov[(camp,date_text,interval)] = override_cov.get((camp,date_text,interval),0) - 1
+                        override_day[(camp,date_text)] = override_day.get((camp,date_text),0) - 1
+                current += timedelta(days=1)
+    finally:
+        conn.close()
+
     return cov,total_camp,total_day,override_cov,override_day
 
 
@@ -1891,6 +2063,7 @@ def _quick_forecast_streaming(
     It deliberately avoids pandas DataFrames and RandomForest during normal use.
     """
     mode = _forecast_channel_norm(channel)
+    _log_memory('forecast:start')
     excel_path = buscar_archivo_excel()
     if not excel_path:
         raise ValueError(f'No se encontró {HISTORICAL_PRIMARY_BASENAME}.')
@@ -1913,7 +2086,7 @@ def _quick_forecast_streaming(
         mapping = layout['columns']
         header_row = int(layout['headerRow'])
         max_date = None
-        today = pd.Timestamp(_forecast_today_iso())
+        today = datetime.strptime(_forecast_today_iso(),'%Y-%m-%d').date()
 
         for values in ws.iter_rows(min_row=header_row+1,values_only=True):
             try:
@@ -1933,11 +2106,13 @@ def _quick_forecast_streaming(
     finally:
         wb.close()
 
+    _log_memory('forecast:after-pass1')
+
     if max_date is None:
         raise ValueError('No se encontraron datos reales con volumen mayor a cero.')
 
     forecast_start = max_date + timedelta(days=1)
-    forecast_end = pd.Timestamp(year=FORECAST_ANNUAL_YEAR,month=12,day=31)
+    forecast_end = datetime(FORECAST_ANNUAL_YEAR,12,31).date()
     if forecast_start > forecast_end:
         return []
 
@@ -2016,12 +2191,15 @@ def _quick_forecast_streaming(
     finally:
         wb.close()
 
+    _log_memory('forecast:after-pass2')
+
     campaigns = sorted({k[0] for k in daily.keys()})
     if not campaigns:
         raise ValueError('No se encontraron campañas con volumen reciente.')
 
     # Roster data is taken only from SQLite.
     roster_cov,roster_total_camp,roster_total_day,override_cov,override_day = _quick_roster_metrics(mode)
+    _log_memory('forecast:after-roster')
 
     factor_asistencia = max(0.01,1.0-(merma_pct/100.0))
     meses = ['', 'Enero','Febrero','Marzo','Abril','Mayo','Junio',
@@ -2032,7 +2210,7 @@ def _quick_forecast_streaming(
 
     for campaign in campaigns:
         camp_daily = sorted(
-            [(pd.Timestamp(date),vol) for (camp,date),vol in daily.items() if camp == campaign],
+            [(datetime.strptime(date,'%Y-%m-%d').date(),vol) for (camp,date),vol in daily.items() if camp == campaign],
             key=lambda x:x[0]
         )
         if not camp_daily:
@@ -2176,6 +2354,7 @@ def _quick_forecast_streaming(
     output.sort(key=lambda r:(r['Fecha'],r['Campaña'],r['Intervalo']))
     if persist_cache:
         _guardar_cache_forecast(mode,output)
+    _log_memory('forecast:before-return')
     gc.collect()
     return output
 
@@ -4608,4 +4787,3 @@ _roster_db_init()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-
