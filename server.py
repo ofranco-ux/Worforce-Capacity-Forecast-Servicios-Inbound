@@ -2507,6 +2507,9 @@ def roster_apply_recommendation():
         agent_id=str(move.get('agentId') or move.get('agent') or '').strip()
         work_date=str(move.get('date') or '')[:10]
         proposed=_roster_normalize_schedule(move.get('proposedSchedule'))
+        proposed_bounds = _assistant_schedule_bounds(proposed)
+        if not proposed_bounds or not _assistant_is_valid_frank_proposal(*proposed_bounds):
+            return jsonify({'error':'La recomendación de Frank debe ser una jornada exacta de 6 horas dentro de 07:00-23:00.'}),400
         agent=_roster_get_agent(agent_id)
         if not agent: return jsonify({'error':f'No se encontró el agente {agent_id} en el roster operativo.'}),404
         try: dt=datetime.strptime(work_date,'%Y-%m-%d')
@@ -2518,6 +2521,9 @@ def roster_apply_recommendation():
             try:
                 old=conn.execute("SELECT schedule FROM roster_overrides WHERE agent_id=? AND work_date=?",(agent_id,work_date)).fetchone()
                 effective_before=old['schedule'] if old else base_schedule
+                current_bounds = _assistant_schedule_bounds(effective_before)
+                if current_bounds and _assistant_is_protected_night_shift(*current_bounds):
+                    return jsonify({'error':'Este agente tiene un horario nocturno/protegido. Frank no puede modificarlo.'}),400
                 now=datetime.now().isoformat(timespec='seconds')
                 conn.execute(
                     """INSERT INTO roster_overrides(agent_id,work_date,schedule,source_action_id,override_type,batch_id,reason,created_at,updated_at,updated_by)
@@ -3337,10 +3343,47 @@ def _assistant_roster_detail(excel_path):
 
     return _cache_excel_info_set(excel_path, 'assistant_roster_detail:v2', result)
 
+# Reglas operativas de Frank para propuestas de horario.
+# Frank solo puede proponer jornadas diurnas de 6 horas, completamente
+# contenidas en la ventana 07:00-23:00. Los horarios nocturnos quedan protegidos.
+FRANK_SERVICE_START_MIN = 7 * 60
+FRANK_SERVICE_END_MIN = 23 * 60
+FRANK_SHIFT_MINUTES = 6 * 60
+
+
 def _assistant_span_intervals(start_min, end_min):
     start_min = int(start_min) % (24 * 60)
     end_min = int(end_min) % (24 * 60)
     return generar_intervalos_cobertura(start_min, end_min)
+
+
+def _assistant_schedule_bounds(schedule_text):
+    raw = str(schedule_text or '').strip().upper()
+    if not raw or raw == 'DD-DD' or '-' not in raw:
+        return None
+    start_text, end_text = raw.split('-', 1)
+    start = parse_time_str(start_text.strip())
+    end = parse_time_str(end_text.strip())
+    if start is None or end is None:
+        return None
+    return int(start), int(end)
+
+
+def _assistant_is_protected_night_shift(start_min, end_min):
+    start_min, end_min = int(start_min), int(end_min)
+    # Cruce de medianoche o cualquier tramo fuera de 07:00-23:00 = nocturno/protegido.
+    return end_min <= start_min or start_min < FRANK_SERVICE_START_MIN or end_min > FRANK_SERVICE_END_MIN
+
+
+def _assistant_is_valid_frank_proposal(start_min, end_min):
+    start_min, end_min = int(start_min), int(end_min)
+    return (
+        end_min > start_min
+        and start_min >= FRANK_SERVICE_START_MIN
+        and end_min <= FRANK_SERVICE_END_MIN
+        and (end_min - start_min) == FRANK_SHIFT_MINUTES
+    )
+
 
 def _assistant_schedule_text(start_min, end_min):
     return f"{_assistant_hhmm_minutes(start_min)}-{_assistant_hhmm_minutes(end_min)}"
@@ -3649,25 +3692,27 @@ def _assistant_optimize_roster(context, max_moves=6):
                 continue
 
             start, end = int(sched['start']), int(sched['end'])
+
+            # No mover nocturnos: si el horario actual cruza medianoche o toca
+            # cualquier tramo fuera de 07:00-23:00, el agente queda fuera del optimizador.
+            if _assistant_is_protected_night_shift(start, end):
+                continue
+
             old_intervals = _assistant_span_intervals(start, end)
             if not old_intervals:
                 continue
 
             for delta in (-90, -60, -30, 30, 60, 90):
-                new_start_abs = start + delta
-                end_abs = end if end > start else end + (24 * 60)
-                new_end_abs = end_abs + delta
-                if new_start_abs < 0 or new_start_abs >= 24 * 60:
-                    continue
-                if new_end_abs <= new_start_abs or new_end_abs > 2 * 24 * 60:
+                new_start = start + delta
+                new_end = new_start + FRANK_SHIFT_MINUTES
+
+                # Toda propuesta de Frank debe ser exactamente de 6 horas y quedar
+                # completamente dentro de la ventana operativa 07:00-23:00.
+                if not _assistant_is_valid_frank_proposal(new_start, new_end):
                     continue
 
-                new_start = new_start_abs % (24 * 60)
-                new_end = new_end_abs % (24 * 60)
                 new_intervals = _assistant_span_intervals(new_start, new_end)
                 if not new_intervals:
-                    continue
-                if any(not esta_en_ventana_servicio(roster_agent.get('campaign', ''), interval) for interval in new_intervals):
                     continue
 
                 old_set, new_set = set(old_intervals), set(new_intervals)
