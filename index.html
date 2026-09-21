@@ -3696,95 +3696,6 @@
             .forecast-control-cards { grid-template-columns:1fr; }
         }
 
-
-        /* ================================================================
-           V6.8 · FORECAST ANUAL 2026
-           ================================================================ */
-        .forecast-annual-summary {
-            margin-top:10px;padding:10px;border:1px solid #D7E2E9;border-radius:13px;background:#FFF;
-        }
-        .forecast-annual-summary-head {
-            display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;
-        }
-        .forecast-annual-summary-title {
-            color:#39576B;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;
-        }
-        .forecast-annual-summary-copy { color:#8998A6;font-size:7px; }
-        .forecast-annual-channel { margin-top:8px; }
-        .forecast-annual-channel:first-child { margin-top:0; }
-        .forecast-annual-channel-name { color:#506A7D;font-size:7px;font-weight:900;margin-bottom:5px; }
-        .forecast-annual-months {
-            display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;
-        }
-        .forecast-annual-month {
-            min-height:42px;padding:6px;border-radius:9px;border:1px solid #DEE6EB;background:#F8FAFB;
-            text-align:left;cursor:pointer;transition:.14s ease;
-        }
-        .forecast-annual-month:hover { transform:translateY(-1px);border-color:#BDCFD9;background:#FFF; }
-        .forecast-annual-month strong { display:block;color:#405D71;font-size:7px;font-weight:900; }
-        .forecast-annual-month span { display:block;margin-top:3px;color:#8A99A6;font-size:6.2px;font-weight:800; }
-        .forecast-annual-month.closed { border-color:#BED8D1;background:#EEF8F5; }
-        .forecast-annual-month.closed strong,.forecast-annual-month.closed span { color:#34766E; }
-        .forecast-annual-month.rolling { border-color:#CFD9EC;background:#F3F6FC; }
-        .forecast-annual-month.rolling span { color:#5D72A0; }
-        .forecast-annual-month.historical { background:#F0F2F4;border-color:#E0E4E7; }
-        .forecast-annual-month.historical strong { color:#687987; }
-        .forecast-annual-month.current { box-shadow:inset 0 0 0 1px #7EBEB3; }
-        .forecast-history-protected {
-            display:inline-flex;align-items:center;min-height:22px;padding:0 7px;border-radius:999px;
-            background:#EEF1F3;color:#657886;font-size:6.6px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;
-        }
-        @media (max-width:800px) {
-            .forecast-annual-months { grid-template-columns:repeat(3,minmax(0,1fr)); }
-        }
-
-
-        /* ================================================================
-           V6.10 · REAL HISTÓRICO + FORECAST FUTURO
-           ================================================================ */
-        .forecast-source-badge {
-            display:inline-flex;align-items:center;gap:6px;min-height:25px;padding:0 8px;
-            border-radius:999px;border:1px solid #D7E1E8;background:#F3F6F8;
-            color:#667D90;font-size:6.8px;font-weight:900;text-transform:uppercase;
-            letter-spacing:.06em;white-space:nowrap;
-        }
-        .forecast-source-badge::before {
-            content:'';width:6px;height:6px;border-radius:50%;background:#92A5B4;
-        }
-        .forecast-source-badge.real { background:#EEF4F7;border-color:#D4E0E6;color:#496A80; }
-        .forecast-source-badge.real::before { background:#5D8DAA; }
-        .forecast-source-badge.hybrid { background:#EEF6F5;border-color:#CEE1DD;color:#3E756D; }
-        .forecast-source-badge.hybrid::before { background:#58A696; }
-        .forecast-source-badge.forecast { background:#F1F3FA;border-color:#D6DCEF;color:#5F70A0; }
-        .forecast-source-badge.forecast::before { background:#7188CF; }
-        .forecast-source-badge.closed { background:#EAF6F3;border-color:#C7DFD9;color:#2F756C; }
-        .forecast-source-badge.closed::before { background:#4FAE9D; }
-        .forecast-source-note {
-            margin-top:7px;color:#7B8D9D;font-size:7.3px;line-height:1.45;
-        }
-        .forecast-source-note strong { color:#526B7D; }
-
-
-        .dashboard-info-safe {
-            background:#EEF6F8 !important;
-            border-color:#CCE0E6 !important;
-            color:#466E7D !important;
-        }
-
-
-        /* ================================================================
-           V6.10.5 · FUENTE HISTÓRICA CONTROLADA
-           ================================================================ */
-        .source-manager-card{padding:11px;border:1px solid #D7E2E9;border-radius:13px;background:rgba(255,255,255,.52)}
-        .source-manager-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
-        .source-manager-title{font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:#405B70}
-        .source-manager-status{margin-top:4px;font-size:7.5px;line-height:1.45;color:#728697;word-break:break-word}
-        .source-manager-pill{display:inline-flex;align-items:center;min-height:21px;padding:0 7px;border-radius:999px;font-size:6.5px;font-weight:900;background:#F0F3F6;color:#6B7E8E;white-space:nowrap}
-        .source-manager-pill.ready{background:#E7F5F1;color:#2B776D}.source-manager-pill.missing{background:#FFF2E4;color:#9A6426}
-        .source-manager-actions{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}
-        .source-manager-btn{min-height:31px;padding:0 9px;border-radius:9px;border:1px solid #CBD9E2;background:#F7FAFC;color:#456176;font-size:7.4px;font-weight:900}
-        .source-manager-btn.primary{border-color:#BBD7D1;background:#EAF6F3;color:#2C756B}
-
     </style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
@@ -3921,28 +3832,9 @@
                         </div>
                     </div>
 
-                    <div class="source-manager-card" id="historicalSourceCard">
-                        <div class="source-manager-head">
-                            <div>
-                                <div class="source-manager-title">Fuente histórica · Data Real Servicios.xlsx</div>
-                                <div id="historicalSourceStatus" class="source-manager-status">Validando archivo de datos…</div>
-                            </div>
-                            <span id="historicalSourcePill" class="source-manager-pill">Revisando</span>
-                        </div>
-                        <div class="source-manager-actions">
-                            <button type="button" id="historicalSourceUploadBtn" class="source-manager-btn primary" onclick="document.getElementById('historicalSourceFile').click()">Cargar Data Real Servicios</button>
-                            <button type="button" class="source-manager-btn" onclick="showSourceDiagnostics()">Diagnóstico</button>
-                        </div>
-                        <input id="historicalSourceFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden" onchange="uploadHistoricalSource(event)">
-                    </div>
-
                     <div class="flex flex-col group">
-                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte del forecast</label>
-                        <div class="input-clean p-3 rounded-xl">
-                            <div class="text-sm font-mono-num font-bold text-brand-accentViolet">Septiembre → Diciembre 2026</div>
-                            <div class="text-[9px] text-slate-500 mt-1">Se proyecta desde la siguiente fecha real disponible hasta 31/12/2026 con motor ultraligero sin pandas/RandomForest en la carga normal. Enero–Agosto no se cargan.</div>
-                        </div>
-                        <input type="hidden" name="dias" id="dias" value="365">
+                        <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte (Días)</label>
+                        <input type="number" name="dias" id="dias" value="45" min="1" class="input-clean p-3 rounded-xl text-sm font-mono-num font-bold text-brand-accentViolet focus:outline-none" onchange="guardarEstadoParametros()">
                     </div>
 
                     <label class="flex items-center justify-between p-3 bg-[#09111F] border border-[#24334A] rounded-xl cursor-pointer hover:border-[#344761] transition-colors">
@@ -4037,8 +3929,8 @@
                     <div class="capacity-hero-head">
                         <div>
                             <div class="capacity-eyebrow"><span class="capacity-live-dot"></span> COBERTURA DE PLANTILLA</div>
-                            <h2 id="capacityMainTitle" class="capacity-title">HC requerido vs. HC actual</h2>
-                            <p id="capacityMainSubtitle" class="capacity-subtitle">La brecha de plantilla es el indicador principal para decidir contratación, redistribución o ajuste operativo.</p><div class="forecast-source-note"><span id="forecastDataSourceBadge" class="forecast-source-badge forecast">Forecast</span> <span id="forecastDataSourceNote">Demanda proyectada para el periodo seleccionado.</span></div>
+                            <h2 class="capacity-title">HC requerido vs. HC actual</h2>
+                            <p class="capacity-subtitle">La brecha de plantilla es el indicador principal para decidir contratación, redistribución o ajuste operativo.</p>
                         </div>
                         <span class="capacity-status" id="heroStatusText"><span class="capacity-status-dot"></span>Cobertura suficiente</span>
                     </div>
@@ -4046,11 +3938,11 @@
                     <div class="capacity-comparison-grid">
                         <div class="capacity-metric capacity-required-block">
                             <div class="capacity-metric-top">
-                                <span id="capacityRequiredLabel" class="capacity-metric-label">HC requerido</span>
+                                <span class="capacity-metric-label">HC requerido</span>
                                 <span class="capacity-metric-tag">NECESIDAD</span>
                             </div>
                             <p id="kpiHcRequerido" class="capacity-metric-value capacity-required-value font-mono-num">0 HC</p>
-                            <p id="capacityRequiredHelp" class="capacity-metric-help">Plantilla necesaria considerando jornada, descanso y merma.</p>
+                            <p class="capacity-metric-help">Plantilla necesaria considerando jornada, descanso y merma.</p>
                         </div>
 
                         <div class="capacity-vs" aria-hidden="true">
@@ -4061,20 +3953,20 @@
 
                         <div class="capacity-metric capacity-current-block">
                             <div class="capacity-metric-top">
-                                <span id="capacityCurrentLabel" class="capacity-metric-label">HC actual</span>
+                                <span class="capacity-metric-label">HC actual</span>
                                 <span class="capacity-metric-tag capacity-metric-tag-green">ROSTER</span>
                             </div>
                             <p id="kpiHcRoster" class="capacity-metric-value capacity-current-value font-mono-num">0 HC</p>
-                            <p id="capacityCurrentHelp" class="capacity-metric-help">Dotación disponible actualmente en la plantilla seleccionada.</p>
+                            <p class="capacity-metric-help">Dotación disponible actualmente en la plantilla seleccionada.</p>
                         </div>
 
                         <div class="capacity-gap-block">
                             <div class="capacity-gap-top">
-                                <span id="capacityGapLabel" class="capacity-metric-label">Déficit / excedente</span>
-                                <span id="capacityGapCaption" class="capacity-gap-caption">BRECHA</span>
+                                <span class="capacity-metric-label">Déficit / excedente</span>
+                                <span class="capacity-gap-caption">BRECHA</span>
                             </div>
                             <p id="kpiHcGap" class="capacity-gap-value gap-neutral font-mono-num">0</p>
-                            <p id="capacityGapHelp" class="capacity-gap-help">Diferencia entre HC actual y HC requerido.</p>
+                            <p class="capacity-gap-help">Diferencia entre HC actual y HC requerido.</p>
                         </div>
                     </div>
 
@@ -4155,7 +4047,7 @@
                 <div id="kpiDemandCard" class="glass-panel kpi-card kpi-secondary kpi-demand p-5">
                     <div class="flex items-start justify-between gap-3"><p class="kpi-label">Demanda del periodo</p><div class="kpi-icon text-[#9BB9FF]"><svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 17V9m5 8V5m5 12v-4m4 4V7" stroke-linecap="round"/></svg></div></div>
                     <div class="flex items-end justify-between gap-4 mt-4 flex-wrap"><p id="kpiCalls" class="kpi-value font-mono-num text-white">0</p><p id="kpiCallsDaily" class="text-[9px] text-slate-400 pb-0.5">Promedio diario: 0</p></div>
-                    <p id="kpiDemandHelp" class="kpi-help mt-2">Volumen total proyectado</p>
+                    <p class="kpi-help mt-2">Volumen total proyectado</p>
                 </div>
 
                 <div id="kpiAhtCard" class="glass-panel kpi-card kpi-secondary kpi-card-warning kpi-aht p-5">
@@ -4317,7 +4209,6 @@
             const previous = select.value;
             const msg = document.getElementById('campaignTargetMessage');
             let campanas = [];
-            select.innerHTML = '<option value="">Buscando campañas…</option>';
 
             // Si el forecast ya está cargado, usarlo primero. Así el selector no
             // depende de otra lectura del Excel y aparece de inmediato.
@@ -4331,7 +4222,7 @@
             // Si aún no hay forecast, pedir únicamente el catálogo de campañas.
             if (!campanas.length) {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 3000);
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
                 try {
                     const response = await fetch('/api/campaigns?mode=' + forecastMode + '&t=' + new Date().getTime(), {
                         signal: controller.signal,
@@ -4358,7 +4249,7 @@
 
             select.innerHTML = '';
             if (!campanas.length) {
-                select.innerHTML = '<option value="">Campañas no disponibles aún</option>';
+                select.innerHTML = '<option value="">Sin campañas disponibles</option>';
                 if (msg && !msg.innerText) msg.innerText = 'Genera el forecast o verifica el archivo histórico para cargar las campañas.';
                 return;
             }
@@ -4785,58 +4676,6 @@
         }
 
         function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
-        async function loadHistoricalSourceInfo(){
-            const status=document.getElementById('historicalSourceStatus');
-            const pill=document.getElementById('historicalSourcePill');
-            try{
-                const r=await fetch('/api/source-info?t='+Date.now(),{cache:'no-store'});
-                const info=await r.json();
-                if(!r.ok)throw new Error(info.error||'No se pudo consultar la fuente.');
-                if(info.sourceFound){
-                    const mb=(Number(info.selectedSizeBytes||0)/(1024*1024)).toFixed(1);
-                    if(status)status.textContent=`${info.selectedFile} · ${mb} MB · ${String(info.selectedModifiedAt||'').replace('T',' ')}`;
-                    if(pill){pill.textContent='Lista';pill.className='source-manager-pill ready';}
-                }else{
-                    if(status)status.textContent='No se encontró Data Real Servicios.xlsx. Carga ese archivo con el volumen real.';
-                    if(pill){pill.textContent='Falta fuente';pill.className='source-manager-pill missing';}
-                }
-                return info;
-            }catch(error){
-                if(status)status.textContent=error.message;
-                if(pill){pill.textContent='Error';pill.className='source-manager-pill missing';}
-                return {sourceFound:false,error:error.message};
-            }
-        }
-
-        async function uploadHistoricalSource(event){
-            const file=event.target.files?.[0];
-            if(!file)return;
-            const btn=document.getElementById('historicalSourceUploadBtn');
-            const status=document.getElementById('historicalSourceStatus');
-            if(btn){btn.disabled=true;btn.textContent='Cargando Data Real Servicios…';}
-            if(status)status.textContent=`Subiendo ${file.name}…`;
-            try{
-                const form=new FormData();form.append('file',file);
-                const response=await fetch('/api/source-upload',{method:'POST',body:form});
-                const data=await response.json();
-                if(!response.ok)throw new Error(data.error||'No se pudo cargar el histórico.');
-                modeDataCache.llamadas=null;modeDataCache.chat=null;
-                globalData=[];
-                await loadHistoricalSourceInfo();
-                await loadSourceMeta();
-                setRunStatus('Fuente cargada · leyendo histórico','amber');
-                await fetchLatestData(forecastMode,true);
-            }catch(error){
-                const box=document.getElementById('dashboardError');
-                if(box){box.innerText='No se pudo cargar el histórico: '+error.message;box.classList.remove('hidden');}
-                setRunStatus('Error en fuente histórica','red');
-                await loadHistoricalSourceInfo();
-            }finally{
-                if(btn){btn.disabled=false;btn.textContent='Cargar Data Real Servicios';}
-                event.target.value='';
-            }
-        }
-
         async function loadSourceMeta(){ try { const r=await fetch('/api/status?t='+Date.now()); const m=await r.json(); if(r.ok){ document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}`; } } catch(e){} }
 
 
@@ -5025,30 +4864,6 @@
             setTimeout(() => { if (gapChartInstance) gapChartInstance.resize(); }, 150);
         }
 
-        async function showSourceDiagnostics(){
-            try{
-                const mode=forecastMode==='general'?'llamadas':forecastMode;
-                const response=await fetch(`/api/source-diagnostics?mode=${encodeURIComponent(mode)}`,{cache:'no-store'});
-                const data=await response.json();
-                const layout=data.layout||{};
-                const cols=layout.columns||{};
-                const cache=data.cache||{};
-                alert(
-                    `Diagnóstico de fuente\n\n`+
-                    `Archivo: ${data.file||'No encontrado'}\n`+
-                    `Canal: ${mode}\n`+
-                    `Hoja detectada: ${layout.sheet||'No detectada'}\n`+
-                    `Fila de encabezado: ${layout.headerRow||'—'}\n`+
-                    `Fecha: ${cols.date ?? '—'} · Volumen: ${cols.volume ?? '—'}\n`+
-                    `Campaña: ${cols.campaign ?? '—'} · Intervalo: ${cols.interval ?? '—'} · AHT: ${cols.aht ?? '—'}\n`+
-                    `Filas reales cacheadas: ${cache.rows||0}\n`+
-                    `Primera fecha: ${cache.firstDate||'—'} · Última fecha: ${cache.lastDate||'—'}`
-                );
-            }catch(error){
-                alert('No se pudo obtener el diagnóstico: '+error.message);
-            }
-        }
-
         async function fetchModeData(mode, force = false) {
             mode = mode === 'chat' ? 'chat' : 'llamadas';
             if (!force && Array.isArray(modeDataCache[mode]) && modeDataCache[mode].length) {
@@ -5057,32 +4872,11 @@
             if (modeFetchPromises[mode]) return modeFetchPromises[mode];
 
             const promise = (async () => {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(()=>controller.abort(), 120000);
-                let response;
-                try{
-                    response = await fetch('/api/latest?mode=' + mode, {
-                        cache: force ? 'no-cache' : 'default',
-                        signal: controller.signal
-                    });
-                }catch(error){
-                    if(error.name==='AbortError'){
-                        throw new Error('La generación inicial del forecast superó 120 segundos. El servidor puede seguir calculando; espera un momento y recarga.');
-                    }
-                    throw error;
-                }finally{
-                    clearTimeout(timeoutId);
-                }
+                const response = await fetch('/api/latest?mode=' + mode, { cache: force ? 'no-cache' : 'default' });
                 let data = null;
                 try { data = await response.json(); } catch (_) { data = null; }
                 if (!response.ok) {
-                    let detail=(data&&data.error)||`HTTP ${response.status}`;
-                    const diag=data&&data.diagnostics;
-                    if(diag&&diag.layout){
-                        const cols=diag.layout.columns||{};
-                        detail += ` · Hoja: ${diag.layout.sheet||'—'} · Encabezado fila ${diag.layout.headerRow||'—'} · Fecha:${cols.date ?? '—'} Volumen:${cols.volume ?? '—'} Campaña:${cols.campaign ?? '—'} Intervalo:${cols.interval ?? '—'}`;
-                    }
-                    throw new Error(detail);
+                    throw new Error((data && data.error) || `HTTP ${response.status}`);
                 }
                 const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
                 const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
@@ -5099,10 +4893,12 @@
         }
 
         function scheduleModeWarmup(activeMode) {
-            // Disabled intentionally on 512 MB instances.
-            // The old warmup could start Chat while Llamadas was still occupying
-            // pandas/openpyxl memory on the server.
-            return;
+            if (warmupScheduled || activeMode === 'general') return;
+            warmupScheduled = true;
+            const otherMode = activeMode === 'chat' ? 'llamadas' : 'chat';
+            const run = () => fetchModeData(otherMode, false).catch(() => {});
+            if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 2500 });
+            else setTimeout(run, 800);
         }
 
         async function fetchLatestData(mode, isBackground = false) {
@@ -5111,18 +4907,16 @@
                 const force = !!isBackground;
 
                 if (mode === 'general') {
-                    const inData = await fetchModeData('llamadas', force);
-                    const chatData = await fetchModeData('chat', force);
+                    const [inData, chatData] = await Promise.all([
+                        fetchModeData('llamadas', force),
+                        fetchModeData('chat', force)
+                    ]);
                     nextData = [...inData, ...chatData];
                 } else {
                     nextData = await fetchModeData(mode, force);
                 }
 
                 globalData = nextData;
-                if(mode !== 'general'){
-                    const otherMode = mode === 'chat' ? 'llamadas' : 'chat';
-                    modeDataCache[otherMode] = null;
-                }
                 wfmDataVersion += 1;
 
                 if (globalData.length > 0) {
@@ -5130,24 +4924,14 @@
                         inicializarFiltrosMultiples();
                         applySavedFilters();
                     }
-                    // Render immediately. Campaign configuration must never block KPIs.
+                    if (mode !== 'general') await cargarCampanasConfiguracion();
                     debouncedActualizarGrafica();
-                    if (mode !== 'general') {
-                        cargarCampanasConfiguracion().catch(err=>console.warn('Catálogo campañas:',err));
-                    }
-
                     const box = document.getElementById('dashboardError');
-                    if (box) {
-                        box.classList.add('hidden');
-                        box.classList.remove('dashboard-info-safe');
-                    }
-                    if(!isBackground) setRunStatus('Forecast listo','green');
+                    if (box) box.classList.add('hidden');
                     if (!isBackground) scheduleModeWarmup(mode);
                 } else if (!isBackground) {
                     limpiarPantalla();
-                    if (mode !== 'general') {
-                        cargarCampanasConfiguracion().catch(err=>console.warn('Catálogo campañas:',err));
-                    }
+                    if (mode !== 'general') await cargarCampanasConfiguracion();
                     const box = document.getElementById('dashboardError');
                     if (box) {
                         box.innerText = 'No hay un forecast disponible todavía. Presiona GENERAR FORECAST para generarlo.';
@@ -5159,7 +4943,7 @@
                 if (!isBackground) {
                     const box = document.getElementById('dashboardError');
                     if (box) {
-                        box.innerHTML = `No se pudo cargar la información: ${rosterSafe(e.message || 'error de conexión con el servidor.')} <button type="button" onclick="showSourceDiagnostics()" style="margin-left:8px;text-decoration:underline;font-weight:900">Ver diagnóstico</button>`;
+                        box.innerText = 'No se pudo cargar la información: ' + (e.message || 'error de conexión con el servidor.');
                         box.classList.remove('hidden');
                     }
                     setRunStatus('Error al cargar', 'red');
@@ -5195,11 +4979,6 @@
                 setRunStatus('Calculando campañas…', 'amber');
                 const response = await fetch(url, { method: 'POST', body: formData });
                 globalData = await response.json();
-                const infoBox=document.getElementById('dashboardError');
-                if(infoBox){
-                    infoBox.classList.add('hidden');
-                    infoBox.classList.remove('dashboard-info-safe');
-                }
                 wfmDataVersion += 1;
                 
                 if (response.ok && Array.isArray(globalData)) {
@@ -5215,7 +4994,7 @@
                     setRunStatus('Listo', 'green');
                     await loadSourceMeta();
                 } else {
-                    const msg = globalData.error || "Asegúrate de que 'Data Real Servicios.xlsx' esté cargado.";
+                    const msg = globalData.error || "Asegúrate de que 'historico.xlsx' esté cargado.";
                     const box=document.getElementById('dashboardError'); box.innerText='Error: '+msg; box.classList.remove('hidden'); setRunStatus('Falló el cálculo', 'red');
                 }
             } catch (e) {
@@ -5467,21 +5246,7 @@
                     return; 
                 }
             }
-            setRunStatus('Validando fuente histórica…','amber');
-            loadHistoricalSourceInfo().then(info=>{
-                if(info&&info.sourceFound){
-                    setRunStatus('Generando forecast ultraligero…','amber');
-                    return fetchLatestData(forecastMode);
-                }
-                limpiarPantalla();
-                const box=document.getElementById('dashboardError');
-                if(box){
-                    box.innerText='No hay una fuente histórica operativa. Usa “Cargar Data Real Servicios” y selecciona tu archivo con el volumen real.';
-                    box.classList.remove('hidden');
-                    box.classList.add('dashboard-info-safe');
-                }
-                setRunStatus('Falta Data Real Servicios.xlsx','amber');
-            }).finally(()=>loadSourceMeta());
+            fetchLatestData(forecastMode).finally(() => loadSourceMeta());
 
             if (mode === 'ops' || mode === 'operaciones') {
                 setInterval(() => {
@@ -5542,74 +5307,6 @@
             return sameSl && sameAsa && sameConcurrency ? row.fte : null;
         }
 
-        function updateForecastSourcePresentation(rows){
-            const items=Array.isArray(rows)?rows:[];
-            const hasReal=items.some(r=>String(getProp(r,['Dato_Tipo','Forecast_Tipo'],'')).toLowerCase()==='real');
-            const hasForecast=items.some(r=>{
-                const t=String(getProp(r,['Dato_Tipo','Forecast_Tipo'],'')).toLowerCase();
-                return t==='forecast'||t==='rolling'||t==='annual_baseline';
-            });
-            const hasLocked=items.some(r=>!!getProp(r,['HC_Bloqueado'],false));
-            const allReal=items.length>0&&hasReal&&!hasForecast;
-            const hybrid=hasReal&&hasForecast;
-
-            const badge=document.getElementById('forecastDataSourceBadge');
-            const note=document.getElementById('forecastDataSourceNote');
-            const demandHelp=document.getElementById('kpiDemandHelp');
-            const title=document.getElementById('capacityMainTitle');
-            const subtitle=document.getElementById('capacityMainSubtitle');
-            const reqLabel=document.getElementById('capacityRequiredLabel');
-            const reqHelp=document.getElementById('capacityRequiredHelp');
-            const currentLabel=document.getElementById('capacityCurrentLabel');
-            const currentHelp=document.getElementById('capacityCurrentHelp');
-            const gapLabel=document.getElementById('capacityGapLabel');
-            const gapCaption=document.getElementById('capacityGapCaption');
-            const gapHelp=document.getElementById('capacityGapHelp');
-
-            if(badge){
-                badge.className='forecast-source-badge '+(allReal?'real':hybrid?'hybrid':hasLocked?'closed':'forecast');
-                badge.textContent=hasLocked?'Forecast cerrado':'Forecast';
-            }
-
-            if(allReal){
-                if(note)note.textContent='El volumen y AHT son reales. No existe forecast original para este periodo.';
-                if(demandHelp)demandHelp.textContent='Volumen real histórico cargado en Data Real Servicios.xlsx.';
-                if(title)title.textContent='HC teórico sobre demanda real';
-                if(subtitle)subtitle.textContent='El HC mostrado es una referencia teórica calculada sobre el volumen real; no representa un HC histórico acordado.';
-                if(reqLabel)reqLabel.textContent='HC teórico sobre real';
-                if(reqHelp)reqHelp.textContent='Estimación con volumen/AHT real y los parámetros de dimensionamiento disponibles.';
-                if(currentLabel)currentLabel.textContent='HC actual (referencia)';
-                if(currentHelp)currentHelp.textContent='Roster actual usado solo como referencia; no es una fotografía histórica de plantilla.';
-                if(gapLabel)gapLabel.textContent='Brecha referencial';
-                if(gapCaption)gapCaption.textContent='REFERENCIA';
-                if(gapHelp)gapHelp.textContent='Compara el HC teórico histórico contra el roster actual, no contra la plantilla histórica.';
-            }else if(hybrid){
-                if(note)note.textContent='Periodo híbrido: real transcurrido + forecast para las fechas futuras.';
-                if(demandHelp)demandHelp.textContent='Real acumulado + forecast restante = proyección de cierre del periodo.';
-                if(title)title.textContent='HC del periodo · real + forecast';
-                if(subtitle)subtitle.textContent='El pasado usa demanda real; el futuro usa forecast. Los locks mensuales conservan el HC acordado cuando aplica.';
-                if(reqLabel)reqLabel.textContent='HC requerido / teórico';
-                if(reqHelp)reqHelp.textContent='Pasado: cálculo teórico sobre real. Futuro: requerimiento sobre forecast vigente o cerrado.';
-                if(currentLabel)currentLabel.textContent='HC actual';
-                if(currentHelp)currentHelp.textContent='Dotación disponible actualmente para contrastar la capacidad futura.';
-                if(gapLabel)gapLabel.textContent='Déficit / excedente';
-                if(gapCaption)gapCaption.textContent='BRECHA';
-                if(gapHelp)gapHelp.textContent='Referencia operativa sobre la selección mixta de real y forecast.';
-            }else{
-                if(note)note.textContent=hasLocked?'Forecast oficial del periodo con HC requerido bloqueado.':'Demanda proyectada para el periodo seleccionado.';
-                if(demandHelp)demandHelp.textContent=hasLocked?'Volumen forecast oficial / vigente del periodo.':'Volumen total proyectado.';
-                if(title)title.textContent='HC requerido vs. HC actual';
-                if(subtitle)subtitle.textContent='La brecha de plantilla es el indicador principal para decidir contratación, redistribución o ajuste operativo.';
-                if(reqLabel)reqLabel.textContent='HC requerido';
-                if(reqHelp)reqHelp.textContent=hasLocked?'HC acordado y bloqueado para el periodo cerrado.':'Plantilla necesaria considerando jornada, descanso y merma.';
-                if(currentLabel)currentLabel.textContent='HC actual';
-                if(currentHelp)currentHelp.textContent='Dotación disponible actualmente en la plantilla seleccionada.';
-                if(gapLabel)gapLabel.textContent='Déficit / excedente';
-                if(gapCaption)gapCaption.textContent='BRECHA';
-                if(gapHelp)gapHelp.textContent='Diferencia entre HC actual y HC requerido.';
-            }
-        }
-
         async function actualizarGrafica() {
             actualizarVisibilidadFiltros(); 
 
@@ -5640,8 +5337,6 @@
                 limpiarPantalla();
                 return;
             }
-
-            updateForecastSourcePresentation(dfFiltered);
 
             let aggInter = {};
             let fechasSet = new Set();
@@ -6426,11 +6121,6 @@
             return Number.isFinite(n)?Math.round(n).toLocaleString():'0';
         }
 
-        function forecastControlMonths2026(){
-            return ['Enero 2026','Febrero 2026','Marzo 2026','Abril 2026','Mayo 2026','Junio 2026',
-                    'Julio 2026','Agosto 2026','Septiembre 2026','Octubre 2026','Noviembre 2026','Diciembre 2026'];
-        }
-
         function openForecastControl(){
             const overlay=document.getElementById('forecastControlOverlay');
             overlay?.classList.remove('hidden');
@@ -6439,16 +6129,12 @@
             const select=document.getElementById('forecastControlMonth');
             if(select){
                 const previous=select.value;
-                const months=forecastControlMonths2026();
+                const months=allMesesOptions.length?allMesesOptions:[...new Set((globalData||[]).map(r=>String(r.Mes||'')).filter(Boolean))];
                 select.innerHTML=months.map(m=>`<option value="${rosterSafe(m)}">${rosterSafe(m)}</option>`).join('');
                 const selected=selectedMeses.size===1?Array.from(selectedMeses)[0]:'';
-                const forecastMonth=(allMesesOptions||[]).find(m=>months.includes(m));
-                const browserMonth=`${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][new Date().getMonth()]} 2026`;
                 if(selected&&months.includes(selected))select.value=selected;
                 else if(previous&&months.includes(previous))select.value=previous;
-                else if(forecastMonth)select.value=forecastMonth;
-                else if(months.includes(browserMonth))select.value=browserMonth;
-                else select.value='Enero 2026';
+                else if(months.length)select.value=months[0];
             }
             document.getElementById('forecastControlReason').value='';
             loadForecastControl();
@@ -6469,110 +6155,36 @@
 
         function renderForecastControlCard(status){
             const closed=status.status==='closed';
-            const historical=status.status==='historical';
             const delta=Number(status.officialForecastTotal||0)-Number(status.forecastAtCloseTotal||0);
             const deltaText=delta===0?'Sin ajuste':`${delta>0?'+':''}${forecastControlNumber(delta)}`;
-
-            const stateLabel=closed?'🔒 Cerrado':historical?'✓ Histórico protegido':'↻ Rolling';
-            const stateClass=closed?'closed':'';
-
-            let metrics='';
-            if(historical){
-                metrics=`<div class="forecast-control-metrics">
-                    <div class="forecast-control-metric"><span>Volumen real</span><strong>${forecastControlNumber(status.actualVolumeTotal||status.rollingForecastTotal)}</strong></div>
-                    <div class="forecast-control-metric"><span>HC teórico pico</span><strong>${forecastControlNumber(status.rollingPeakRequiredHC)} HC</strong></div>
-                    <div class="forecast-control-metric"><span>Tratamiento</span><strong>Inmutable</strong></div>
-                    <div class="forecast-control-metric"><span>Forecast original</span><strong>No disponible</strong></div>
-                </div>`;
-            }else{
-                const currentMonth=status.temporalState==='current';
-                metrics=`<div class="forecast-control-metrics">
-                    <div class="forecast-control-metric"><span>${closed?'Forecast al cierre':currentMonth?'Real acumulado':'Forecast rolling'}</span><strong>${forecastControlNumber(closed?status.forecastAtCloseTotal:currentMonth?status.actualVolumeTotal:status.rollingForecastTotal)}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'Forecast oficial':currentMonth?'Forecast restante':'HC pico rolling'}</span><strong>${closed?forecastControlNumber(status.officialForecastTotal):currentMonth?forecastControlNumber(status.futureForecastTotal):forecastControlNumber(status.rollingPeakRequiredHC)+' HC'}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'HC requerido cerrado':currentMonth?'Proyección cierre':'Filas disponibles'}</span><strong>${closed?forecastControlNumber(status.lockedPeakRequiredHC)+' HC':currentMonth?forecastControlNumber(status.projectedCloseTotal):forecastControlNumber(status.availableRows)}</strong></div>
-                    <div class="forecast-control-metric"><span>${closed?'Variación post-cierre':currentMonth?'HC pico teórico/rolling':'Última versión'}</span><strong>${closed?deltaText:currentMonth?forecastControlNumber(status.rollingPeakRequiredHC)+' HC':'V'+forecastControlNumber(status.latestVersion||0)}</strong></div>
-                </div>`;
-            }
-
-            let detail='';
-            if(closed){
-                detail=`Versión LOCK-${rosterSafe(status.monthKey||'')}-V${Number(status.version||0)} · cerrado ${rosterSafe(String(status.closedAt||'').replace('T',' '))}<br>Protegido: ${Number(status.protectedRows||0)} filas pasadas/hoy · Reforecast elegible: ${Number(status.futureRows||0)} filas futuras`;
-            }else if(historical){
-                detail=status.availableRows>0?'Volumen real cargado en el histórico. El HC es teórico sobre demanda real; no existe forecast original de este mes.':'No hay volumen real cargado para este mes.';
-            }else if(status.previousVersion){
-                detail=`Rolling tras reapertura de V${Number(status.previousVersion)} · ${rosterSafe(status.reopenReason||'')}`;
-            }else{
-                detail='Mes abierto: Forecast y HC requerido continúan siendo rolling hasta que WFM decida cerrarlo.';
-            }
-
-            const actions=[];
-            if(status.canClose){
-                actions.push(`<button type="button" class="forecast-control-action primary" onclick="closeForecastMonth('${rosterSafe(status.channel)}')">🔒 Cerrar mes</button>`);
-            }
-            if(status.canReforecast){
-                actions.push(`<button type="button" class="forecast-control-action primary" onclick="reforecastForecastMonth('${rosterSafe(status.channel)}')">Reforecast futuro</button>`);
-            }
-            if(status.canReopen){
-                actions.push(`<button type="button" class="forecast-control-action danger" onclick="reopenForecastMonth('${rosterSafe(status.channel)}')">Reabrir mes</button>`);
-            }
-
             return `<article class="forecast-control-card ${closed?'closed':''}">
                 <div class="forecast-control-card-head">
                     <div>
                         <div class="forecast-control-channel">${forecastChannelLabel(status.channel)}</div>
                         <div class="forecast-control-meta">${rosterSafe(status.monthLabel||status.monthKey||'')}</div>
                     </div>
-                    ${historical?`<span class="forecast-history-protected">${stateLabel}</span>`:`<span class="forecast-control-state ${stateClass}">${stateLabel}</span>`}
+                    <span class="forecast-control-state ${closed?'closed':''}">${closed?'🔒 Cerrado':'↻ Rolling'}</span>
                 </div>
-                ${metrics}
-                <div class="forecast-control-meta" style="margin-top:8px">${detail}</div>
-                ${actions.length?`<div class="forecast-control-actions">${actions.join('')}</div>`:''}
+                <div class="forecast-control-metrics">
+                    <div class="forecast-control-metric"><span>${closed?'Forecast al cierre':'Forecast rolling'}</span><strong>${forecastControlNumber(closed?status.forecastAtCloseTotal:status.rollingForecastTotal)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Forecast oficial':'HC pico rolling'}</span><strong>${closed?forecastControlNumber(status.officialForecastTotal):forecastControlNumber(status.rollingPeakRequiredHC)+' HC'}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'HC requerido cerrado':'Filas disponibles'}</span><strong>${closed?forecastControlNumber(status.lockedPeakRequiredHC)+' HC':forecastControlNumber(status.availableRows)}</strong></div>
+                    <div class="forecast-control-metric"><span>${closed?'Variación post-cierre':'Última versión'}</span><strong>${closed?deltaText:'V'+forecastControlNumber(status.latestVersion||0)}</strong></div>
+                </div>
+                <div class="forecast-control-meta" style="margin-top:8px">
+                    ${closed
+                        ? `Versión LOCK-${rosterSafe(status.monthKey||'')}-V${Number(status.version||0)} · cerrado ${rosterSafe(String(status.closedAt||'').replace('T',' '))}<br>Protegido: ${Number(status.protectedRows||0)} filas pasadas/hoy · Reforecast elegible: ${Number(status.futureRows||0)} filas futuras`
+                        : status.previousVersion
+                            ? `Rolling tras reapertura de V${Number(status.previousVersion)} · ${rosterSafe(status.reopenReason||'')}`
+                            : 'Mes abierto: Forecast y HC requerido continúan siendo rolling.'}
+                </div>
+                <div class="forecast-control-actions">
+                    ${closed
+                        ? `<button type="button" class="forecast-control-action primary" onclick="reforecastForecastMonth('${rosterSafe(status.channel)}')">Reforecast futuro</button>
+                           <button type="button" class="forecast-control-action danger" onclick="reopenForecastMonth('${rosterSafe(status.channel)}')">Reabrir mes</button>`
+                        : `<button type="button" class="forecast-control-action primary" onclick="closeForecastMonth('${rosterSafe(status.channel)}')">🔒 Cerrar mes</button>`}
+                </div>
             </article>`;
-        }
-
-        function selectForecastControlAnnualMonth(monthLabel){
-            const select=document.getElementById('forecastControlMonth');
-            if(select){
-                select.value=monthLabel;
-                loadForecastControl();
-            }
-        }
-
-        async function loadForecastAnnualOverview(){
-            const wrap=document.getElementById('forecastAnnualOverview');
-            if(!wrap)return;
-            wrap.innerHTML='<div class="forecast-control-loading">Cargando estado anual…</div>';
-            try{
-                const channels=forecastControlChannels();
-                const groups=await Promise.all(channels.map(async channel=>{
-                    const response=await fetch(`/api/forecast-control/year?year=2026&channel=${encodeURIComponent(channel)}`,{cache:'no-store'});
-                    const data=await response.json();
-                    if(!response.ok)throw new Error(data.error||'No se pudo consultar el año.');
-                    return data;
-                }));
-
-                wrap.innerHTML=groups.map(group=>{
-                    const months=(group.months||[]).map(status=>{
-                        const monthLabel=status.monthLabel||status.monthKey||'';
-                        const historical=status.status==='historical';
-                        const closed=status.status==='closed';
-                        const rolling=status.status==='rolling';
-                        const state=closed?'🔒 Cerrado':historical?(Number(status.realRows||0)>0?'✓ Real histórico':'Sin real'):(status.temporalState==='current'?'◐ Real + Forecast':(Number(status.forecastRows||status.availableRows||0)>0?'↻ Rolling':'Sin forecast'));
-                        const cls=closed?'closed':historical?'historical':rolling?'rolling':'';
-                        const current=status.temporalState==='current'?'current':'';
-                        return `<button type="button" class="forecast-annual-month ${cls} ${current}" onclick="selectForecastControlAnnualMonth('${rosterSafe(monthLabel)}')">
-                            <strong>${rosterSafe(String(monthLabel).replace(' 2026',''))}</strong>
-                            <span>${state}</span>
-                        </button>`;
-                    }).join('');
-                    return `<div class="forecast-annual-channel">
-                        <div class="forecast-annual-channel-name">${forecastChannelLabel(group.channel)}</div>
-                        <div class="forecast-annual-months">${months}</div>
-                    </div>`;
-                }).join('');
-            }catch(error){
-                wrap.innerHTML=`<div class="forecast-control-loading">${rosterSafe(error.message)}</div>`;
-            }
         }
 
         async function loadForecastControl(){
@@ -6595,10 +6207,10 @@
                 const anyClosed=statuses.some(s=>s.status==='closed');
                 const badge=document.getElementById('forecastControlHeaderBadge');
                 if(badge){
-                    badge.textContent=anyClosed?'2026 · cierre':'2026 real + forecast';
+                    badge.textContent=anyClosed?'Cierre activo':'Mensual';
                     badge.classList.toggle('closed',anyClosed);
                 }
-                await Promise.all([loadForecastControlHistory(),loadForecastAnnualOverview()]);
+                await loadForecastControlHistory();
             }catch(error){
                 if(cards)cards.innerHTML=`<div class="forecast-control-loading">${rosterSafe(error.message)}</div>`;
                 if(history)history.innerHTML='';
@@ -8565,7 +8177,7 @@
                     <div class="wfm-quality-grid">
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Filas forecast</div><div class="wfm-quality-value">${Number(quality.forecastRows ?? context.rowCount ?? 0).toLocaleString()}</div></div>
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Roster disponible</div><div class="wfm-quality-value">${quality.rosterAvailable === false ? 'No confirmado' : `${Number(quality.rosterAgents || 0)} agentes`}</div></div>
-                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Data Real Servicios.xlsx')}</div></div>
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'historico.xlsx')}</div></div>
                     </div>
                     <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Frank no inventará ese dato.</div>
                 </section>`;
@@ -9275,8 +8887,8 @@
         <div class="forecast-control-shell">
             <div class="forecast-control-head">
                 <div>
-                    <div class="forecast-control-title">Forecast operativo · Septiembre–Diciembre 2026</div>
-                    <div class="forecast-control-subtitle">Vista ligera desde la siguiente fecha real disponible. Conserva cierre mensual, HC bloqueado y reforecast solo futuro.</div>
+                    <div class="forecast-control-title">Lock & Rolling Forecast mensual</div>
+                    <div class="forecast-control-subtitle">El cierre siempre es manual. HC requerido cerrado no cambia; un reforecast solo puede modificar forecast futuro.</div>
                 </div>
                 <button type="button" class="roster-head-btn" onclick="closeForecastControl()" aria-label="Cerrar">✕</button>
             </div>
@@ -9294,19 +8906,7 @@
                 </div>
 
                 <div class="forecast-control-rule">
-                    <strong>Regla de gobierno:</strong> el dashboard vuelve a trabajar únicamente con la proyección vigente desde la siguiente fecha real hasta diciembre. El cierre sigue siendo mensual y manual; el HC cerrado no cambia y el reforecast nunca modifica el pasado.
-                </div>
-
-                <div class="forecast-control-rule" style="margin-top:10px">
-                    <strong>Cómo leer 2026:</strong> las fechas con datos reales usan el volumen/AHT observado. Desde mañana se usa forecast. En el mes actual, Real acumulado + Forecast restante forman la proyección de cierre. Los locks conservan el HC acordado.
-                </div>
-
-                <div class="forecast-annual-summary">
-                    <div class="forecast-annual-summary-head">
-                        <div class="forecast-annual-summary-title">Mapa operativo 2026</div>
-                        <div class="forecast-annual-summary-copy">Sin forecast · Cerrado · Rolling</div>
-                    </div>
-                    <div id="forecastAnnualOverview"><div class="forecast-control-loading">Cargando estado anual…</div></div>
+                    <strong>Regla de gobierno:</strong> el mes no se cierra automáticamente. Al cerrar, el HC requerido queda bloqueado. Si después se requiere reforecast, únicamente se actualizan fechas posteriores a hoy; el pasado y el día actual no se reescriben.
                 </div>
 
                 <div id="forecastControlCards" class="forecast-control-cards">
