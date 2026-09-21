@@ -2499,7 +2499,9 @@ def roster_apply_recommendation():
     try:
         payload=request.get_json(force=True,silent=False) or {}
         action_id=str(payload.get('actionId') or '').strip()
-        move=payload.get('move') or {}; actor=str(payload.get('actorMode') or 'ops')[:80]
+        move=payload.get('move') or {}; actor=str(payload.get('actorMode') or 'wfm')[:80]
+        if _assistant_norm(actor) != 'wfm':
+            return jsonify({'error':'Las recomendaciones de Frank solo pueden aplicarse desde la vista WFM.'}),403
         records=_wfm_action_log_read()
         action=next((r for r in records if r.get('actionId')==action_id),None)
         if not action or action.get('decision')!='accepted':
@@ -3948,6 +3950,8 @@ def wfm_action_decision():
 
         move = payload.get('move') or {}
         actor_mode = str(payload.get('actorMode') or 'wfm')[:40]
+        if _assistant_norm(actor_mode) != 'wfm':
+            return jsonify({'error': 'Las decisiones de Frank solo pueden gestionarse desde la vista WFM.'}), 403
         scope_label = str(payload.get('scopeLabel') or '')[:80]
         scope_detail = str(payload.get('scopeDetail') or '')[:120]
         now = datetime.now().isoformat(timespec='seconds')
