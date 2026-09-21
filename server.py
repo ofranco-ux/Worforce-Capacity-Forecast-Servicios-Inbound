@@ -8,6 +8,7 @@ import threading
 import hashlib
 import time
 import sqlite3
+import shutil
 import io
 import csv
 from functools import lru_cache
@@ -31,9 +32,15 @@ from sklearn.ensemble import RandomForestRegressor
 CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
 CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
-EXCEL_DEFAULT = os.path.join(BASE_DIR, 'historico.xlsx')
+EXCEL_FILENAME = os.environ.get('WFM_EXCEL_FILE', 'Data Real Hexalud.xlsx')
+EXCEL_DEFAULT = os.path.join(BASE_DIR, EXCEL_FILENAME)
 WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
-WFM_ROSTER_DB = os.path.join(BASE_DIR, 'wfm_roster.db')
+# Estado operativo persistente. Si en el futuro se despliega otra copia del código
+# en una carpeta distinta, WFM_STATE_DIR permite mantener el mismo roster/historial.
+WFM_STATE_DIR = os.environ.get('WFM_STATE_DIR', BASE_DIR)
+os.makedirs(WFM_STATE_DIR, exist_ok=True)
+WFM_ROSTER_DB = os.path.join(WFM_STATE_DIR, 'wfm_roster.db')
+WFM_ROSTER_BACKUP_DB = os.path.join(WFM_STATE_DIR, 'wfm_roster_backup.db')
 WFM_TIMEZONE = os.environ.get('WFM_TIMEZONE','America/Mexico_City')
 _WFM_ROSTER_LOCK = threading.RLock()
 _ROSTER_DB_READY = False
@@ -44,7 +51,9 @@ _WFM_ACTION_LOG_LOCK = threading.RLock()
 # respaldo entre reinicios, pero la respuesta normal sale de RAM.
 _FORECAST_MEMORY_CACHE = {'llamadas': None, 'chat': None}
 _FORECAST_CACHE_GENERATION = {'llamadas': 0, 'chat': 0}
+_FORECAST_CACHE_DIRTY = {'llamadas': False, 'chat': False}
 _FORECAST_CACHE_LOCK = threading.RLock()
+_FORECAST_REFRESH_LOCKS = {'llamadas': threading.Lock(), 'chat': threading.Lock()}
 _EXCEL_INFO_CACHE = {}
 _ASSISTANT_PLAN_CACHE = {}
 _ASSISTANT_PLAN_CACHE_LOCK = threading.RLock()
@@ -58,6 +67,7 @@ def _guardar_cache_forecast(mode, data):
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
     with _FORECAST_CACHE_LOCK:
         _FORECAST_MEMORY_CACHE[mode] = data
+        _FORECAST_CACHE_DIRTY[mode] = False
         _FORECAST_CACHE_GENERATION[mode] += 1
         generation = _FORECAST_CACHE_GENERATION[mode]
 
@@ -80,12 +90,15 @@ def _guardar_cache_forecast(mode, data):
 
     threading.Thread(target=_persistir, daemon=True, name=f'wfm-cache-{mode}').start()
 
-def _leer_cache_forecast(mode):
+def _leer_cache_forecast(mode, allow_stale=False):
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
     with _FORECAST_CACHE_LOCK:
+        dirty = bool(_FORECAST_CACHE_DIRTY.get(mode))
         mem = _FORECAST_MEMORY_CACHE.get(mode)
-    if isinstance(mem, list) and mem:
+    if isinstance(mem, list) and mem and (allow_stale or not dirty):
         return mem
+    if dirty and not allow_stale:
+        return None
 
     target = _cache_path(mode)
     if not os.path.exists(target):
@@ -121,15 +134,12 @@ def _cache_excel_info_set(excel_path, key, value):
     return value
 
 # =====================================================================
-# 🧨 EXTERMINADOR DE CACHÉ
+# PERSISTENCIA DEL ÚLTIMO FORECAST VÁLIDO
 # =====================================================================
-for cache_file in [CACHE_FILE_LLAMADAS, CACHE_FILE_CHAT]:
-    try:
-        if os.path.exists(cache_file):
-            os.remove(cache_file)
-            print(f"Borrando caché viejo: {cache_file}")
-    except Exception as e:
-        print(f"No se pudo borrar {cache_file}: {str(e)}")
+# Los archivos forecast_cache_*.json NO se eliminan al iniciar el servidor.
+# Funcionan como snapshot del último cálculo exitoso para que la vista de
+# Operaciones conserve sus datos aunque WFM cierre, el proceso se reinicie o
+# una actualización nueva falle temporalmente. Un cálculo exitoso los reemplaza.
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -335,14 +345,46 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
     return preds_finales
 
 def buscar_archivo_excel():
+    """Localiza el archivo fuente del forecast.
+
+    Prioridad:
+    1) WFM_EXCEL_FILE (por defecto: Data Real Hexalud.xlsx).
+    2) Coincidencia por nombre "Data Real Hexalud".
+    3) Compatibilidad con nombres anteriores (data / servicios / historico).
+    4) Primer Excel disponible como último recurso.
+    """
     try:
-        archivos = [f for f in os.listdir(BASE_DIR) if f.lower().endswith('.xlsx') and not f.startswith('~')]
-        if not archivos: return None
+        # Ruta configurada explícitamente / nombre oficial actual.
+        if os.path.isfile(EXCEL_DEFAULT):
+            return EXCEL_DEFAULT
+
+        archivos = [
+            f for f in os.listdir(BASE_DIR)
+            if f.lower().endswith(('.xlsx', '.xlsm')) and not f.startswith('~')
+        ]
+        if not archivos:
+            return None
+
+        # La comparación case-insensitive permite variaciones de mayúsculas/minúsculas.
+        objetivo = os.path.splitext(os.path.basename(EXCEL_FILENAME))[0].strip().lower()
         for f in archivos:
-            if 'data' in f.lower() or 'servicios' in f.lower() or 'historico' in f.lower(): 
+            base = os.path.splitext(f)[0].strip().lower()
+            if base == objetivo or base == 'data real hexalud':
                 return os.path.join(BASE_DIR, f)
+
+        # Respaldo para instalaciones que todavía conserven el nombre anterior.
+        for f in archivos:
+            nombre = f.lower()
+            if 'data real hexalud' in nombre:
+                return os.path.join(BASE_DIR, f)
+        for f in archivos:
+            nombre = f.lower()
+            if 'data' in nombre or 'servicios' in nombre or 'historico' in nombre:
+                return os.path.join(BASE_DIR, f)
+
         return os.path.join(BASE_DIR, archivos[0])
-    except: return None
+    except Exception:
+        return None
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -529,6 +571,55 @@ def procesar_hoja_roster(df_roster):
 # =====================================================================
 _ROSTER_DAYS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 
+def _roster_restore_backup_if_needed():
+    """Restaura el último roster persistente si el DB principal no existe o quedó vacío."""
+    try:
+        if os.path.exists(WFM_ROSTER_DB) and os.path.getsize(WFM_ROSTER_DB) > 0:
+            return False
+        if not os.path.exists(WFM_ROSTER_BACKUP_DB) or os.path.getsize(WFM_ROSTER_BACKUP_DB) <= 0:
+            return False
+        tmp = WFM_ROSTER_DB + '.restore.tmp'
+        shutil.copy2(WFM_ROSTER_BACKUP_DB, tmp)
+        os.replace(tmp, WFM_ROSTER_DB)
+        print('Roster restaurado desde respaldo persistente.')
+        return True
+    except Exception as e:
+        print(f'No se pudo restaurar el respaldo del roster: {e}')
+        return False
+
+def _roster_backup_database():
+    """Crea un respaldo SQLite consistente con roster, horarios, temporales e historial."""
+    if not os.path.exists(WFM_ROSTER_DB):
+        return
+    tmp = WFM_ROSTER_BACKUP_DB + '.tmp'
+    with _WFM_ROSTER_LOCK:
+        src = None
+        dst = None
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            src = sqlite3.connect(WFM_ROSTER_DB, timeout=15)
+            dst = sqlite3.connect(tmp, timeout=15)
+            src.backup(dst)
+            dst.commit()
+            dst.close(); dst = None
+            src.close(); src = None
+            os.replace(tmp, WFM_ROSTER_BACKUP_DB)
+        except Exception as e:
+            print(f'No se pudo respaldar el roster persistente: {e}')
+            try:
+                if dst is not None: dst.close()
+            except Exception:
+                pass
+            try:
+                if src is not None: src.close()
+            except Exception:
+                pass
+            try:
+                if os.path.exists(tmp): os.remove(tmp)
+            except Exception:
+                pass
+
 def _roster_conn():
     conn = sqlite3.connect(WFM_ROSTER_DB, timeout=15)
     conn.row_factory = sqlite3.Row
@@ -545,6 +636,7 @@ def _roster_db_init():
     with _WFM_ROSTER_LOCK:
         if _ROSTER_DB_READY:
             return
+        _roster_restore_backup_if_needed()
         conn = _roster_conn()
         try:
             # WAL + synchronous are database-level settings. Configure them once,
@@ -870,19 +962,21 @@ def _roster_seed_from_excel_if_empty():
             conn.commit()
         finally:
             conn.close()
+    _roster_backup_database()
 
 def _invalidate_roster_dependent_caches():
     global _EXCEL_INFO_CACHE
+    # Cada modificación que afecta la operación deja además un respaldo físico
+    # del roster e historial. Cambiar de vista o recalcular el FCST nunca lo borra.
+    _roster_backup_database()
+    # El roster cambió: el forecast debe recalcular HC Actual, pero no se borra
+    # el último snapshot válido. Se marca como sucio para que /api/latest intente
+    # refrescarlo; si ese cálculo falla, Operaciones seguirá recibiendo el último
+    # resultado válido en vez de una pantalla en ceros.
     with _FORECAST_CACHE_LOCK:
         for mode in ('llamadas','chat'):
-            _FORECAST_MEMORY_CACHE[mode] = None
+            _FORECAST_CACHE_DIRTY[mode] = True
             _FORECAST_CACHE_GENERATION[mode] += 1
-            try:
-                target = _cache_path(mode)
-                if os.path.exists(target):
-                    os.remove(target)
-            except Exception:
-                pass
     with _ASSISTANT_PLAN_CACHE_LOCK:
         _ASSISTANT_PLAN_CACHE.clear()
     _EXCEL_INFO_CACHE = {}
@@ -1157,7 +1251,7 @@ def _forecast_generate_raw(channel):
     mode = _forecast_channel_norm(channel)
     excel_path = buscar_archivo_excel()
     if not excel_path:
-        raise ValueError('No se encontró historico.xlsx para recalcular el forecast.')
+        raise ValueError(f'No se encontró {EXCEL_FILENAME} para recalcular el forecast.')
 
     sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
     campaign_settings = {}
@@ -1718,6 +1812,7 @@ def _roster_save_vacation(agent_id, start_date, end_date, status='requested', re
         finally:
             conn.close()
 
+    _roster_backup_database()
     if status == 'approved':
         _invalidate_roster_dependent_caches()
     return after
@@ -1778,6 +1873,7 @@ def _roster_update_vacation_status(vacation_id, status, actor='wfm', reason=''):
         finally:
             conn.close()
 
+    _roster_backup_database()
     if affects_forecast:
         _invalidate_roster_dependent_caches()
     return after
@@ -2117,6 +2213,8 @@ def _roster_save_agent(payload, actor='wfm', reason='Edición manual', allow_cre
 
     if invalidate:
         _invalidate_roster_dependent_caches()
+    else:
+        _roster_backup_database()
     return after
 
 @app.route('/api/roster', methods=['GET'])
@@ -2154,7 +2252,8 @@ def roster_list():
             'temporaryChanges':temporary_changes,'vacations':vacations,'days':_ROSTER_DAYS,'stats':{
             'total':len(agents),'active':active,'inactive':len(agents)-active,'campaigns':len(campaigns),
             'supervisors':len(supervisors),'coordinators':len(coordinators),'temporaryChanges':len(temporary_changes),
-            'approvedVacations':approved_vacations,'requestedVacations':requested_vacations,'lastUpdate':last_update
+            'approvedVacations':approved_vacations,'requestedVacations':requested_vacations,'lastUpdate':last_update,
+            'persistent':True,'historyPersistent':True
         }}),200
     except Exception as e:
         return jsonify({'error':f'No se pudo cargar el roster: {str(e)}'}),500
@@ -3026,36 +3125,61 @@ def forecast_control_history():
 
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
-    mode = request.args.get('mode', 'llamadas')
+    mode = 'chat' if str(request.args.get('mode', 'llamadas')).lower() == 'chat' else 'llamadas'
     cache_data = _leer_cache_forecast(mode)
     if isinstance(cache_data, list) and cache_data:
         return jsonify(_forecast_apply_control(mode,cache_data)), 200
-            
-    excel_path = buscar_archivo_excel()
-    if excel_path:
-        try:
-            sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
-            campaign_settings = {}
-            if os.path.exists(CONFIG_FILE):
-                try:
-                    with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                        cfg = json.load(f)
-                        sl, tt = float(cfg.get('targetSl', 80.0)), float(cfg.get('targetTime', 20.0))
-                        merma_data = cfg.get('merma', 30.0)
-                        merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
-                        dias = int(clean_num(cfg.get('dias'), dias))
-                        concurrencia = float(clean_num(cfg.get('concurrencia'), concurrencia))
-                        all_settings = cfg.get('campaignSettings', {})
-                        campaign_settings = all_settings.get(mode, {}) if isinstance(all_settings, dict) else {}
-                except: pass
-            
-            merma_pct = merma / 100.0
-            if mode == 'chat': data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings)
-            else: data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
-            gc.collect()
-            return jsonify(_forecast_apply_control(mode,data)), 200
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+
+    # Serializar el recálculo por canal evita que WFM y Operaciones lancen el
+    # mismo forecast pesado al mismo tiempo. Mientras tanto el snapshot anterior
+    # permanece intacto en disco.
+    with _FORECAST_REFRESH_LOCKS[mode]:
+        cache_data = _leer_cache_forecast(mode)
+        if isinstance(cache_data, list) and cache_data:
+            return jsonify(_forecast_apply_control(mode,cache_data)), 200
+
+        excel_path = buscar_archivo_excel()
+        if excel_path:
+            try:
+                sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
+                campaign_settings = {}
+                if os.path.exists(CONFIG_FILE):
+                    try:
+                        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                            cfg = json.load(f)
+                            sl, tt = float(cfg.get('targetSl', 80.0)), float(cfg.get('targetTime', 20.0))
+                            merma_data = cfg.get('merma', 30.0)
+                            merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
+                            dias = int(clean_num(cfg.get('dias'), dias))
+                            concurrencia = float(clean_num(cfg.get('concurrencia'), concurrencia))
+                            all_settings = cfg.get('campaignSettings', {})
+                            campaign_settings = all_settings.get(mode, {}) if isinstance(all_settings, dict) else {}
+                    except Exception:
+                        pass
+
+                merma_pct = merma / 100.0
+                if mode == 'chat':
+                    data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings)
+                else:
+                    data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
+                gc.collect()
+                if isinstance(data, list) and data:
+                    return jsonify(_forecast_apply_control(mode,data)), 200
+            except Exception as e:
+                # Nunca tirar el tablero operativo si existe un último cálculo bueno.
+                stale = _leer_cache_forecast(mode, allow_stale=True)
+                if isinstance(stale, list) and stale:
+                    response = jsonify(_forecast_apply_control(mode,stale))
+                    response.headers['X-WFM-Data-State'] = 'stale'
+                    response.headers['X-WFM-Refresh-Error'] = str(e)[:180]
+                    return response, 200
+                return jsonify({'error': str(e)}), 500
+
+        stale = _leer_cache_forecast(mode, allow_stale=True)
+        if isinstance(stale, list) and stale:
+            response = jsonify(_forecast_apply_control(mode,stale))
+            response.headers['X-WFM-Data-State'] = 'stale'
+            return response, 200
 
     return jsonify([]), 200
 
