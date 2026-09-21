@@ -802,6 +802,9 @@ def _roster_db_init():
             for col_name, ddl in forecast_row_migrations.items():
                 if col_name not in forecast_row_columns:
                     conn.execute(ddl)
+            # Normalización de estado: desde esta versión "Baja" reemplaza a "Inactivo".
+            # La migración es idempotente y conserva el historial previo sin duplicar agentes.
+            conn.execute("UPDATE roster_agents SET status='Baja' WHERE lower(trim(status))='inactivo'")
             should_seed = conn.execute("SELECT COUNT(*) FROM roster_agents").fetchone()[0] == 0
             conn.commit()
             _ROSTER_DB_READY = True
@@ -836,7 +839,7 @@ def _roster_row_dict(row):
         'coordinator': row['coordinator'] or '',
         'campaign': row['campaign'] or '',
         'channel': row['channel'] or 'Llamadas',
-        'status': row['status'] or 'Activo',
+        'status': 'Baja' if str(row['status'] or '').strip().lower() in ('inactivo','baja') else 'Activo',
         'schedules': {
             'Lunes': row['lunes'] or 'DD-DD',
             'Martes': row['martes'] or 'DD-DD',
@@ -2140,9 +2143,8 @@ def _roster_validate_payload(payload, existing=None):
     if not campaign:
         raise ValueError('La campaña es obligatoria.')
     channel = 'Chat' if 'chat' in str(payload.get('channel',existing.get('channel','Llamadas'))).lower() else 'Llamadas'
-    status = str(payload.get('status',existing.get('status','Activo')) or 'Activo').strip().title()
-    if status not in ('Activo','Inactivo'):
-        status = 'Activo'
+    raw_status = str(payload.get('status',existing.get('status','Activo')) or 'Activo').strip().lower()
+    status = 'Baja' if raw_status in ('baja','inactivo') else 'Activo'
     incoming, old_sched = payload.get('schedules') or {}, existing.get('schedules') or {}
     schedules = {d:_roster_normalize_schedule(incoming.get(d,old_sched.get(d,'DD-DD'))) for d in _ROSTER_DAYS}
     return {'agentId':agent_id,'fullName':full_name,'supervisor':supervisor,'coordinator':coordinator,'campaign':campaign.title(),'channel':channel,'status':status,'schedules':schedules}
@@ -2408,8 +2410,8 @@ def roster_bulk_update():
                         merged['supervisor'] = str(changes['supervisor']).strip()
                     if 'coordinator' in changes:
                         merged['coordinator'] = str(changes['coordinator']).strip()
-                    if changes.get('status') in ('Activo','Inactivo'):
-                        merged['status'] = changes['status']
+                    if str(changes.get('status','')).strip().lower() in ('activo','baja','inactivo'):
+                        merged['status'] = 'Baja' if str(changes['status']).strip().lower() in ('baja','inactivo') else 'Activo'
                     if changes.get('channel') in ('Llamadas','Chat'):
                         merged['channel'] = changes['channel']
 
@@ -2566,7 +2568,7 @@ def roster_template_xlsx():
             ['Coordinador','Coordinador actual. Puede modificarse después.'],
             ['Campaña','Obligatorio. Campaña/skill del agente.'],
             ['Canal','Llamadas o Chat.'],
-            ['Estado','Activo o Inactivo.'],
+            ['Estado','Activo o Baja.'],
             ['Lunes-Domingo','Usa HH:MM-HH:MM. Para descanso usa DD-DD.']
         ], columns=['Campo','Regla']).to_excel(writer, sheet_name='Instrucciones', index=False)
     output.seek(0)
