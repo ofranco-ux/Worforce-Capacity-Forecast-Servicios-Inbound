@@ -6396,6 +6396,42 @@
             closeRosterBulkEditor();
         }
 
+        async function loadRosterCampaignCatalog(baseCampaigns=[]) {
+            const catalog = new Set((baseCampaigns || []).map(x=>String(x||'').trim()).filter(Boolean));
+            const modes = ['llamadas','chat'];
+            const results = await Promise.allSettled(modes.map(async mode=>{
+                const response = await fetch(`/api/campaigns?mode=${mode}&t=${Date.now()}`, {cache:'no-store'});
+                if (!response.ok) return [];
+                const data = await response.json();
+                return Array.isArray(data) ? data : [];
+            }));
+            results.forEach(result=>{
+                if (result.status !== 'fulfilled') return;
+                result.value.forEach(name=>{
+                    const clean=String(name||'').trim();
+                    if(clean) catalog.add(clean);
+                });
+            });
+            return Array.from(catalog).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+        }
+
+        function populateRosterCampaignSelectors(currentCampaign='') {
+            const current=String(currentCampaign||'').trim();
+            const campaigns=Array.from(new Set([...rosterCampaigns, ...(current?[current]:[])])).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+            const options=campaigns.map(x=>`<option value="${rosterSafe(x)}">${rosterSafe(x)}</option>`).join('');
+            const edit=document.getElementById('rosterEditCampaign');
+            if(edit){
+                edit.innerHTML='<option value="">Selecciona una campaña</option>'+options;
+                edit.value=current;
+            }
+            const bulk=document.getElementById('rosterBulkCampaign');
+            if(bulk){
+                const previous=bulk.value||'';
+                bulk.innerHTML='<option value="">Sin cambio</option>'+options;
+                bulk.value=campaigns.includes(previous)?previous:'';
+            }
+        }
+
         async function loadRosterData() {
             const tbody = document.getElementById('rosterTableBody');
             if (tbody) tbody.innerHTML = '<tr><td colspan="18" style="padding:30px;text-align:center;color:#7D8FA1">Cargando roster operativo…</td></tr>';
@@ -6405,7 +6441,8 @@
                 if (!response.ok) throw new Error(data.error || 'No se pudo cargar el roster.');
                 rosterAgents = Array.isArray(data.agents) ? data.agents : [];
                 rosterStats = data.stats || {};
-                rosterCampaigns = data.campaigns || [];
+                rosterCampaigns = await loadRosterCampaignCatalog(data.campaigns || []);
+                populateRosterCampaignSelectors();
                 rosterSupervisors = data.supervisors || [];
                 rosterCoordinators = data.coordinators || [];
                 rosterTemporaryChanges = Array.isArray(data.temporaryChanges) ? data.temporaryChanges : [];
@@ -6766,7 +6803,7 @@
             document.getElementById('rosterEditName').value=a?.fullName||'';
             document.getElementById('rosterEditSupervisor').value=a?.supervisor||'';
             document.getElementById('rosterEditCoordinator').value=a?.coordinator||'';
-            document.getElementById('rosterEditCampaign').value=a?.campaign||'';
+            populateRosterCampaignSelectors(a?.campaign||'');
             document.getElementById('rosterEditChannel').value=a?.channel||'Llamadas';
             document.getElementById('rosterEditStatus').value=a?.status||'Activo';
 
@@ -6884,7 +6921,14 @@
             }
         }
 
-        function openRosterBulkEditor(){if(!rosterSelectedIds.size)return;document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');['rosterBulkSupervisor','rosterBulkCoordinator','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>document.getElementById(id).value='');}
+        function openRosterBulkEditor(){
+            if(!rosterSelectedIds.size)return;
+            document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');
+            populateRosterCampaignSelectors();
+            ['rosterBulkSupervisor','rosterBulkCoordinator','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>{
+                const el=document.getElementById(id); if(el) el.value='';
+            });
+        }
         function closeRosterBulkEditor(){document.getElementById('rosterBulkBackdrop')?.classList.add('hidden');}
         async function saveRosterBulkEdit(){
             const changes={},
@@ -8794,7 +8838,7 @@
                         <div class="roster-field"><label>Nombre completo</label><input id="rosterEditName" class="roster-input" placeholder="Nombre Apellido"></div>
                         <div class="roster-field"><label>Supervisor</label><input id="rosterEditSupervisor" class="roster-input" placeholder="Supervisor"></div>
                         <div class="roster-field"><label>Coordinador</label><input id="rosterEditCoordinator" class="roster-input" placeholder="Coordinador"></div>
-                        <div class="roster-field"><label>Campaña</label><input id="rosterEditCampaign" class="roster-input" placeholder="Campaña"></div>
+                        <div class="roster-field"><label>Campaña</label><select id="rosterEditCampaign" class="roster-select"><option value="">Selecciona una campaña</option></select></div>
                         <div class="roster-field"><label>Canal</label><select id="rosterEditChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
                         <div class="roster-field"><label>Estado</label><select id="rosterEditStatus" class="roster-select"><option>Activo</option><option>Inactivo</option></select></div>
                     </div>
@@ -8872,7 +8916,7 @@
                     <div class="roster-form-grid">
                         <div class="roster-field full"><label>Supervisor</label><input id="rosterBulkSupervisor" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
                         <div class="roster-field full"><label>Coordinador</label><input id="rosterBulkCoordinator" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
-                        <div class="roster-field full"><label>Campaña</label><input id="rosterBulkCampaign" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
+                        <div class="roster-field full"><label>Campaña</label><select id="rosterBulkCampaign" class="roster-select"><option value="">Sin cambio</option></select></div>
                         <div class="roster-field"><label>Canal</label><select id="rosterBulkChannel" class="roster-select"><option value="">Sin cambio</option><option>Llamadas</option><option>Chat</option></select></div>
                         <div class="roster-field"><label>Estado</label><select id="rosterBulkStatus" class="roster-select"><option value="">Sin cambio</option><option>Activo</option><option>Inactivo</option></select></div>
                     </div>
