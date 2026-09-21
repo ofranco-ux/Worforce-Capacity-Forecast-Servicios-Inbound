@@ -6397,7 +6397,7 @@
                 if (!raw) return false;
                 const data = JSON.parse(raw);
                 if (!Array.isArray(data?.agents) || !data.agents.length) return false;
-                rosterAgents = data.agents;
+                rosterAgents = data.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)}));
                 rosterStats = data.stats || {};
                 rosterCampaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
                 rosterSupervisors = Array.isArray(data.supervisors) ? data.supervisors : [];
@@ -6537,6 +6537,50 @@
             }
         }
 
+        function rosterNormalizeStatus(value) {
+            const status=String(value||'').trim().toLowerCase();
+            if(status==='inactivo' || status==='baja') return 'Baja';
+            return 'Activo';
+        }
+
+        function populateRosterPeopleSelectors(currentSupervisor='', currentCoordinator='') {
+            const supCurrent=String(currentSupervisor||'').trim();
+            const coordCurrent=String(currentCoordinator||'').trim();
+            const supervisors=Array.from(new Set([...rosterSupervisors, ...(supCurrent?[supCurrent]:[])]))
+                .map(x=>String(x||'').trim()).filter(Boolean)
+                .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+            const coordinators=Array.from(new Set([...rosterCoordinators, ...(coordCurrent?[coordCurrent]:[])]))
+                .map(x=>String(x||'').trim()).filter(Boolean)
+                .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+
+            const supOptions=supervisors.map(x=>`<option value="${rosterSafe(x)}">${rosterSafe(x)}</option>`).join('');
+            const coordOptions=coordinators.map(x=>`<option value="${rosterSafe(x)}">${rosterSafe(x)}</option>`).join('');
+
+            const editSup=document.getElementById('rosterEditSupervisor');
+            if(editSup){
+                editSup.innerHTML='<option value="">Selecciona un supervisor</option>'+supOptions;
+                editSup.value=supCurrent;
+            }
+            const editCoord=document.getElementById('rosterEditCoordinator');
+            if(editCoord){
+                editCoord.innerHTML='<option value="">Selecciona un coordinador</option>'+coordOptions;
+                editCoord.value=coordCurrent;
+            }
+
+            const bulkSup=document.getElementById('rosterBulkSupervisor');
+            if(bulkSup){
+                const previous=bulkSup.value||'';
+                bulkSup.innerHTML='<option value="">Sin cambio</option>'+supOptions;
+                bulkSup.value=supervisors.includes(previous)?previous:'';
+            }
+            const bulkCoord=document.getElementById('rosterBulkCoordinator');
+            if(bulkCoord){
+                const previous=bulkCoord.value||'';
+                bulkCoord.innerHTML='<option value="">Sin cambio</option>'+coordOptions;
+                bulkCoord.value=coordinators.includes(previous)?previous:'';
+            }
+        }
+
         async function loadRosterData() {
             const tbody = document.getElementById('rosterTableBody');
             let hadRoster = Array.isArray(rosterAgents) && rosterAgents.length > 0;
@@ -6553,12 +6597,13 @@
                 const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'No se pudo cargar el roster.');
-                rosterAgents = Array.isArray(data.agents) ? data.agents : [];
+                rosterAgents = Array.isArray(data.agents) ? data.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)})) : [];
                 rosterStats = data.stats || {};
                 rosterCampaigns = await loadRosterCampaignCatalog(data.campaigns || []);
-                populateRosterCampaignSelectors();
                 rosterSupervisors = data.supervisors || [];
                 rosterCoordinators = data.coordinators || [];
+                populateRosterCampaignSelectors();
+                populateRosterPeopleSelectors();
                 rosterTemporaryChanges = Array.isArray(data.temporaryChanges) ? data.temporaryChanges : [];
                 rosterVacations = Array.isArray(data.vacations) ? data.vacations : [];
                 const tempCount=document.getElementById('rosterTempTabCount');
@@ -6924,11 +6969,10 @@
             idEl.disabled=!!a;
 
             document.getElementById('rosterEditName').value=a?.fullName||'';
-            document.getElementById('rosterEditSupervisor').value=a?.supervisor||'';
-            document.getElementById('rosterEditCoordinator').value=a?.coordinator||'';
+            populateRosterPeopleSelectors(a?.supervisor||'', a?.coordinator||'');
             populateRosterCampaignSelectors(a?.campaign||'');
             document.getElementById('rosterEditChannel').value=a?.channel||'Llamadas';
-            document.getElementById('rosterEditStatus').value=a?.status||'Activo';
+            document.getElementById('rosterEditStatus').value=rosterNormalizeStatus(a?.status||'Activo');
 
             ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>{
                 document.getElementById(`rosterDay${d}`).value=a?.schedules?.[d]||'DD-DD';
@@ -7048,6 +7092,7 @@
             if(!rosterSelectedIds.size)return;
             document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');
             populateRosterCampaignSelectors();
+            populateRosterPeopleSelectors();
             ['rosterBulkSupervisor','rosterBulkCoordinator','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>{
                 const el=document.getElementById(id); if(el) el.value='';
             });
@@ -8921,7 +8966,7 @@
                     <select id="rosterFilterSupervisor" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los supervisores</option></select>
                     <select id="rosterFilterCoordinator" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los coordinadores</option></select>
                     <select id="rosterFilterChannel" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
-                    <select id="rosterFilterStatus" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los estados</option><option>Activo</option><option>Inactivo</option></select>
+                    <select id="rosterFilterStatus" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los estados</option><option value="Activo">Activo</option><option value="Baja">Baja</option></select>
                     <button type="button" class="roster-toolbar-btn" onclick="resetRosterFilters()">Limpiar filtros</button>
                 </div>
                 <div id="rosterBulkBar" class="roster-bulk hidden">
@@ -8986,11 +9031,11 @@
                     <div class="roster-form-grid">
                         <div class="roster-field"><label>ID agente</label><input id="rosterEditId" class="roster-input" placeholder="A-00001"></div>
                         <div class="roster-field"><label>Nombre completo</label><input id="rosterEditName" class="roster-input" placeholder="Nombre Apellido"></div>
-                        <div class="roster-field"><label>Supervisor</label><input id="rosterEditSupervisor" class="roster-input" placeholder="Supervisor"></div>
-                        <div class="roster-field"><label>Coordinador</label><input id="rosterEditCoordinator" class="roster-input" placeholder="Coordinador"></div>
+                        <div class="roster-field"><label>Supervisor</label><select id="rosterEditSupervisor" class="roster-select"><option value="">Selecciona un supervisor</option></select></div>
+                        <div class="roster-field"><label>Coordinador</label><select id="rosterEditCoordinator" class="roster-select"><option value="">Selecciona un coordinador</option></select></div>
                         <div class="roster-field"><label>Campaña</label><select id="rosterEditCampaign" class="roster-select"><option value="">Selecciona una campaña</option></select></div>
                         <div class="roster-field"><label>Canal</label><select id="rosterEditChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
-                        <div class="roster-field"><label>Estado</label><select id="rosterEditStatus" class="roster-select"><option>Activo</option><option>Inactivo</option></select></div>
+                        <div class="roster-field"><label>Estado</label><select id="rosterEditStatus" class="roster-select"><option>Activo</option><option>Baja</option></select></div>
                     </div>
                     <div class="roster-days-grid">
                         <div class="roster-day"><label>Lunes</label><input id="rosterDayLunes" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
@@ -9064,11 +9109,11 @@
                 <aside class="roster-editor" style="max-width:430px;height:auto;max-height:90%">
                     <div class="roster-editor-head"><div><div class="roster-editor-title">Edición masiva</div><div class="roster-editor-copy">Solo se modificarán los campos que completes.</div></div><button type="button" class="roster-close-editor" onclick="closeRosterBulkEditor()">✕</button></div>
                     <div class="roster-form-grid">
-                        <div class="roster-field full"><label>Supervisor</label><input id="rosterBulkSupervisor" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
-                        <div class="roster-field full"><label>Coordinador</label><input id="rosterBulkCoordinator" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
+                        <div class="roster-field full"><label>Supervisor</label><select id="rosterBulkSupervisor" class="roster-select"><option value="">Sin cambio</option></select></div>
+                        <div class="roster-field full"><label>Coordinador</label><select id="rosterBulkCoordinator" class="roster-select"><option value="">Sin cambio</option></select></div>
                         <div class="roster-field full"><label>Campaña</label><select id="rosterBulkCampaign" class="roster-select"><option value="">Sin cambio</option></select></div>
                         <div class="roster-field"><label>Canal</label><select id="rosterBulkChannel" class="roster-select"><option value="">Sin cambio</option><option>Llamadas</option><option>Chat</option></select></div>
-                        <div class="roster-field"><label>Estado</label><select id="rosterBulkStatus" class="roster-select"><option value="">Sin cambio</option><option>Activo</option><option>Inactivo</option></select></div>
+                        <div class="roster-field"><label>Estado</label><select id="rosterBulkStatus" class="roster-select"><option value="">Sin cambio</option><option>Activo</option><option>Baja</option></select></div>
                     </div>
                     <div class="roster-editor-actions"><button type="button" class="roster-cancel-btn" onclick="closeRosterBulkEditor()">Cancelar</button><button type="button" class="roster-save-btn" onclick="saveRosterBulkEdit()">Aplicar cambios</button></div>
                 </aside>
