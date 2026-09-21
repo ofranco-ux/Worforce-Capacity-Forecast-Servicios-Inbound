@@ -3939,8 +3939,8 @@
                     <div class="flex flex-col group">
                         <label class="text-[11px] text-slate-400 font-medium mb-1.5">Horizonte del forecast</label>
                         <div class="input-clean p-3 rounded-xl">
-                            <div class="text-sm font-mono-num font-bold text-brand-accentViolet">Enero → Diciembre 2026</div>
-                            <div class="text-[9px] text-slate-500 mt-1">Pasado: volumen real cargado. Futuro: rolling forecast. No se fabrica forecast histórico.</div>
+                            <div class="text-sm font-mono-num font-bold text-brand-accentViolet">Septiembre → Diciembre 2026</div>
+                            <div class="text-[9px] text-slate-500 mt-1">Se proyecta desde la siguiente fecha real disponible hasta 31/12/2026. Enero–Agosto no se cargan en el dashboard.</div>
                         </div>
                         <input type="hidden" name="dias" id="dias" value="365">
                     </div>
@@ -5058,7 +5058,7 @@
 
             const promise = (async () => {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(()=>controller.abort(), 45000);
+                const timeoutId = setTimeout(()=>controller.abort(), 120000);
                 let response;
                 try{
                     response = await fetch('/api/latest?mode=' + mode, {
@@ -5067,7 +5067,7 @@
                     });
                 }catch(error){
                     if(error.name==='AbortError'){
-                        throw new Error('La lectura del histórico superó 45 segundos. Revisa el tamaño de Data Real Servicios.xlsx o reinicia el servicio.');
+                        throw new Error('La generación inicial del forecast superó 120 segundos. El servidor puede seguir calculando; espera un momento y recarga.');
                     }
                     throw error;
                 }finally{
@@ -5136,22 +5136,12 @@
                         cargarCampanasConfiguracion().catch(err=>console.warn('Catálogo campañas:',err));
                     }
 
-                    const hasFutureForecast=globalData.some(r=>{
-                        const t=String(getProp(r,['Dato_Tipo','Forecast_Tipo'],'')).toLowerCase();
-                        return t==='forecast'||t==='rolling';
-                    });
                     const box = document.getElementById('dashboardError');
                     if (box) {
-                        if(!hasFutureForecast && mode!=='general'){
-                            box.innerText='Histórico real cargado. El forecast futuro todavía no está generado en caché. Usa GENERAR FORECAST para calcular desde mañana hasta diciembre 2026.';
-                            box.classList.remove('hidden');
-                            box.classList.add('dashboard-info-safe');
-                            setRunStatus('Histórico listo · genera forecast', 'amber');
-                        }else{
-                            box.classList.add('hidden');
-                            box.classList.remove('dashboard-info-safe');
-                        }
+                        box.classList.add('hidden');
+                        box.classList.remove('dashboard-info-safe');
                     }
+                    if(!isBackground) setRunStatus('Forecast listo','green');
                     if (!isBackground) scheduleModeWarmup(mode);
                 } else if (!isBackground) {
                     limpiarPantalla();
@@ -5480,7 +5470,7 @@
             setRunStatus('Validando fuente histórica…','amber');
             loadHistoricalSourceInfo().then(info=>{
                 if(info&&info.sourceFound){
-                    setRunStatus('Cargando histórico real…','amber');
+                    setRunStatus('Generando forecast…','amber');
                     return fetchLatestData(forecastMode);
                 }
                 limpiarPantalla();
@@ -5578,7 +5568,7 @@
 
             if(badge){
                 badge.className='forecast-source-badge '+(allReal?'real':hybrid?'hybrid':hasLocked?'closed':'forecast');
-                badge.textContent=allReal?'Real histórico':hybrid?'Real + Forecast':hasLocked?'Forecast cerrado':'Forecast';
+                badge.textContent=hasLocked?'Forecast cerrado':'Forecast';
             }
 
             if(allReal){
@@ -9285,8 +9275,8 @@
         <div class="forecast-control-shell">
             <div class="forecast-control-head">
                 <div>
-                    <div class="forecast-control-title">2026 completo · Real + Forecast + Lock mensual</div>
-                    <div class="forecast-control-subtitle">Enero–Diciembre visibles. El pasado muestra volumen real cargado; el futuro conserva rolling forecast y cierre mensual.</div>
+                    <div class="forecast-control-title">Forecast operativo · Septiembre–Diciembre 2026</div>
+                    <div class="forecast-control-subtitle">Vista ligera desde la siguiente fecha real disponible. Conserva cierre mensual, HC bloqueado y reforecast solo futuro.</div>
                 </div>
                 <button type="button" class="roster-head-btn" onclick="closeForecastControl()" aria-label="Cerrar">✕</button>
             </div>
@@ -9304,7 +9294,7 @@
                 </div>
 
                 <div class="forecast-control-rule">
-                    <strong>Regla de gobierno:</strong> no existe forecast original para el pasado, por lo que Enero–hoy se muestra como REAL histórico. Desde mañana se usa el rolling vigente. El cierre sigue siendo mensual y manual; el HC cerrado no cambia y el reforecast nunca modifica el pasado.
+                    <strong>Regla de gobierno:</strong> el dashboard vuelve a trabajar únicamente con la proyección vigente desde la siguiente fecha real hasta diciembre. El cierre sigue siendo mensual y manual; el HC cerrado no cambia y el reforecast nunca modifica el pasado.
                 </div>
 
                 <div class="forecast-control-rule" style="margin-top:10px">
@@ -9313,8 +9303,8 @@
 
                 <div class="forecast-annual-summary">
                     <div class="forecast-annual-summary-head">
-                        <div class="forecast-annual-summary-title">Mapa anual 2026</div>
-                        <div class="forecast-annual-summary-copy">Real histórico · Cerrado · Rolling</div>
+                        <div class="forecast-annual-summary-title">Mapa operativo 2026</div>
+                        <div class="forecast-annual-summary-copy">Sin forecast · Cerrado · Rolling</div>
                     </div>
                     <div id="forecastAnnualOverview"><div class="forecast-control-loading">Cargando estado anual…</div></div>
                 </div>
