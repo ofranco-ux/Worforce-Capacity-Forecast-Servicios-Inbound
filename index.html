@@ -5368,6 +5368,11 @@
                 }
             } catch (e) {}
 
+            // Antes de cargar las proyecciones, recuperar automáticamente el roster
+            // persistente si este servidor arrancó vacío pero el navegador conserva
+            // la última plantilla válida. Así HC actual nunca depende solo de la UI.
+            await ensureServerRosterFromLocalSnapshot({refreshForecast:false});
+
             // Primero cargar el forecast. El selector de campañas se alimenta
             // de esas mismas filas y así evitamos una lectura paralela del Excel.
             if ((mode === 'ops' || mode === 'operaciones') && window.savedFilters) {
@@ -6558,6 +6563,68 @@
             }
         }
 
+        function getRosterUiSnapshotPayload() {
+            try {
+                const raw = localStorage.getItem(ROSTER_UI_CACHE_KEY);
+                if (!raw) return null;
+                const data = JSON.parse(raw);
+                if (!Array.isArray(data?.agents) || !data.agents.length) return null;
+                return data;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        let rosterServerRecoveryPromise = null;
+        async function ensureServerRosterFromLocalSnapshot({refreshForecast=false}={}) {
+            if (rosterServerRecoveryPromise) return rosterServerRecoveryPromise;
+            rosterServerRecoveryPromise = (async()=>{
+                const snapshot = getRosterUiSnapshotPayload();
+                if (!snapshot?.agents?.length) return {restored:false,reason:'no_local_snapshot'};
+
+                try {
+                    const check = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
+                    const current = await check.json();
+                    if (!check.ok) throw new Error(current.error || 'No se pudo verificar el roster del servidor.');
+                    if (Array.isArray(current.agents) && current.agents.length) {
+                        return {restored:false,reason:'server_has_roster',serverCount:current.agents.length};
+                    }
+
+                    const history = restoreRosterHistorySnapshot();
+                    const response = await fetch('/api/roster/restore-snapshot', {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        cache:'no-store',
+                        body:JSON.stringify({
+                            savedAt:snapshot.savedAt || '',
+                            agents:snapshot.agents || [],
+                            vacations:snapshot.vacations || [],
+                            history:Array.isArray(history) ? history : [],
+                            actorMode:typeof currentMode !== 'undefined' ? currentMode : 'ops'
+                        })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'No se pudo restaurar el roster persistente.');
+                    if (data.restored) {
+                        modeDataCache.llamadas = null;
+                        modeDataCache.chat = null;
+                        if (refreshForecast && typeof forecastMode !== 'undefined') {
+                            await fetchLatestData(forecastMode, true);
+                        }
+                    }
+                    return data;
+                } catch (error) {
+                    console.warn('No se pudo restaurar automáticamente el roster del servidor:', error);
+                    return {restored:false,reason:'recovery_error',error:error.message};
+                }
+            })();
+            try {
+                return await rosterServerRecoveryPromise;
+            } finally {
+                rosterServerRecoveryPromise = null;
+            }
+        }
+
         function setRosterSyncStatus(state='ready', text='Sincronizado') {
             const el=document.getElementById('rosterSyncStatus');
             if(!el)return;
@@ -6725,9 +6792,32 @@
                 if (!response.ok) throw new Error(data.error || 'No se pudo cargar el roster.');
                 const incomingAgents = Array.isArray(data.agents) ? data.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)})) : [];
                 if (!incomingAgents.length && hadRoster) {
-                    // Un servidor recién copiado/no inicializado puede responder 200
-                    // con roster vacío. No permitimos que eso destruya la última
-                    // plantilla válida que ya estaba guardada en el navegador.
+                    // La plantilla visible proviene del respaldo local, pero las
+                    // proyecciones necesitan que SQLite también tenga ese roster.
+                    // Si el servidor está vacío, recuperarlo automáticamente.
+                    setRosterSyncStatus('recalculating','Restaurando roster en servidor…');
+                    const recovery = await ensureServerRosterFromLocalSnapshot({refreshForecast:true});
+                    if (recovery?.restored || recovery?.reason === 'server_has_roster') {
+                        const retry = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
+                        const retryData = await retry.json();
+                        if (retry.ok && Array.isArray(retryData.agents) && retryData.agents.length) {
+                            rosterAgents = retryData.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)}));
+                            rosterStats = retryData.stats || {};
+                            rosterCampaigns = await loadRosterCampaignCatalog(retryData.campaigns || []);
+                            rosterSupervisors = retryData.supervisors || [];
+                            rosterCoordinators = retryData.coordinators || [];
+                            rosterTemporaryChanges = Array.isArray(retryData.temporaryChanges) ? retryData.temporaryChanges : [];
+                            rosterVacations = Array.isArray(retryData.vacations) ? retryData.vacations : [];
+                            populateRosterCampaignSelectors();
+                            populateRosterPeopleSelectors();
+                            updateRosterKpis();
+                            populateRosterFilters();
+                            renderRosterTable();
+                            saveRosterUiSnapshot();
+                            setRosterSyncStatus('ready','Roster restaurado · proyección sincronizada');
+                            return;
+                        }
+                    }
                     setRosterSyncStatus('error','Servidor sin roster · se conserva última plantilla');
                     populateRosterCampaignSelectors();
                     populateRosterPeopleSelectors();
