@@ -9,6 +9,7 @@ import hashlib
 import time
 import sqlite3
 import shutil
+import unicodedata
 import io
 import csv
 from functools import lru_cache
@@ -16,6 +17,13 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, send_from_directory, make_response, send_file
 from flask_cors import CORS
+
+# Límite de hilos para entornos de 512 MB: evita buffers/copies paralelos de BLAS.
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+os.environ.setdefault('NUMEXPR_NUM_THREADS', '1')
+
 import pandas as pd
 import numpy as np
 
@@ -27,21 +35,75 @@ if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
     sys.path.insert(0, VENDOR_DIR)
 
 import holidays
+from openpyxl import load_workbook
 from sklearn.ensemble import RandomForestRegressor
 
-CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
-CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
-CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
-EXCEL_FILENAME = os.environ.get('WFM_EXCEL_FILE', 'Data Real Hexalud.xlsx')
-EXCEL_DEFAULT = os.path.join(BASE_DIR, EXCEL_FILENAME)
-WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
-# Estado operativo persistente. Si en el futuro se despliega otra copia del código
-# en una carpeta distinta, WFM_STATE_DIR permite mantener el mismo roster/historial.
-WFM_STATE_DIR = os.environ.get('WFM_STATE_DIR', BASE_DIR)
+# =====================================================================
+# ESTADO PERSISTENTE UNIFICADO
+# =====================================================================
+# El forecast oficial, el roster, el historial y la configuración NO deben
+# depender de la carpeta/nombre de la copia actual del código. Si no se define
+# WFM_STATE_DIR, se usa una carpeta estable del usuario:
+#   Windows: %LOCALAPPDATA%\HexaludWFM
+#   Otros:   ~/.hexalud_wfm
+# Esto permite reemplazar/copiar server.py sin perder el último estado operativo.
+def _default_wfm_state_dir():
+    local_app_data = str(os.environ.get('LOCALAPPDATA') or '').strip()
+    if local_app_data:
+        return os.path.join(local_app_data, 'HexaludWFM')
+    return os.path.join(os.path.expanduser('~'), '.hexalud_wfm')
+
+WFM_STATE_DIR = os.path.abspath(os.environ.get('WFM_STATE_DIR') or _default_wfm_state_dir())
 os.makedirs(WFM_STATE_DIR, exist_ok=True)
-WFM_ROSTER_DB = os.path.join(WFM_STATE_DIR, 'wfm_roster.db')
-WFM_ROSTER_BACKUP_DB = os.path.join(WFM_STATE_DIR, 'wfm_roster_backup.db')
+
+
+def _persistent_state_file(filename):
+    """Devuelve una ruta estable y migra automáticamente el estado legado."""
+    target = os.path.join(WFM_STATE_DIR, filename)
+    if os.path.exists(target):
+        return target
+
+    # Compatibilidad: las versiones anteriores guardaban todo junto a server.py.
+    # También se revisa el directorio desde donde se lanzó Python.
+    candidates = [os.path.join(BASE_DIR, filename), os.path.join(os.getcwd(), filename)]
+    seen = set()
+    for source in candidates:
+        source = os.path.abspath(source)
+        if source in seen or source == os.path.abspath(target):
+            continue
+        seen.add(source)
+        if not os.path.isfile(source):
+            continue
+        try:
+            shutil.copy2(source, target)
+            print(f'Migrando estado persistente: {source} -> {target}')
+            break
+        except Exception as e:
+            print(f'No se pudo migrar {filename} desde {source}: {e}')
+    return target
+
+
+CACHE_FILE_LLAMADAS = _persistent_state_file('forecast_cache_llamadas.json')
+CACHE_FILE_CHAT = _persistent_state_file('forecast_cache_chat.json')
+CONFIG_FILE = _persistent_state_file('wfm_config.json')
+WFM_ACTION_LOG_FILE = _persistent_state_file('wfm_action_log.json')
+WFM_ROSTER_DB = _persistent_state_file('wfm_roster.db')
+WFM_ROSTER_BACKUP_DB = _persistent_state_file('wfm_roster_backup.db')
+
+# El Excel continúa junto al código/proyecto; solo el ESTADO generado se separa.
+# WFM reconoce de forma explícita las tres fuentes oficiales que puede recibir.
+# Si WFM_EXCEL_FILE está definido, conserva prioridad como override administrativo.
+EXCEL_SOURCE_STEMS = (
+    'Data Real Servicios',
+    'Data Real Hexalud',
+    'Data Real Retenciones y Experiencias',
+)
+EXCEL_SOURCE_EXTENSIONS = ('.xlsx', '.xlsm')
+EXCEL_FILENAME = os.environ.get('WFM_EXCEL_FILE', '').strip()
 WFM_TIMEZONE = os.environ.get('WFM_TIMEZONE','America/Mexico_City')
+
+def _excel_allowed_display_names():
+    return [f'{stem}.xlsx' for stem in EXCEL_SOURCE_STEMS]
 _WFM_ROSTER_LOCK = threading.RLock()
 _ROSTER_DB_READY = False
 _WFM_ACTION_LOG_LOCK = threading.RLock()
@@ -55,48 +117,95 @@ _FORECAST_CACHE_DIRTY = {'llamadas': False, 'chat': False}
 _FORECAST_CACHE_LOCK = threading.RLock()
 _FORECAST_REFRESH_LOCKS = {'llamadas': threading.Lock(), 'chat': threading.Lock()}
 _EXCEL_INFO_CACHE = {}
+# Cache de hojas Excel ya parseadas. El archivo histórico es la parte más cara
+# de abrir con openpyxl; mientras ruta/mtime/tamaño no cambien reutilizamos la
+# hoja en memoria y entregamos una copia al cálculo para que pueda modificarla.
+_EXCEL_DF_CACHE = {}
+_EXCEL_DF_CACHE_LOCK = threading.RLock()
+_EXCEL_DF_CACHE_MAX = 0
 _ASSISTANT_PLAN_CACHE = {}
 _ASSISTANT_PLAN_CACHE_LOCK = threading.RLock()
-_ASSISTANT_PLAN_CACHE_MAX = 64
+_ASSISTANT_PLAN_CACHE_MAX = 16
 _ASSISTANT_PLAN_CACHE_TTL = 600
 
 def _cache_path(mode):
     return CACHE_FILE_CHAT if str(mode).lower() == 'chat' else CACHE_FILE_LLAMADAS
 
+
+def _cache_meta_path(mode):
+    return _cache_path(mode) + '.meta.json'
+
+
+def _forecast_cache_meta_from_first_row(data):
+    row = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else {}
+    last_date = ''
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                value = str(item.get('Fecha') or '')[:10]
+                if value and value > last_date:
+                    last_date = value
+    return {
+        'inputSignature': str(row.get('Snapshot_Input_Signature') or ''),
+        'runId': str(row.get('Snapshot_Run_Id') or ''),
+        'generatedAt': str(row.get('Snapshot_Generated_At') or ''),
+        'rows': len(data) if isinstance(data, list) else 0,
+        'lastDate': last_date,
+    }
+
+
 def _guardar_cache_forecast(mode, data):
+    """Persiste el forecast con pico de memoria bajo.
+
+    No conserva el snapshot completo en RAM y usa json.dump directamente al
+    archivo temporal para evitar crear un string JSON gigante adicional.
+    """
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
     with _FORECAST_CACHE_LOCK:
-        _FORECAST_MEMORY_CACHE[mode] = data
+        _FORECAST_MEMORY_CACHE[mode] = None
         _FORECAST_CACHE_DIRTY[mode] = False
         _FORECAST_CACHE_GENERATION[mode] += 1
         generation = _FORECAST_CACHE_GENERATION[mode]
 
-    # Persistir en segundo plano evita que json.dump bloquee la respuesta HTTP.
-    # Si se lanza un cálculo nuevo antes de terminar, el resultado anterior no
-    # sobreescribe al más reciente.
-    def _persistir():
-        try:
-            payload = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-            with _FORECAST_CACHE_LOCK:
-                if generation != _FORECAST_CACHE_GENERATION[mode]:
-                    return
-                target = _cache_path(mode)
-                tmp = f"{target}.{generation}.tmp"
-                with open(tmp, 'w', encoding='utf-8') as f:
-                    f.write(payload)
-                os.replace(tmp, target)
-        except Exception as e:
-            print(f"No se pudo persistir caché {mode}: {e}")
+    target = _cache_path(mode)
+    tmp = f"{target}.{generation}.tmp"
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        with _FORECAST_CACHE_LOCK:
+            if generation != _FORECAST_CACHE_GENERATION[mode]:
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+                return
+            os.replace(tmp, target)
 
-    threading.Thread(target=_persistir, daemon=True, name=f'wfm-cache-{mode}').start()
+        meta = _forecast_cache_meta_from_first_row(data)
+        meta_path = _cache_meta_path(mode)
+        meta_tmp = meta_path + '.tmp'
+        with open(meta_tmp, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, ensure_ascii=False, separators=(',', ':'))
+        os.replace(meta_tmp, meta_path)
+    except Exception as e:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        print(f"No se pudo persistir caché {mode}: {e}")
+
 
 def _leer_cache_forecast(mode, allow_stale=False):
+    """Lee el snapshot sólo cuando se necesita; no lo retiene globalmente."""
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
     with _FORECAST_CACHE_LOCK:
         dirty = bool(_FORECAST_CACHE_DIRTY.get(mode))
-        mem = _FORECAST_MEMORY_CACHE.get(mode)
-    if isinstance(mem, list) and mem and (allow_stale or not dirty):
-        return mem
     if dirty and not allow_stale:
         return None
 
@@ -106,13 +215,63 @@ def _leer_cache_forecast(mode, allow_stale=False):
     try:
         with open(target, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        if isinstance(data, list) and data:
-            with _FORECAST_CACHE_LOCK:
-                _FORECAST_MEMORY_CACHE[mode] = data
-            return data
+        return data if isinstance(data, list) and data else None
+    except Exception:
+        return None
+
+
+def _cached_forecast_signature_quick(mode):
+    """Obtiene la firma sin cargar a RAM todo el forecast anterior."""
+    path = _cache_meta_path(mode)
+    try:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            return str((meta or {}).get('inputSignature') or '')
     except Exception:
         pass
-    return None
+    return ''
+
+
+def _read_forecast_cache_meta(mode):
+    try:
+        path = _cache_meta_path(mode)
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            return meta if isinstance(meta, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _memory_cleanup_before_forecast():
+    """Libera cachés prescindibles antes del trabajo pesado (<512 MB)."""
+    try:
+        with _EXCEL_DF_CACHE_LOCK:
+            _EXCEL_DF_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        with _ASSISTANT_PLAN_CACHE_LOCK:
+            _ASSISTANT_PLAN_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        with _FORECAST_CACHE_LOCK:
+            _FORECAST_MEMORY_CACHE['llamadas'] = None
+            _FORECAST_MEMORY_CACHE['chat'] = None
+    except Exception:
+        pass
+    try:
+        ERLANG_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        calcular_agentes_requeridos_erlang_c.cache_clear()
+    except Exception:
+        pass
+    gc.collect()
 
 def _excel_signature(excel_path):
     try:
@@ -120,6 +279,42 @@ def _excel_signature(excel_path):
         return (os.path.abspath(excel_path), st.st_mtime_ns, st.st_size)
     except Exception:
         return (os.path.abspath(excel_path), None, None)
+
+def _excel_source_path(source):
+    if isinstance(source, (str, os.PathLike)):
+        return os.path.abspath(os.fspath(source))
+    raw = getattr(source, 'io', None)
+    if isinstance(raw, (str, os.PathLike)):
+        return os.path.abspath(os.fspath(raw))
+    return None
+
+def _read_excel_cached(source, sheet_name, *, copy_frame=True):
+    """Lee una hoja una sola vez por versión física del Excel.
+
+    /api/status y /api/campaigns suelen abrir la misma hoja antes de GENERAR
+    FORECAST. Reutilizar ese parseo evita que openpyxl procese decenas de miles
+    de celdas nuevamente durante la corrida.
+    """
+    path = _excel_source_path(source)
+    if not path:
+        return pd.read_excel(source, sheet_name=sheet_name, engine='openpyxl')
+    sig = _excel_signature(path)
+    key = (sig, str(sheet_name))
+    with _EXCEL_DF_CACHE_LOCK:
+        cached = _EXCEL_DF_CACHE.get(key)
+        if cached is not None:
+            return cached.copy(deep=True) if copy_frame else cached
+    df = pd.read_excel(source, sheet_name=sheet_name, engine='openpyxl')
+    with _EXCEL_DF_CACHE_LOCK:
+        # Elimina versiones anteriores del mismo archivo y limita memoria.
+        for old_key in list(_EXCEL_DF_CACHE):
+            if old_key[0][0] == sig[0] and old_key[0] != sig:
+                _EXCEL_DF_CACHE.pop(old_key, None)
+        _EXCEL_DF_CACHE[key] = df
+        while len(_EXCEL_DF_CACHE) > _EXCEL_DF_CACHE_MAX:
+            _EXCEL_DF_CACHE.pop(next(iter(_EXCEL_DF_CACHE)))
+    return df.copy(deep=True) if copy_frame else df
+
 
 def _cache_excel_info_get(excel_path, key):
     return _EXCEL_INFO_CACHE.get((_excel_signature(excel_path), key))
@@ -183,7 +378,33 @@ def factor_cobertura_ambulancia(campana):
     return 1.0 + regla['porcentaje_volumen'] * (regla['personas_por_atencion'] - 1)
 
 def normalizar_nombre_campana(campana):
-    return re.sub(r'\s+', ' ', str(campana or '').strip().lower())
+    """Clave canónica para cruzar forecast y roster sin depender de acentos/formato."""
+    text = str(campana or '').strip().lower()
+    text = unicodedata.normalize('NFKD', text)
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+def _forecast_date_key(value):
+    """Convierte las fechas del snapshot a YYYY-MM-DD para cruzarlas con el roster."""
+    raw = str(value or '').strip()
+    if not raw:
+        return ''
+    candidates = [raw[:10], raw.split('T')[0].split(' ')[0]]
+    for candidate in candidates:
+        for fmt in ('%Y-%m-%d','%d/%m/%Y','%m/%d/%Y'):
+            try:
+                return datetime.strptime(candidate, fmt).strftime('%Y-%m-%d')
+            except Exception:
+                pass
+    return raw[:10]
+
+def _forecast_interval_key(value):
+    minute = parse_time_str(value)
+    if minute is None:
+        return str(value or '').strip()
+    minute = int(minute) % (24 * 60)
+    return f"{minute // 60:02d}:{minute % 60:02d}"
 
 def normalizar_config_campanas(config):
     if not isinstance(config, dict):
@@ -266,6 +487,204 @@ def forzar_cuadre_dashboard(df_final):
 
     return df_final
 
+def forzar_cuadre_dashboard_records(rows):
+    """Mismo cuadre mensual/diario sin crear otro DataFrame completo."""
+    if not rows:
+        return rows
+
+    first_idx = {}
+    month_campaign_max = {}
+    month_interval_sum = {}
+    for idx, row in enumerate(rows):
+        fecha = str(row.get('Fecha',''))
+        inter = str(row.get('Intervalo',''))
+        mes = str(row.get('Mes',''))
+        camp = str(row.get('Campaña',''))
+        req = float(row.get('Agentes_Requeridos',0) or 0)
+        first_idx.setdefault((fecha, inter), idx)
+        mc = (mes, camp)
+        if mc not in month_campaign_max or req > month_campaign_max[mc]:
+            month_campaign_max[mc] = req
+        mik = (mes, fecha, inter)
+        month_interval_sum[mik] = month_interval_sum.get(mik, 0.0) + req
+
+    month_target = {}
+    for (mes, _camp), value in month_campaign_max.items():
+        month_target[mes] = month_target.get(mes, 0.0) + value
+    month_peak = {}
+    for key in sorted(month_interval_sum):
+        mes = key[0]
+        val = month_interval_sum[key]
+        if mes not in month_peak or val > month_peak[mes][0]:
+            month_peak[mes] = (val, key)
+    for mes, (peak, key) in month_peak.items():
+        diff = month_target.get(mes, 0.0) - peak
+        if diff > 0:
+            _, fecha, inter = key
+            idx = first_idx.get((fecha, inter))
+            if idx is not None:
+                rows[idx]['Agentes_Requeridos'] = float(rows[idx].get('Agentes_Requeridos',0) or 0) + diff
+
+    day_campaign_max = {}
+    day_interval_sum = {}
+    for row in rows:
+        fecha = str(row.get('Fecha',''))
+        inter = str(row.get('Intervalo',''))
+        camp = str(row.get('Campaña',''))
+        req = float(row.get('Agentes_Requeridos',0) or 0)
+        dc = (fecha, camp)
+        if dc not in day_campaign_max or req > day_campaign_max[dc]:
+            day_campaign_max[dc] = req
+        dik = (fecha, inter)
+        day_interval_sum[dik] = day_interval_sum.get(dik, 0.0) + req
+
+    day_target = {}
+    for (fecha, _camp), value in day_campaign_max.items():
+        day_target[fecha] = day_target.get(fecha, 0.0) + value
+    day_peak = {}
+    for key in sorted(day_interval_sum):
+        fecha = key[0]
+        val = day_interval_sum[key]
+        if fecha not in day_peak or val > day_peak[fecha][0]:
+            day_peak[fecha] = (val, key)
+    for fecha, (peak, key) in day_peak.items():
+        diff = day_target.get(fecha, 0.0) - peak
+        if diff > 0:
+            _, inter = key
+            idx = first_idx.get((fecha, inter))
+            if idx is not None:
+                rows[idx]['Agentes_Requeridos'] = float(rows[idx].get('Agentes_Requeridos',0) or 0) + diff
+    return rows
+
+
+def _header_index(headers, posibles, fallback=None):
+    normalized = [str(v or '').strip().lower() for v in headers]
+    for p in posibles:
+        p = str(p).strip().lower()
+        for idx, col in enumerate(normalized):
+            if p in col:
+                return idx
+    return fallback
+
+
+def _coerce_excel_date(value, cache):
+    if value is None or value == '':
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime().replace(hour=0, minute=0, second=0, microsecond=0)
+    if isinstance(value, datetime):
+        return value.replace(hour=0, minute=0, second=0, microsecond=0)
+    if hasattr(value, 'year') and hasattr(value, 'month') and hasattr(value, 'day'):
+        try:
+            return datetime(int(value.year), int(value.month), int(value.day))
+        except Exception:
+            pass
+    key = str(value)
+    if key in cache:
+        return cache[key]
+    try:
+        parsed = pd.to_datetime(value, dayfirst=True, errors='coerce')
+        if pd.isna(parsed):
+            result = None
+        else:
+            result = parsed.to_pydatetime().replace(hour=0, minute=0, second=0, microsecond=0)
+    except Exception:
+        result = None
+    if len(cache) < 20000:
+        cache[key] = result
+    return result
+
+
+def _stream_forecast_history(file_source, mode, default_aht):
+    """Lee el Excel en read_only y agrega filas sobre la marcha.
+
+    Evita que openpyxl construya en memoria toda la hoja, que era el principal
+    causante de superar 512 MB con fuentes grandes.
+    """
+    wb = load_workbook(file_source, read_only=True, data_only=True)
+    try:
+        sheet_names = list(wb.sheetnames)
+        if not sheet_names:
+            raise ValueError('El Excel no contiene hojas.')
+        if mode == 'chat':
+            sheet = next((s for s in sheet_names if ('chat' in s.lower() or 'mensaje' in s.lower()) and not any(x in s.lower() for x in ('plantilla','roster','platilla'))), None)
+            if not sheet:
+                raise ValueError('No se encontró pestaña Chat.')
+        else:
+            sheet = sheet_names[0]
+            for sname in sheet_names:
+                low = sname.lower()
+                if 'llam' in low or 'hist' in low or 'datos' in low:
+                    sheet = sname
+                    break
+
+        ws = wb[sheet]
+        header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        if not header_row:
+            raise ValueError(f'La hoja {sheet} no contiene encabezados.')
+        headers = list(header_row)
+        idx_camp = _header_index(headers, ['campaña','campana','skill','servicio','ring group'], 0)
+        idx_fecha = _header_index(headers, ['fecha','date'], 1 if len(headers) > 1 else 0)
+        idx_inter = _header_index(headers, ['intervalo','hora','time'], 2 if len(headers) > 2 else 0)
+        call_names = ['recibidos','recibidas','llamadas','chats','mensajes'] if mode == 'chat' else ['recibidas','llamadas','calls','volumen','ofrecidas','entrada']
+        idx_calls = _header_index(headers, call_names, 3 if len(headers) > 3 else 0)
+        idx_aht = _header_index(headers, ['aht','tmo','handle','duracion'], None)
+
+        agg = {}
+        max_fecha_real = None
+        date_cache = {}
+        for values in ws.iter_rows(min_row=2, values_only=True):
+            if not values:
+                continue
+            try:
+                camp_raw = values[idx_camp] if idx_camp < len(values) else ''
+                fecha_raw = values[idx_fecha] if idx_fecha < len(values) else None
+                inter_raw = values[idx_inter] if idx_inter < len(values) else ''
+                calls_raw = values[idx_calls] if idx_calls < len(values) else 0
+            except Exception:
+                continue
+            camp = str(camp_raw or '').strip().title()
+            if not camp or camp.lower() == 'nan':
+                continue
+            fecha = _coerce_excel_date(fecha_raw, date_cache)
+            if fecha is None:
+                continue
+            calls = float(clean_num(calls_raw, 0.0))
+            inter = clean_interval_str(inter_raw)
+            if idx_aht is not None and idx_aht < len(values):
+                aht = float(parse_aht_to_seconds(values[idx_aht]))
+            else:
+                aht = float(default_aht)
+            if not math.isfinite(aht) or aht < 0:
+                aht = float(default_aht)
+            if calls > 0 and (max_fecha_real is None or fecha > max_fecha_real):
+                max_fecha_real = fecha
+            key = (fecha, camp, inter)
+            prev_calls, prev_handle = agg.get(key, (0.0, 0.0))
+            agg[key] = (prev_calls + calls, prev_handle + (calls * aht))
+
+        if max_fecha_real is None:
+            raise ValueError('El archivo no tiene volumen mayor a cero.')
+
+        records = []
+        for (fecha, camp, inter), (calls, handle) in agg.items():
+            if fecha > max_fecha_real:
+                continue
+            aht = (handle / calls) if calls > 0 else float(default_aht)
+            records.append((fecha, camp, inter, calls, aht))
+        del agg, date_cache
+        gc.collect()
+        df = pd.DataFrame.from_records(records, columns=['Fecha','Campaña','Inter_Clean','Llamadas','AHT'])
+        del records
+        gc.collect()
+        return df, max_fecha_real, sheet_names
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+
+
 def pronosticar_macro_campana(df_diario_campana, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls):
     sub = df_diario_campana.sort_values(col_fecha).copy()
     sub['dia_semana'] = sub[col_fecha].dt.weekday
@@ -317,7 +736,8 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         return [max(0.0, float(df_diario_campana.tail(7)[col_calls].mean()))] * dias_futuros
 
     features = ['dia_semana', 'es_inicio_mes', 'es_quincena', 'es_festivo']
-    modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2)
+    ml_jobs = 1  # límite de memoria: evita copias paralelas del modelo
+    modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2, n_jobs=1)
     modelo.fit(df_train[features], df_train['ratio_smooth'])
 
     # El ratio que predice el bosque depende sólo del calendario. Generarlo para
@@ -344,45 +764,80 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
 
     return preds_finales
 
-def buscar_archivo_excel():
-    """Localiza el archivo fuente del forecast.
+def _excel_search_dirs():
+    """Directorios válidos para localizar el Excel fuente sin mezclar copias antiguas."""
+    dirs = []
+    for raw in (BASE_DIR, os.getcwd(), os.path.dirname(BASE_DIR)):
+        try:
+            path = os.path.abspath(raw)
+        except Exception:
+            continue
+        if path not in dirs and os.path.isdir(path):
+            dirs.append(path)
+    return dirs
 
-    Prioridad:
-    1) WFM_EXCEL_FILE (por defecto: Data Real Hexalud.xlsx).
-    2) Coincidencia por nombre "Data Real Hexalud".
-    3) Compatibilidad con nombres anteriores (data / servicios / historico).
-    4) Primer Excel disponible como último recurso.
+
+def buscar_archivo_excel():
+    """Localiza una de las fuentes oficiales del forecast.
+
+    Archivos reconocidos (también se acepta .xlsm):
+      - Data Real Servicios
+      - Data Real Hexalud
+      - Data Real Retenciones y Experiencias
+
+    Si hay más de una fuente reconocida disponible, se utiliza la que tenga la
+    modificación más reciente. De esta forma el archivo recién cargado se vuelve
+    la fuente activa sin depender de una prioridad oculta por nombre.
+
+    WFM_EXCEL_FILE, cuando está configurado explícitamente, mantiene prioridad y
+    puede ser una ruta absoluta o un nombre de archivo dentro de los directorios
+    de búsqueda.
     """
     try:
-        # Ruta configurada explícitamente / nombre oficial actual.
-        if os.path.isfile(EXCEL_DEFAULT):
-            return EXCEL_DEFAULT
+        raw_configured = str(EXCEL_FILENAME or '').strip()
+        if raw_configured:
+            if os.path.isabs(raw_configured):
+                candidate = os.path.abspath(raw_configured)
+                if os.path.isfile(candidate):
+                    return candidate
+            else:
+                for directory in _excel_search_dirs():
+                    candidate = os.path.join(directory, raw_configured)
+                    if os.path.isfile(candidate):
+                        return candidate
 
-        archivos = [
-            f for f in os.listdir(BASE_DIR)
-            if f.lower().endswith(('.xlsx', '.xlsm')) and not f.startswith('~')
-        ]
-        if not archivos:
+        allowed_stems = {stem.strip().lower() for stem in EXCEL_SOURCE_STEMS}
+        candidates = []
+        seen = set()
+        for directory in _excel_search_dirs():
+            try:
+                filenames = os.listdir(directory)
+            except Exception:
+                continue
+            for filename in filenames:
+                if filename.startswith('~'):
+                    continue
+                stem, ext = os.path.splitext(filename)
+                if ext.lower() not in EXCEL_SOURCE_EXTENSIONS:
+                    continue
+                if stem.strip().lower() not in allowed_stems:
+                    continue
+                candidate = os.path.abspath(os.path.join(directory, filename))
+                if candidate in seen or not os.path.isfile(candidate):
+                    continue
+                seen.add(candidate)
+                try:
+                    mtime = os.path.getmtime(candidate)
+                except Exception:
+                    mtime = 0.0
+                candidates.append((mtime, candidate))
+
+        if not candidates:
             return None
 
-        # La comparación case-insensitive permite variaciones de mayúsculas/minúsculas.
-        objetivo = os.path.splitext(os.path.basename(EXCEL_FILENAME))[0].strip().lower()
-        for f in archivos:
-            base = os.path.splitext(f)[0].strip().lower()
-            if base == objetivo or base == 'data real hexalud':
-                return os.path.join(BASE_DIR, f)
-
-        # Respaldo para instalaciones que todavía conserven el nombre anterior.
-        for f in archivos:
-            nombre = f.lower()
-            if 'data real hexalud' in nombre:
-                return os.path.join(BASE_DIR, f)
-        for f in archivos:
-            nombre = f.lower()
-            if 'data' in nombre or 'servicios' in nombre or 'historico' in nombre:
-                return os.path.join(BASE_DIR, f)
-
-        return os.path.join(BASE_DIR, archivos[0])
+        # Último archivo reconocido actualizado/cargado.
+        candidates.sort(key=lambda item: (item[0], item[1].lower()), reverse=True)
+        return candidates[0][1]
     except Exception:
         return None
 
@@ -478,10 +933,13 @@ def erlang_c_sl_optimizado(A, N, AHT, target_time):
         pw = last_term / (sum_terms + last_term)
         sl = 1.0 - (pw * math.exp(-(N - A) * (target_time / AHT)))
         resultado = round(max(0.0, min(100.0, sl * 100.0)), 1)
+        if len(ERLANG_CACHE) >= 20000:
+            ERLANG_CACHE.clear()
         ERLANG_CACHE[key] = resultado
         return resultado
     except: return 0.0
 
+@lru_cache(maxsize=20000)
 def calcular_agentes_requeridos_erlang_c(A, aht, target_time, target_sl):
     if A <= 0 or aht <= 0: return 0
     base_n = int(math.floor(A + math.sqrt(A))) if A > 50 else int(math.floor(A)) + 1
@@ -969,36 +1427,44 @@ def _roster_seed_from_excel_if_empty():
 
 def _invalidate_roster_dependent_caches():
     global _EXCEL_INFO_CACHE
-    # Cada modificación que afecta la operación deja además un respaldo físico
-    # del roster e historial. Cambiar de vista o recalcular el FCST nunca lo borra.
+    # El roster y su historial son estado operativo persistente.
     _roster_backup_database()
-    # El roster cambió: el forecast debe recalcular HC Actual, pero no se borra
-    # el último snapshot válido. Se marca como sucio para que /api/latest intente
-    # refrescarlo; si ese cálculo falla, Operaciones seguirá recibiendo el último
-    # resultado válido en vez de una pantalla en ceros.
-    with _FORECAST_CACHE_LOCK:
-        for mode in ('llamadas','chat'):
-            _FORECAST_CACHE_DIRTY[mode] = True
-            _FORECAST_CACHE_GENERATION[mode] += 1
+
+    # IMPORTANTE: un cambio de roster NO invalida el forecast oficial.
+    # El forecast / HC requerido debe seguir siendo exactamente la última
+    # corrida exitosa de WFM. El HC actual se superpone en vivo desde
+    # wfm_roster.db al responder /api/latest.
+    #
+    # Antes se marcaba _FORECAST_CACHE_DIRTY=True y Operaciones podía disparar
+    # un forecast nuevo al editar horarios. Eso hacía que la vista operativa no
+    # coincidiera necesariamente con la última corrida realizada por WFM.
     with _ASSISTANT_PLAN_CACHE_LOCK:
         _ASSISTANT_PLAN_CACHE.clear()
     _EXCEL_INFO_CACHE = {}
 
 def _roster_fetch_agents(channel=None, include_inactive=True):
+    """Lee el roster con filtros tolerantes a datos heredados.
+
+    La UI considera Activo todo estado que no sea Baja/Inactivo. Aplicamos el
+    mismo criterio aquí para que una variante antigua (espacios, mayúsculas, etc.)
+    no haga desaparecer agentes de las proyecciones.
+    """
     _roster_db_init()
     conn = _roster_conn()
     try:
         sql = "SELECT * FROM roster_agents WHERE 1=1"
         args = []
-        if channel and str(channel).lower() != 'all':
-            sql += " AND lower(channel)=?"
-            args.append(str(channel).lower())
         if not include_inactive:
-            sql += " AND lower(status)='activo'"
+            sql += " AND lower(trim(coalesce(status,''))) NOT IN ('baja','inactivo')"
         sql += " ORDER BY campaign, supervisor, full_name, agent_id"
-        return [_roster_row_dict(r) for r in conn.execute(sql,args).fetchall()]
+        rows = [_roster_row_dict(r) for r in conn.execute(sql,args).fetchall()]
     finally:
         conn.close()
+
+    if channel and str(channel).strip().lower() != 'all':
+        wanted = _assistant_norm_channel(channel)
+        rows = [a for a in rows if _assistant_norm_channel(a.get('channel','')) == wanted]
+    return rows
 
 def _roster_dataframe(channel):
     agents = _roster_fetch_agents(channel=channel, include_inactive=False)
@@ -1150,41 +1616,32 @@ def _forecast_lock_rows_map(lock_ids):
         conn.close()
 
 def _forecast_apply_control(channel, data):
-    """
-    Closed month rules:
-    - HC required is always the value locked with Operations.
-    - Forecast is the official value stored in the lock. It changes only through
-      an explicit future reforecast/anomaly revision.
-    - Roster / HC actual remains live.
-    - Past/today rows are never changed by a reforecast operation.
-    """
+    """Aplica control mensual en sitio para no duplicar el snapshot completo."""
     if not isinstance(data,list) or not data:
         return data
 
     mode = _forecast_channel_norm(channel)
     locks = _forecast_active_locks(mode)
     if not locks:
-        result = []
-        for raw in data:
-            row = dict(raw)
+        for row in data:
+            if not isinstance(row, dict):
+                continue
             row['Forecast_Control_Estado'] = 'rolling'
             row['HC_Bloqueado'] = False
             row['Forecast_Rolling'] = _forecast_num(row.get('Llamadas'),0)
             row['Forecast_Oficial'] = _forecast_num(row.get('Llamadas'),0)
             row['Forecast_Al_Cierre'] = None
             row['Lock_Version'] = None
-            result.append(row)
-        return result
+        return data
 
     rows_map = _forecast_lock_rows_map([v['id'] for v in locks.values()])
-    result = []
-    for raw in data:
-        row = dict(raw)
+    for row in data:
+        if not isinstance(row, dict):
+            continue
         month_key = _forecast_month_key_from_date(row.get('Fecha'))
         lock = locks.get((month_key,mode))
         rolling_forecast = _forecast_num(row.get('Llamadas'),0)
         rolling_hc = int(round(_forecast_num(row.get('Agentes_Requeridos'),0)))
-
         row['Forecast_Rolling'] = rolling_forecast
         row['Agentes_Requeridos_Rolling'] = rolling_hc
 
@@ -1194,14 +1651,11 @@ def _forecast_apply_control(channel, data):
             row['Forecast_Oficial'] = rolling_forecast
             row['Forecast_Al_Cierre'] = None
             row['Lock_Version'] = None
-            result.append(row)
             continue
 
         key = _forecast_row_key(row)
         snap = rows_map.get((int(lock['id']), key[0], key[1], key[2]))
         if not snap:
-            # A new campaign/interval that did not exist at close cannot silently
-            # change the agreed HC. It remains visible as "sin snapshot".
             row['Forecast_Control_Estado'] = 'closed_missing_snapshot'
             row['HC_Bloqueado'] = True
             row['Agentes_Requeridos'] = 0
@@ -1210,7 +1664,6 @@ def _forecast_apply_control(channel, data):
             row['Forecast_Al_Cierre'] = 0
             row['Lock_Version'] = int(lock['version'])
             row['Lock_Id'] = int(lock['id'])
-            result.append(row)
             continue
 
         official = _forecast_num(snap['official_forecast'],0)
@@ -1220,8 +1673,6 @@ def _forecast_apply_control(channel, data):
         row['Lock_Version'] = int(lock['version'])
         row['Forecast_Al_Cierre'] = _forecast_num(snap['forecast_at_close'],0)
         row['Forecast_Oficial'] = official
-
-        # Only forecast can move after close, via an explicit reforecast.
         row['Llamadas'] = int(round(official))
         row['Agentes_Requeridos'] = int(snap['required_hc_locked'] or 0)
         row['AHT'] = snap['aht_text'] or row.get('AHT','')
@@ -1236,11 +1687,9 @@ def _forecast_apply_control(channel, data):
         row['Lock_Factor_Descanso'] = _forecast_num(snap['factor_descanso'],7.0/6.0)
         row['Lock_Factor_Asistencia'] = _forecast_num(snap['factor_asistencia'],1)
         if 'Factor_Cobertura_Ambulancia' in row:
-            row['Factor_Cobertura_Ambulancia'] = _forecast_num(
-                snap['factor_cobertura'],row.get('Factor_Cobertura_Ambulancia',1)
-            )
-        result.append(row)
-    return result
+            row['Factor_Cobertura_Ambulancia'] = _forecast_num(snap['factor_cobertura'],row.get('Factor_Cobertura_Ambulancia',1))
+    return data
+
 
 def _forecast_raw_month_rows(channel, month_key, data=None):
     mode = _forecast_channel_norm(channel)
@@ -1254,7 +1703,7 @@ def _forecast_generate_raw(channel):
     mode = _forecast_channel_norm(channel)
     excel_path = buscar_archivo_excel()
     if not excel_path:
-        raise ValueError(f'No se encontró {EXCEL_FILENAME} para recalcular el forecast.')
+        raise ValueError('No se encontró una fuente válida. Usa Data Real Servicios.xlsx, Data Real Hexalud.xlsx o Data Real Retenciones y Experiencias.xlsx.')
 
     sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
     campaign_settings = {}
@@ -1649,41 +2098,367 @@ def _forecast_control_history(month_key, channel):
     finally:
         conn.close()
 
-def _roster_forecast_metrics(xls_file, channel):
+def _roster_forecast_metrics(file_source, channel):
     try:
         df_db = _roster_dataframe(channel)
         if not df_db.empty:
             cov,total_camp,total_day = procesar_hoja_roster(df_db)
             override_cov,override_day = _roster_override_deltas(channel,df_db)
             absence_cov,absence_day = _roster_absence_deltas(channel,df_db)
-
             for key,value in absence_cov.items():
                 override_cov[key] = override_cov.get(key,0) + value
             for key,value in absence_day.items():
                 override_day[key] = override_day.get(key,0) + value
-
             return cov,total_camp,total_day,override_cov,override_day
     except Exception as e:
         print(f'Roster DB fallback ({channel}): {e}')
 
-    sheet_roster = None
-    for sh in xls_file.sheet_names:
-        low = sh.lower()
-        if channel.lower() == 'chat':
-            if any(x in low for x in ('plantilla','platilla','roster')) and ('chat' in low or 'mensaje' in low):
-                sheet_roster = sh; break
-        else:
-            if any(x in low for x in ('plantilla','platilla','roster','horario')) and 'chat' not in low:
-                sheet_roster = sh; break
-    if sheet_roster:
+    # Respaldo desde Excel en modo streaming, sólo si SQLite realmente está vacío.
+    try:
+        wb = load_workbook(file_source, read_only=True, data_only=True)
         try:
-            df = pd.read_excel(xls_file,sheet_name=sheet_roster,engine='openpyxl')
+            sheet_roster = None
+            for sh in wb.sheetnames:
+                low = sh.lower()
+                if channel.lower() == 'chat':
+                    if any(x in low for x in ('plantilla','platilla','roster')) and ('chat' in low or 'mensaje' in low):
+                        sheet_roster = sh; break
+                else:
+                    if any(x in low for x in ('plantilla','platilla','roster','horario')) and 'chat' not in low:
+                        sheet_roster = sh; break
+            if not sheet_roster:
+                return {},{},{},{},{}
+            ws = wb[sheet_roster]
+            rows = ws.iter_rows(values_only=True)
+            headers = next(rows, None)
+            if not headers:
+                return {},{},{},{},{}
+            records = []
+            for i, values in enumerate(rows):
+                if i >= 20000:
+                    break
+                records.append(dict(zip(headers, values)))
+            df = pd.DataFrame.from_records(records)
+            del records
             cov,total_camp,total_day = procesar_hoja_roster(df)
+            del df
+            gc.collect()
             return cov,total_camp,total_day,{},{}
-        except Exception:
-            pass
-    return {},{},{},{},{}
+        finally:
+            wb.close()
+    except Exception:
+        return {},{},{},{},{}
 
+
+def _roster_live_forecast_overlay(channel, data):
+    """
+    Mantiene dos fuentes separadas y coherentes:
+      1) Forecast / HC requerido: snapshot de la última corrida WFM.
+      2) HC actual: roster operativo vigente en wfm_roster.db.
+
+    La cobertura se reconstruye por FECHA real. Esto es especialmente importante
+    para turnos nocturnos: por ejemplo, Martes 22:00-07:00 cubre Martes 22:00-
+    23:30 y Miércoles 00:00-06:30. Así Gestión de horarios y las proyecciones
+    consultan exactamente la misma plantilla vigente.
+    """
+    if not isinstance(data, list) or not data:
+        return data
+
+    channel_label = 'Chat' if _forecast_channel_norm(channel) == 'chat' else 'Llamadas'
+    try:
+        agents = _roster_fetch_agents(channel=channel_label, include_inactive=False)
+
+        forecast_dates = set()
+        parsed_dates = []
+        for raw in data:
+            date_text = _forecast_date_key((raw or {}).get('Fecha',''))
+            try:
+                dt = datetime.strptime(date_text,'%Y-%m-%d')
+            except Exception:
+                continue
+            forecast_dates.add(date_text)
+            parsed_dates.append(dt)
+
+        if not forecast_dates:
+            return data
+
+        if not agents:
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                row['HC_Actual_Roster'] = 0
+                row['Total_Roster_Campana'] = 0
+                row['Total_Roster_Dia'] = 0
+                row['Roster_Fuente'] = 'wfm_roster.db'
+            return data
+
+        # Para intervalos posteriores a medianoche también hay que revisar el
+        # turno que inició el día anterior.
+        shift_dates = set(forecast_dates)
+        for dt in parsed_dates:
+            shift_dates.add((dt - timedelta(days=1)).strftime('%Y-%m-%d'))
+
+        min_shift = min(shift_dates)
+        max_shift = max(shift_dates)
+        agent_ids = {str(a.get('agentId') or '') for a in agents}
+
+        _roster_db_init()
+        conn = _roster_conn()
+        try:
+            overrides = {
+                (str(r['agent_id']), str(r['work_date'])[:10]): str(r['schedule'] or 'DD-DD')
+                for r in conn.execute(
+                    """SELECT agent_id,work_date,schedule
+                       FROM roster_overrides
+                       WHERE work_date>=? AND work_date<=?""",
+                    (min_shift,max_shift)
+                ).fetchall()
+                if str(r['agent_id']) in agent_ids
+            }
+            vacations = conn.execute(
+                """SELECT agent_id,start_date,end_date
+                   FROM roster_absences
+                   WHERE absence_type='vacation' AND status='approved'
+                     AND end_date>=? AND start_date<=?""",
+                (min_shift,max_shift)
+            ).fetchall()
+        finally:
+            conn.close()
+
+        absence_dates = set()
+        for vac in vacations:
+            agent_id = str(vac['agent_id'])
+            if agent_id not in agent_ids:
+                continue
+            try:
+                cur = datetime.strptime(str(vac['start_date'])[:10],'%Y-%m-%d')
+                end_dt = datetime.strptime(str(vac['end_date'])[:10],'%Y-%m-%d')
+            except Exception:
+                continue
+            while cur <= end_dt:
+                key_date = cur.strftime('%Y-%m-%d')
+                if min_shift <= key_date <= max_shift:
+                    absence_dates.add((agent_id,key_date))
+                cur += timedelta(days=1)
+
+        total_campaign = {}
+        coverage = {}
+        presence = {}
+
+        def schedule_parts(schedule):
+            text = str(schedule or 'DD-DD').strip().upper()
+            if text == 'DD-DD' or '-' not in text:
+                return None
+            p = text.split('-',1)
+            start_min = parse_time_str(p[0].strip())
+            end_min = parse_time_str(p[1].strip())
+            if start_min is None or end_min is None:
+                return None
+            return int(start_min),int(end_min)
+
+        for agent in agents:
+            agent_id = str(agent.get('agentId') or '')
+            camp_norm = normalizar_nombre_campana(agent.get('campaign',''))
+            if not agent_id or not camp_norm:
+                continue
+            total_campaign[camp_norm] = total_campaign.get(camp_norm,0) + 1
+            schedules = agent.get('schedules') or {}
+
+            for shift_date in shift_dates:
+                # Una ausencia aprobada elimina la jornada cuyo día de inicio es
+                # esa fecha. Los tramos posteriores a medianoche quedan eliminados
+                # junto con la misma jornada.
+                if (agent_id,shift_date) in absence_dates:
+                    continue
+                try:
+                    shift_dt = datetime.strptime(shift_date,'%Y-%m-%d')
+                except Exception:
+                    continue
+                day = _ROSTER_DAYS[shift_dt.weekday()]
+                schedule = overrides.get((agent_id,shift_date), schedules.get(day,'DD-DD'))
+                bounds = schedule_parts(schedule)
+                if not bounds:
+                    continue
+                start_min,end_min = bounds
+
+                for interval in generar_intervalos_cobertura(start_min,end_min):
+                    inv_min = parse_time_str(interval)
+                    if inv_min is None:
+                        continue
+                    target_dt = shift_dt
+                    if start_min >= end_min and inv_min < end_min:
+                        target_dt = shift_dt + timedelta(days=1)
+                    target_date = target_dt.strftime('%Y-%m-%d')
+                    if target_date not in forecast_dates:
+                        continue
+                    key = (camp_norm,target_date,_forecast_interval_key(interval))
+                    coverage[key] = coverage.get(key,0) + 1
+                    presence.setdefault((camp_norm,target_date),set()).add(agent_id)
+
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+            camp_norm = normalizar_nombre_campana(row.get('Campaña',row.get('Campana','')))
+            date = _forecast_date_key(row.get('Fecha',''))
+            interval = _forecast_interval_key(row.get('Intervalo',''))
+            row['HC_Actual_Roster'] = max(0,int(coverage.get((camp_norm,date,interval),0)))
+            row['Total_Roster_Campana'] = max(0,int(total_campaign.get(camp_norm,0)))
+            row['Total_Roster_Dia'] = len(presence.get((camp_norm,date),set()))
+            row['Roster_Fuente'] = 'wfm_roster.db'
+        return data
+    except Exception as e:
+        print(f'No se pudo superponer roster vigente ({channel_label}): {e}')
+        return data
+
+
+def _forecast_snapshot_bool(value, default=False):
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('1','true','yes','si','sí','on')
+
+
+def _forecast_input_signature(mode, excel_path, form):
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    try:
+        source_sig = _excel_signature(excel_path)
+        source_token = f'{source_sig[0]}|{source_sig[1]}|{source_sig[2]}'
+    except Exception:
+        source_token = str(excel_path or '')
+    try:
+        campaign_cfg = json.loads(form.get('campaign_settings', '{}') or '{}')
+    except Exception:
+        campaign_cfg = {}
+    normalized_cfg = json.dumps(campaign_cfg, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    parts = [
+        mode, source_token,
+        str(float(clean_num(form.get('target_sl'), 80.0))),
+        str(float(clean_num(form.get('target_time'), 20.0))),
+        str(float(clean_num(form.get('merma'), 30.0))),
+        str(int(clean_num(form.get('dias'), 45))),
+        str(float(clean_num(form.get('concurrencia'), 3.0))) if mode == 'chat' else '1.0',
+        str(float(clean_num(form.get('jornada'), 8.0))),
+        str(_forecast_snapshot_bool(form.get('nocturno'), False)),
+        normalized_cfg,
+    ]
+    return hashlib.sha1('|'.join(parts).encode('utf-8')).hexdigest()
+
+def _forecast_cached_input_signature(data):
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        return ''
+    return str(data[0].get('Snapshot_Input_Signature') or '')
+
+
+def _forecast_snapshot_meta(mode, form, excel_path=None):
+    """Supuestos que forman parte inmutable de una corrida oficial de WFM."""
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    generated_at = datetime.now(ZoneInfo(WFM_TIMEZONE)).isoformat(timespec='seconds')
+    jornada = max(0.5, float(clean_num(form.get('jornada'), 8.0)))
+    merma_pct = min(99.0, max(0.0, float(clean_num(form.get('merma'), 30.0))))
+    nocturno = _forecast_snapshot_bool(form.get('nocturno'), False)
+    concurrencia = max(1.0, float(clean_num(form.get('concurrencia'), 3.0))) if mode == 'chat' else 1.0
+    factor_descanso = (7.0 / 5.0) if nocturno else (7.0 / 6.0)
+    factor_asistencia = max(0.01, 1.0 - (merma_pct / 100.0))
+    target_sl = min(100.0, max(1.0, float(clean_num(form.get('target_sl'), 80.0))))
+    target_asa = max(1.0, float(clean_num(form.get('target_time'), 20.0)))
+    dias = max(1, int(clean_num(form.get('dias'), 45)))
+    signature_source = '|'.join([
+        mode, generated_at, f'{jornada:.4f}', f'{merma_pct:.4f}',
+        str(int(nocturno)), f'{concurrencia:.4f}', f'{target_sl:.4f}',
+        f'{target_asa:.4f}', str(dias)
+    ])
+    run_id = hashlib.sha1(signature_source.encode('utf-8')).hexdigest()[:16]
+    return {
+        'runId': run_id,
+        'generatedAt': generated_at,
+        'mode': mode,
+        'sourceFile': os.path.basename(excel_path) if excel_path else '',
+        'inputSignature': _forecast_input_signature(mode, excel_path, form) if excel_path else '',
+        'jornadaHoras': jornada,
+        'mermaPct': merma_pct,
+        'nocturno': nocturno,
+        'factorDescanso': factor_descanso,
+        'factorAsistencia': factor_asistencia,
+        'concurrencia': concurrencia,
+        'targetSl': target_sl,
+        'targetAsa': target_asa,
+        'dias': dias,
+    }
+
+
+def _stamp_forecast_snapshot(data, meta):
+    """Incrusta metadatos en sitio para no duplicar todo el snapshot en RAM."""
+    for row in (data or []):
+        if not isinstance(row, dict):
+            continue
+        row['Snapshot_Run_Id'] = meta['runId']
+        row['Snapshot_Generated_At'] = meta['generatedAt']
+        row['Snapshot_Mode'] = meta['mode']
+        row['Snapshot_Source_File'] = meta.get('sourceFile','')
+        row['Snapshot_Input_Signature'] = meta.get('inputSignature','')
+        row['Snapshot_Jornada_Horas'] = meta['jornadaHoras']
+        row['Snapshot_Merma_Pct'] = meta['mermaPct']
+        row['Snapshot_Nocturno'] = meta['nocturno']
+        row['Snapshot_Factor_Descanso'] = meta['factorDescanso']
+        row['Snapshot_Factor_Asistencia'] = meta['factorAsistencia']
+        row['Snapshot_Concurrencia'] = meta['concurrencia']
+        row['Snapshot_Target_SL'] = meta['targetSl']
+        row['Snapshot_Target_ASA'] = meta['targetAsa']
+        row['Snapshot_Dias'] = meta['dias']
+    return data
+
+
+def _forecast_snapshot_meta_from_rows(data):
+    if not isinstance(data, list) or not data:
+        return {}
+    row = data[0] if isinstance(data[0], dict) else {}
+    return {
+        'runId': row.get('Snapshot_Run_Id',''),
+        'generatedAt': row.get('Snapshot_Generated_At',''),
+        'sourceFile': row.get('Snapshot_Source_File',''),
+        'inputSignature': row.get('Snapshot_Input_Signature',''),
+        'jornadaHoras': row.get('Snapshot_Jornada_Horas'),
+        'mermaPct': row.get('Snapshot_Merma_Pct'),
+        'nocturno': row.get('Snapshot_Nocturno'),
+        'factorDescanso': row.get('Snapshot_Factor_Descanso'),
+        'factorAsistencia': row.get('Snapshot_Factor_Asistencia'),
+        'concurrencia': row.get('Snapshot_Concurrencia'),
+    }
+
+
+def _forecast_api_payload(channel, data):
+    """Aplica locks del forecast y después superpone el roster vigente."""
+    controlled = _forecast_apply_control(channel, data)
+    return _roster_live_forecast_overlay(channel, controlled)
+
+
+def _forecast_json_response(channel, data, data_state='snapshot'):
+    response = jsonify(_forecast_api_payload(channel, data))
+    # El navegador no debe conservar una respuesta vieja. La persistencia se
+    # controla en el servidor mediante forecast_cache_*.json.
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['X-WFM-Data-State'] = str(data_state or 'snapshot')
+    meta = _forecast_snapshot_meta_from_rows(data)
+    if meta.get('runId'):
+        response.headers['X-WFM-Forecast-Run'] = str(meta.get('runId'))
+    if meta.get('generatedAt'):
+        response.headers['X-WFM-Forecast-Generated-At'] = str(meta.get('generatedAt'))
+    if meta.get('jornadaHoras') is not None:
+        response.headers['X-WFM-Forecast-Jornada'] = str(meta.get('jornadaHoras'))
+    if meta.get('mermaPct') is not None:
+        response.headers['X-WFM-Forecast-Merma'] = str(meta.get('mermaPct'))
+    cache_path = _cache_path(channel)
+    try:
+        if os.path.exists(cache_path):
+            response.headers['X-WFM-Forecast-Snapshot'] = datetime.fromtimestamp(
+                os.path.getmtime(cache_path)
+            ).isoformat(timespec='seconds')
+    except Exception:
+        pass
+    return response
 
 
 def _roster_vacations(include_past=False):
@@ -2260,6 +3035,167 @@ def roster_list():
     except Exception as e:
         return jsonify({'error':f'No se pudo cargar el roster: {str(e)}'}),500
 
+def _roster_restore_from_browser_snapshot(payload):
+    """Recupera la última plantilla que el navegador conserva SOLO si SQLite está vacío.
+
+    Este mecanismo es una red de seguridad para despliegues/copias nuevas del servidor:
+    la UI puede seguir mostrando su último roster válido aunque el nuevo STATE_DIR aún
+    no tenga wfm_roster.db. Nunca sobrescribe un roster existente.
+    """
+    payload = payload or {}
+    agents = payload.get('agents') or []
+    vacations = payload.get('vacations') or []
+    history = payload.get('history') or []
+    if not isinstance(agents, list) or not agents:
+        raise ValueError('El respaldo local no contiene agentes para restaurar.')
+    if len(agents) > 10000:
+        raise ValueError('El respaldo local excede el máximo permitido de agentes.')
+
+    _roster_db_init()
+    restored = 0
+    restored_vacations = 0
+    restored_history = 0
+    now = datetime.now().isoformat(timespec='seconds')
+    snapshot_saved_at = str(payload.get('savedAt') or '')[:40]
+
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            current_count = int(conn.execute('SELECT COUNT(*) FROM roster_agents').fetchone()[0] or 0)
+            if current_count > 0:
+                return {
+                    'restored': False,
+                    'reason': 'server_not_empty',
+                    'serverCount': current_count,
+                    'restoredAgents': 0,
+                    'restoredVacations': 0,
+                    'restoredHistory': 0,
+                }
+
+            for raw in agents:
+                try:
+                    clean = _roster_validate_payload(raw or {})
+                except Exception as e:
+                    print(f'Agente omitido durante recuperación local: {e}')
+                    continue
+                schedules = clean['schedules']
+                created_at = str((raw or {}).get('createdAt') or now)[:40]
+                updated_at = str((raw or {}).get('updatedAt') or snapshot_saved_at or now)[:40]
+                updated_by = str((raw or {}).get('updatedBy') or 'browser_recovery')[:80]
+                conn.execute(
+                    """INSERT OR REPLACE INTO roster_agents
+                    (agent_id,full_name,supervisor,coordinator,campaign,channel,status,
+                     lunes,martes,miercoles,jueves,viernes,sabado,domingo,source,created_at,updated_at,updated_by)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        clean['agentId'], clean['fullName'], clean['supervisor'], clean['coordinator'],
+                        clean['campaign'], clean['channel'], clean['status'],
+                        schedules['Lunes'], schedules['Martes'], schedules['Miércoles'], schedules['Jueves'],
+                        schedules['Viernes'], schedules['Sábado'], schedules['Domingo'],
+                        'browser_recovery', created_at, updated_at, updated_by
+                    )
+                )
+                restored += 1
+
+            if restored <= 0:
+                raise ValueError('No se pudo recuperar ningún agente válido del respaldo local.')
+
+            # Vacaciones sí contienen toda la información necesaria en el snapshot visual.
+            # Se restauran solo si la tabla está vacía para evitar duplicados.
+            absence_count = int(conn.execute("SELECT COUNT(*) FROM roster_absences").fetchone()[0] or 0)
+            if absence_count == 0 and isinstance(vacations, list):
+                for vac in vacations:
+                    agent_id = str((vac or {}).get('agentId') or '').strip()
+                    if not agent_id:
+                        continue
+                    exists = conn.execute('SELECT 1 FROM roster_agents WHERE agent_id=?',(agent_id,)).fetchone()
+                    if not exists:
+                        continue
+                    start_date = str((vac or {}).get('startDate') or '')[:10]
+                    end_date = str((vac or {}).get('endDate') or '')[:10]
+                    if not start_date or not end_date:
+                        continue
+                    status = _assistant_norm((vac or {}).get('status') or 'requested')
+                    if status not in ('requested','approved','rejected','cancelled'):
+                        status = 'requested'
+                    created_at = str((vac or {}).get('createdAt') or now)[:40]
+                    updated_at = str((vac or {}).get('updatedAt') or created_at)[:40]
+                    created_by = str((vac or {}).get('createdBy') or 'browser_recovery')[:80]
+                    updated_by = str((vac or {}).get('updatedBy') or created_by)[:80]
+                    conn.execute(
+                        """INSERT INTO roster_absences
+                        (agent_id,absence_type,start_date,end_date,status,reason,created_at,updated_at,created_by,updated_by)
+                        VALUES (?,'vacation',?,?,?,?,?,?,?,?)""",
+                        (agent_id,start_date,end_date,status,str((vac or {}).get('reason') or '')[:500],
+                         created_at,updated_at,created_by,updated_by)
+                    )
+                    restored_vacations += 1
+
+            # El historial visible se usa como rescate únicamente si SQLite no tiene historial.
+            history_count = int(conn.execute('SELECT COUNT(*) FROM roster_history').fetchone()[0] or 0)
+            if history_count == 0 and isinstance(history, list):
+                for item in reversed(history[:1000]):
+                    if not isinstance(item, dict):
+                        continue
+                    change_type = str(item.get('changeType') or '').strip()
+                    if not change_type:
+                        continue
+                    conn.execute(
+                        """INSERT INTO roster_history
+                        (agent_id,change_type,before_json,after_json,reason,changed_at,changed_by)
+                        VALUES (?,?,?,?,?,?,?)""",
+                        (
+                            str(item.get('agentId') or '')[:120] or None,
+                            change_type[:120],
+                            json.dumps(item.get('before'),ensure_ascii=False) if item.get('before') is not None else None,
+                            json.dumps(item.get('after'),ensure_ascii=False) if item.get('after') is not None else None,
+                            str(item.get('reason') or '')[:500],
+                            str(item.get('changedAt') or snapshot_saved_at or now)[:40],
+                            str(item.get('changedBy') or 'browser_recovery')[:80],
+                        )
+                    )
+                    restored_history += 1
+
+            # Dejar trazabilidad sin crear cientos de eventos artificiales.
+            conn.execute(
+                """INSERT INTO roster_history
+                (agent_id,change_type,before_json,after_json,reason,changed_at,changed_by)
+                VALUES (NULL,'roster_snapshot_restored',NULL,?,?,?,'system')""",
+                (
+                    json.dumps({'agents':restored,'vacations':restored_vacations,'savedAt':snapshot_saved_at},ensure_ascii=False),
+                    'Recuperación automática desde el último respaldo local del navegador',
+                    now,
+                )
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    _roster_backup_database()
+    _invalidate_roster_dependent_caches()
+    return {
+        'restored': True,
+        'serverCount': restored,
+        'restoredAgents': restored,
+        'restoredVacations': restored_vacations,
+        'restoredHistory': restored_history,
+        'stateDir': WFM_STATE_DIR,
+    }
+
+
+@app.route('/api/roster/restore-snapshot', methods=['POST'])
+def roster_restore_snapshot():
+    try:
+        payload = request.get_json(force=True,silent=False) or {}
+        result = _roster_restore_from_browser_snapshot(payload)
+        return jsonify({'ok':True, **result}), 200
+    except Exception as e:
+        return jsonify({'error':str(e)}), 400
+
+
 @app.route('/api/roster/agent', methods=['POST'])
 def roster_save_agent():
     try:
@@ -2656,335 +3592,169 @@ def roster_apply_recommendation():
         return jsonify({'error':f'No se pudo aplicar el movimiento al roster: {str(e)}'}),500
 
 
-def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None):
-    xls_file = pd.ExcelFile(file_source, engine='openpyxl')
-    sheet_calls = xls_file.sheet_names[0]
-    for s in xls_file.sheet_names:
-        if 'llam' in s.lower() or 'hist' in s.lower() or 'datos' in s.lower(): sheet_calls = s; break
-            
-    roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Llamadas')
+def _procesar_archivo_forecast(file_source, mode, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=1.0, dias_futuros=45, campaign_settings=None):
+    default_aht = 600.0 if mode == 'chat' else 180.0
+    roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(file_source, 'Chat' if mode == 'chat' else 'Llamadas')
+    df, max_fecha_real, _sheet_names = _stream_forecast_history(file_source, mode, default_aht)
+    col_fecha, col_camp, col_calls, col_aht = 'Fecha','Campaña','Llamadas','AHT'
 
-    df_raw = pd.read_excel(xls_file, sheet_name=sheet_calls, engine='openpyxl')
-    col_calls = encontrar_columna(df_raw, ['recibidas', 'llamadas', 'calls', 'volumen', 'ofrecidas', 'entrada'])
-    col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
-    col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
-    col_inter = encontrar_columna(df_raw, ['intervalo', 'hora', 'time'])
-    col_fecha = encontrar_columna(df_raw, ['fecha', 'date'])
-
-    if not col_camp: col_camp = df_raw.columns[0]
-    if not col_fecha: col_fecha = df_raw.columns[1]
-    if not col_inter: col_inter = df_raw.columns[2]
-    if not col_calls: col_calls = df_raw.columns[3]
-
-    df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
-    df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
-    df_raw = df_raw.dropna(subset=[col_fecha])
-    df_raw[col_calls] = [clean_num(x, 0.0) for x in df_raw[col_calls]]
-
-    df_valido = df_raw[df_raw[col_calls] > 0]
-    if df_valido.empty: raise ValueError("El archivo de Llamadas no tiene volumen mayor a cero.")
-    
-    max_fecha_real = df_valido[col_fecha].max()
-    df_raw = df_raw[df_raw[col_fecha] <= max_fecha_real]
-
-    if col_aht: df_raw[col_aht] = [parse_aht_to_seconds(x) for x in df_raw[col_aht]]
-    else: df_raw['AHT_Calc'] = 180.0; col_aht = 'AHT_Calc'
-
-    df_raw['Inter_Clean'] = df_raw[col_inter].apply(clean_interval_str)
-    df_raw['Total_Segundos_Handle'] = df_raw[col_calls] * df_raw[col_aht]
-
-    df = df_raw.groupby([col_fecha, col_camp, 'Inter_Clean']).agg({col_calls: 'sum', 'Total_Segundos_Handle': 'sum'}).reset_index()
-    df[col_aht] = np.where(df[col_calls] > 0, df['Total_Segundos_Handle'] / df[col_calls], 180.0)
-    df = df.drop(columns=['Total_Segundos_Handle'])
+    if df.empty:
+        raise ValueError('La fuente no contiene datos válidos para el forecast.')
 
     dias_espanol = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
     meses_espanol = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-    df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
+    df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.map(lambda w: dias_espanol[w])
 
     fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
-    aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
-    df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
-    campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
+    positive = df[df[col_aht] > 0]
+    aht_global_campana = positive.groupby(col_camp)[col_aht].mean().to_dict() if not positive.empty else {}
+    del positive
+    df_diario = df.groupby([col_fecha, col_camp], sort=False, observed=True)[col_calls].sum().reset_index()
+    campanas_unicas = list(set(df[col_camp].dropna().unique()).union(set(roster_total_camp.keys())))
     predicciones_futuras = {}
+    vol_historico_por_campana = {}
 
+    # Iterar una sola vez por campaña sobre el dataframe diario.
+    grouped_daily = {camp: sub.sort_values(col_fecha).reset_index(drop=True) for camp, sub in df_diario.groupby(col_camp, sort=False)}
     for camp in campanas_unicas:
-        sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
-        if sub.empty: continue
+        sub = grouped_daily.get(camp)
+        if sub is None or sub.empty:
+            continue
+        vol_historico_por_campana[camp] = float(sub[col_calls].mean())
         ultimos_14_dias = sub.tail(14)[col_calls]
-        cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        if cv < 0.20 and ultimos_14_dias.mean() >= 250:
+        media14 = ultimos_14_dias.mean()
+        cv = ultimos_14_dias.std() / media14 if media14 > 0 else 0
+        if cv < 0.20 and media14 >= 250:
             preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         else:
             preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
         predicciones_futuras[camp] = preds_finales
-
-    vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
-    df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
-    df_filtrado = df[df['En_Ventana']].copy()
-
-    df_reciente = df_filtrado[df_filtrado[col_fecha] >= (max_fecha_real - timedelta(days=28))]
-    if df_reciente.empty: df_reciente = df_filtrado.copy()
-    
-    perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'mean'), avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
-    ).reset_index()
-    totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
-    perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
-    mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
-
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
-    totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
-    perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
-    mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
-    
-    todos_los_intervalos_crudos = [f"{int(h):02d}:{int(m):02d}" for h in range(24) for m in (0, 30)]
-    intervalos_operativos_por_camp = {camp: [i for i in todos_los_intervalos_crudos if esta_en_ventana_servicio(camp, i)] for camp in campanas_unicas}
-
-    del df_raw, df, df_diario, df_filtrado, df_reciente
+    del grouped_daily, df_diario
     gc.collect()
 
+    en_ventana = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
+    recent_cut = max_fecha_real - timedelta(days=28)
+    recent_mask = [(ok and fecha >= recent_cut) for ok, fecha in zip(en_ventana, df[col_fecha])]
+    if any(recent_mask):
+        df_reciente = df.loc[recent_mask, [col_camp,'Dia_Semana_Clean','Inter_Clean',col_calls,col_aht]].copy()
+    else:
+        df_reciente = df.loc[en_ventana, [col_camp,'Dia_Semana_Clean','Inter_Clean',col_calls,col_aht]].copy()
+    del df, en_ventana, recent_mask
+    gc.collect()
+
+    perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean'], sort=False, observed=True).agg(
+        total_calls=(col_calls, 'mean'), avg_aht=(col_aht, 'mean')
+    ).reset_index()
+    totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'], sort=False, observed=True)['total_calls'].transform('sum')
+    perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
+    mapa_dia = {
+        (r[0], r[1], r[2]): {'weight': float(r[5]), 'aht': float(r[4]) if not pd.isna(r[4]) else 0.0}
+        for r in perfil_dia.itertuples(index=False, name=None)
+    }
+
+    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean'], sort=False, observed=True).agg(total_calls=(col_calls, 'mean')).reset_index()
+    totales_global = perfil_global.groupby([col_camp], sort=False, observed=True)['total_calls'].transform('sum')
+    perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
+    mapa_perfil_global = {(r[0], r[1]): float(r[3]) for r in perfil_global.itertuples(index=False, name=None)}
+    del df_reciente, perfil_dia, perfil_global, totales_dia, totales_global
+    gc.collect()
+
+    todos_los_intervalos_crudos = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 30)]
+    intervalos_operativos_por_camp = {camp: [i for i in todos_los_intervalos_crudos if esta_en_ventana_servicio(camp, i)] for camp in campanas_unicas}
     factor_asistencia = max(0.01, 1.0 - merma)
     data_processed = []
 
     for camp in campanas_unicas:
+        preds = predicciones_futuras.get(camp)
+        if not preds:
+            continue
         vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
         blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
         camp_target_sl, camp_target_time = objetivos_campana(camp, target_sl, target_time, campaign_settings)
+        intervalos_validos = intervalos_operativos_por_camp.get(camp, [])
+        aht_global = aht_global_campana.get(camp, default_aht)
 
         for d in range(dias_futuros):
             fecha_actual = fecha_inicio_forecast + timedelta(days=d)
             str_fecha = fecha_actual.strftime('%Y-%m-%d')
             str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
             nombre_dia = dias_espanol[fecha_actual.weekday()]
-
-            vol_diario = predicciones_futuras.get(camp, [0]*dias_futuros)[d]
-            intervalos_validos = intervalos_operativos_por_camp.get(camp, [])
+            vol_diario = preds[d] if d < len(preds) else 0.0
 
             pesos_crudos = []
             for inter in intervalos_validos:
                 w_dia = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
                 w_glob = mapa_perfil_global.get((camp, inter), 0.0)
-                if w_dia == 0.0: w_dia = w_glob
-                w_final = (w_dia * blend_factor) + (w_glob * (1.0 - blend_factor))
-                pesos_crudos.append(w_final)
-
+                if w_dia == 0.0:
+                    w_dia = w_glob
+                pesos_crudos.append((w_dia * blend_factor) + (w_glob * (1.0 - blend_factor)))
             suma_pesos = sum(pesos_crudos)
-            if suma_pesos > 0: pesos_norm = [p / suma_pesos for p in pesos_crudos]
-            elif len(intervalos_validos) > 0: pesos_norm = [1.0 / len(intervalos_validos)] * len(intervalos_validos)
-            else: pesos_norm = []
+            if suma_pesos > 0:
+                pesos_norm = [p / suma_pesos for p in pesos_crudos]
+            elif intervalos_validos:
+                pesos_norm = [1.0 / len(intervalos_validos)] * len(intervalos_validos)
+            else:
+                pesos_norm = []
 
             exact_calls = [vol_diario * p for p in pesos_norm]
             floor_calls = [int(math.floor(c)) for c in exact_calls]
-            remainders = [(exact_calls[i] - floor_calls[i], i) for i in range(len(exact_calls))]
-            remainders.sort(reverse=True, key=lambda x: x[0])
-            
+            remainders = sorted(((exact_calls[i] - floor_calls[i], i) for i in range(len(exact_calls))), reverse=True, key=lambda x: x[0])
             diff = int(round(vol_diario)) - sum(floor_calls)
-            for i in range(diff):
-                if i < len(remainders): floor_calls[remainders[i][1]] += 1
+            for i in range(min(diff, len(remainders))):
+                floor_calls[remainders[i][1]] += 1
 
-            aht_global = aht_global_campana.get(camp, 180.0)
             for idx_inter, inter in enumerate(intervalos_validos):
                 calls_int = floor_calls[idx_inter]
-                calls_float = exact_calls[idx_inter] 
-
+                calls_float = exact_calls[idx_inter]
                 info_p = mapa_dia.get((camp, nombre_dia, inter), {})
                 aht_real = info_p.get('aht', 0.0)
-                if aht_real > 0 and not pd.isna(aht_real): aht = aht_real
-                else: aht = aht_global
-                if calls_int <= 0: aht = 0.0
+                aht = aht_real if aht_real > 0 and not pd.isna(aht_real) else aht_global
+                if calls_int <= 0:
+                    aht = 0.0
 
-                factor_cobertura = factor_cobertura_ambulancia(camp)
-                a_erlang_raw = (calls_float * aht * factor_cobertura) / 1800.0 if (aht > 0 and calls_float > 0) else 0.0
-                req_ftes = calcular_agentes_requeridos_erlang_c(a_erlang_raw, aht, camp_target_time, camp_target_sl) if calls_float > 0 else 0
+                if mode == 'chat':
+                    aht_efectivo = aht / max(1.0, concurrencia)
+                    factor_cobertura = 1.0
+                    a_erlang_raw = (calls_float * aht_efectivo) / 1800.0 if aht_efectivo > 0 and calls_float > 0 else 0.0
+                    req_ftes = calcular_agentes_requeridos_erlang_c(a_erlang_raw, aht_efectivo, camp_target_time, camp_target_sl) if calls_float > 0 else 0
+                    concurrencia_aplicada = float(max(1.0, concurrencia))
+                else:
+                    factor_cobertura = factor_cobertura_ambulancia(camp)
+                    a_erlang_raw = (calls_float * aht * factor_cobertura) / 1800.0 if aht > 0 and calls_float > 0 else 0.0
+                    req_ftes = calcular_agentes_requeridos_erlang_c(a_erlang_raw, aht, camp_target_time, camp_target_sl) if calls_float > 0 else 0
+                    concurrencia_aplicada = 1.0
                 req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0
-                
                 hc_roster = max(0, roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0) + roster_override_cov.get((str(camp), str_fecha, inter), 0))
                 tot_camp = roster_total_camp.get(str(camp), 0)
                 tot_camp_dia = max(0, roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0) + roster_override_day.get((str(camp), str_fecha), 0))
 
-                data_processed.append({
+                row = {
                     'Campaña': str(camp), 'Fecha': str_fecha, 'Mes': str_mes,
                     'Día_Semana': nombre_dia.capitalize(), 'Intervalo': inter,
                     'Llamadas': calls_int, 'AHT': format_aht_str(aht), 'AHT_Segundos': int(round(aht)),
                     'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
                     'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia,
-                    'Factor_Cobertura_Ambulancia': factor_cobertura,
-                    'Volumen_Doble_Cobertura': round(calls_float * REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'], 2) if es_ambulancia_servicios(camp) else 0.0,
                     'Target_SL': camp_target_sl, 'Target_ASA': camp_target_time,
-                    'FTE_Erlang': int(req_ftes), 'Concurrencia_Aplicada': 1.0,
+                    'FTE_Erlang': int(req_ftes), 'Concurrencia_Aplicada': concurrencia_aplicada,
                     'Factor_Correccion': 1.0
-                })
+                }
+                if mode != 'chat':
+                    row['Factor_Cobertura_Ambulancia'] = factor_cobertura
+                    row['Volumen_Doble_Cobertura'] = round(calls_float * REGLA_DOBLE_COBERTURA_AMBULANCIA['porcentaje_volumen'], 2) if es_ambulancia_servicios(camp) else 0.0
+                data_processed.append(row)
 
-    df_final = pd.DataFrame(data_processed)
-    if not df_final.empty:
-        df_final = forzar_cuadre_dashboard(df_final)
-        data_processed = df_final.to_dict('records')
+    del predicciones_futuras, mapa_dia, mapa_perfil_global, intervalos_operativos_por_camp, aht_global_campana
+    gc.collect()
+    return forzar_cuadre_dashboard_records(data_processed)
 
-    _guardar_cache_forecast('llamadas', data_processed)
-    return data_processed
+
+def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None):
+    return _procesar_archivo_forecast(file_source, 'llamadas', target_sl, target_time, merma, 1.0, dias_futuros, campaign_settings)
+
 
 def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None):
-    xls_file = pd.ExcelFile(file_source, engine='openpyxl')
-    sheet_chat = None
-    for s in xls_file.sheet_names:
-        if ('chat' in s.lower() or 'mensaje' in s.lower()) and ('plantilla' not in s.lower() and 'roster' not in s.lower() and 'platilla' not in s.lower()): 
-            sheet_chat = s; break
-    if not sheet_chat: raise ValueError("No se encontró pestaña Chat.")
+    return _procesar_archivo_forecast(file_source, 'chat', target_sl, target_time, merma, concurrencia, dias_futuros, campaign_settings)
 
-    roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Chat')
-
-    df_raw = pd.read_excel(xls_file, sheet_name=sheet_chat, engine='openpyxl')
-    col_calls = encontrar_columna(df_raw, ['recibidos', 'recibidas', 'llamadas', 'chats', 'mensajes'])
-    col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
-    col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill'])
-    col_inter = encontrar_columna(df_raw, ['intervalo', 'hora', 'time'])
-    col_fecha = encontrar_columna(df_raw, ['fecha', 'date'])
-
-    if not col_camp: col_camp = df_raw.columns[0]
-    if not col_fecha: col_fecha = df_raw.columns[1]
-    if not col_inter: col_inter = df_raw.columns[2]
-    if not col_calls: col_calls = df_raw.columns[3]
-
-    df_raw[col_camp] = df_raw[col_camp].astype(str).str.strip().str.title()
-    df_raw[col_fecha] = pd.to_datetime(df_raw[col_fecha], dayfirst=True, errors='coerce').dt.normalize()
-    df_raw = df_raw.dropna(subset=[col_fecha])
-    df_raw[col_calls] = [clean_num(x, 0.0) for x in df_raw[col_calls]]
-
-    df_valido = df_raw[df_raw[col_calls] > 0]
-    if df_valido.empty: raise ValueError("El archivo Chat no tiene volumen mayor a cero.")
-    
-    max_fecha_real = df_valido[col_fecha].max()
-    df_raw = df_raw[df_raw[col_fecha] <= max_fecha_real]
-
-    if col_aht: df_raw[col_aht] = [parse_aht_to_seconds(x) for x in df_raw[col_aht]]
-    else: df_raw['AHT_Calc'] = 600.0; col_aht = 'AHT_Calc'
-
-    df_raw['Inter_Clean'] = df_raw[col_inter].apply(clean_interval_str)
-    df_raw['Total_Segundos_Handle'] = df_raw[col_calls] * df_raw[col_aht]
-
-    df = df_raw.groupby([col_fecha, col_camp, 'Inter_Clean']).agg({col_calls: 'sum', 'Total_Segundos_Handle': 'sum'}).reset_index()
-    df[col_aht] = np.where(df[col_calls] > 0, df['Total_Segundos_Handle'] / df[col_calls], 600.0)
-    df = df.drop(columns=['Total_Segundos_Handle'])
-
-    dias_espanol = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
-    meses_espanol = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-    df['Dia_Semana_Clean'] = df[col_fecha].dt.weekday.apply(lambda w: dias_espanol[w])
-
-    fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
-    aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 600.0).to_dict()
-    df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
-    campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
-    predicciones_futuras = {}
-
-    for camp in campanas_unicas:
-        sub = df_diario[df_diario[col_camp] == camp].sort_values(col_fecha).reset_index(drop=True)
-        if sub.empty: continue
-        ultimos_14_dias = sub.tail(14)[col_calls]
-        cv = ultimos_14_dias.std() / ultimos_14_dias.mean() if ultimos_14_dias.mean() > 0 else 0
-        if cv < 0.20 and ultimos_14_dias.mean() >= 250:
-            preds_finales = pronosticar_macro_campana(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-        else:
-            preds_finales = pronosticar_con_machine_learning(sub, dias_futuros, fecha_inicio_forecast, col_fecha, col_calls)
-        predicciones_futuras[camp] = preds_finales
-
-    vol_historico_por_campana = {c: float(df_diario[df_diario[col_camp] == c][col_calls].mean()) for c in campanas_unicas}
-    df['En_Ventana'] = [esta_en_ventana_servicio(c, i) for c, i in zip(df[col_camp], df['Inter_Clean'])]
-    df_filtrado = df[df['En_Ventana']].copy()
-    df_reciente = df_filtrado[df_filtrado[col_fecha] >= (max_fecha_real - timedelta(days=28))]
-    if df_reciente.empty: df_reciente = df_filtrado.copy()
-    
-    perfil_dia = df_reciente.groupby([col_camp, 'Dia_Semana_Clean', 'Inter_Clean']).agg(
-        total_calls=(col_calls, 'mean'), avg_aht=(col_aht, lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0)
-    ).reset_index()
-    totales_dia = perfil_dia.groupby([col_camp, 'Dia_Semana_Clean'])['total_calls'].transform('sum')
-    perfil_dia['weight'] = np.where(totales_dia > 0, perfil_dia['total_calls'] / totales_dia, 0)
-    mapa_dia = {(r[col_camp], r['Dia_Semana_Clean'], r['Inter_Clean']): {'weight': r['weight'], 'aht': r['avg_aht']} for _, r in perfil_dia.iterrows()}
-
-    perfil_global = df_reciente.groupby([col_camp, 'Inter_Clean']).agg(total_calls=(col_calls, 'mean')).reset_index()
-    totales_global = perfil_global.groupby([col_camp])['total_calls'].transform('sum')
-    perfil_global['weight'] = np.where(totales_global > 0, perfil_global['total_calls'] / totales_global, 0)
-    mapa_perfil_global = {(r[col_camp], r['Inter_Clean']): r['weight'] for _, r in perfil_global.iterrows()}
-    
-    todos_los_intervalos_crudos = [f"{int(h):02d}:{int(m):02d}" for h in range(24) for m in (0, 30)]
-    intervalos_operativos_por_camp = {camp: [i for i in todos_los_intervalos_crudos if esta_en_ventana_servicio(camp, i)] for camp in campanas_unicas}
-
-    del df_raw, df, df_diario, df_filtrado, df_reciente
-    gc.collect()
-
-    factor_asistencia = max(0.01, 1.0 - merma)
-    data_processed = []
-
-    for camp in campanas_unicas:
-        vol_historico_camp = vol_historico_por_campana.get(camp, 0.0)
-        blend_factor = min(1.0, max(0.0, (vol_historico_camp - 50) / 200.0))
-        camp_target_sl, camp_target_time = objetivos_campana(camp, target_sl, target_time, campaign_settings)
-
-        for d in range(dias_futuros):
-            fecha_actual = fecha_inicio_forecast + timedelta(days=d)
-            str_fecha = fecha_actual.strftime('%Y-%m-%d')
-            str_mes = f"{meses_espanol[fecha_actual.month]} {fecha_actual.year}"
-            nombre_dia = dias_espanol[fecha_actual.weekday()]
-            vol_diario = predicciones_futuras.get(camp, [0]*dias_futuros)[d]
-            intervalos_validos = intervalos_operativos_por_camp.get(camp, [])
-
-            pesos_crudos = []
-            for inter in intervalos_validos:
-                w_dia = mapa_dia.get((camp, nombre_dia, inter), {}).get('weight', 0.0)
-                w_glob = mapa_perfil_global.get((camp, inter), 0.0)
-                if w_dia == 0.0: w_dia = w_glob
-                w_final = (w_dia * blend_factor) + (w_glob * (1.0 - blend_factor))
-                pesos_crudos.append(w_final)
-
-            suma_pesos = sum(pesos_crudos)
-            if suma_pesos > 0: pesos_norm = [p / suma_pesos for p in pesos_crudos]
-            elif len(intervalos_validos) > 0: pesos_norm = [1.0 / len(intervalos_validos)] * len(intervalos_validos)
-            else: pesos_norm = []
-
-            exact_calls = [vol_diario * p for p in pesos_norm]
-            floor_calls = [int(math.floor(c)) for c in exact_calls]
-            remainders = [(exact_calls[i] - floor_calls[i], i) for i in range(len(exact_calls))]
-            remainders.sort(reverse=True, key=lambda x: x[0])
-            
-            diff = int(round(vol_diario)) - sum(floor_calls)
-            for i in range(diff):
-                if i < len(remainders): floor_calls[remainders[i][1]] += 1
-
-            aht_global = aht_global_campana.get(camp, 600.0)
-            for idx_inter, inter in enumerate(intervalos_validos):
-                calls_int = floor_calls[idx_inter]
-                calls_float = exact_calls[idx_inter] 
-                info_p = mapa_dia.get((camp, nombre_dia, inter), {})
-                aht_real = info_p.get('aht', 0.0)
-                if aht_real > 0 and not pd.isna(aht_real): aht = aht_real
-                else: aht = aht_global
-                if calls_int <= 0: aht = 0.0
-
-                aht_efectivo = aht / max(1.0, concurrencia)
-                a_erlang_raw = (calls_float * aht_efectivo) / 1800.0 if (aht_efectivo > 0 and calls_float > 0) else 0.0
-                req_ftes = calcular_agentes_requeridos_erlang_c(a_erlang_raw, aht_efectivo, camp_target_time, camp_target_sl) if calls_float > 0 else 0
-                req_hc = math.ceil(req_ftes / factor_asistencia) if req_ftes > 0 else 0.0
-
-                hc_roster = max(0, roster_coverage.get((str(camp), nombre_dia.capitalize(), inter), 0) + roster_override_cov.get((str(camp), str_fecha, inter), 0))
-                tot_camp = roster_total_camp.get(str(camp), 0)
-                tot_camp_dia = max(0, roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0) + roster_override_day.get((str(camp), str_fecha), 0))
-
-                data_processed.append({
-                    'Campaña': str(camp), 'Fecha': str_fecha, 'Mes': str_mes, 'Día_Semana': nombre_dia.capitalize(),
-                    'Intervalo': inter, 'Llamadas': calls_int, 'AHT': format_aht_str(aht),
-                    'AHT_Segundos': int(round(aht)), 'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
-                    'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia,
-                    'Target_SL': camp_target_sl, 'Target_ASA': camp_target_time,
-                    'FTE_Erlang': int(req_ftes), 'Concurrencia_Aplicada': float(max(1.0, concurrencia)),
-                    'Factor_Correccion': 1.0
-                })
-
-    df_final = pd.DataFrame(data_processed)
-    if not df_final.empty:
-        df_final = forzar_cuadre_dashboard(df_final)
-        data_processed = df_final.to_dict('records')
-
-    _guardar_cache_forecast('chat', data_processed)
-    return data_processed
 
 @app.route('/api/campaigns', methods=['GET'])
 def get_campaigns():
@@ -2996,62 +3766,110 @@ def get_campaigns():
     if cached is not None:
         return jsonify(cached), 200
     try:
-        xls = pd.ExcelFile(excel_path, engine='openpyxl')
-        sheet = None
-        if mode == 'chat':
-            for sh in xls.sheet_names:
-                low = sh.lower()
-                if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ['plantilla', 'roster', 'platilla']):
-                    sheet = sh
-                    break
-        else:
-            sheet = xls.sheet_names[0]
-            for sh in xls.sheet_names:
-                low = sh.lower()
-                if 'llam' in low or 'hist' in low or 'datos' in low:
-                    sheet = sh
-                    break
-        if not sheet:
-            return jsonify([]), 200
-        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
-        col_camp = encontrar_columna(preview, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
-        if not col_camp:
-            return jsonify([]), 200
-        campanas = sorted({str(x).strip().title() for x in preview[col_camp].dropna().tolist() if str(x).strip() and str(x).strip().lower() != 'nan'})
-        _cache_excel_info_set(excel_path, f'campaigns:{mode}', campanas)
-        return jsonify(campanas), 200
+        # Lectura streaming: antes esta ruta cargaba la hoja completa con pandas
+        # sólo para obtener una columna, elevando mucho el uso de RAM antes del forecast.
+        wb = load_workbook(excel_path, read_only=True, data_only=True)
+        try:
+            sheet = None
+            if mode == 'chat':
+                for sh in wb.sheetnames:
+                    low = sh.lower()
+                    if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ('plantilla','roster','platilla')):
+                        sheet = sh
+                        break
+            else:
+                sheet = wb.sheetnames[0] if wb.sheetnames else None
+                for sh in wb.sheetnames:
+                    low = sh.lower()
+                    if 'llam' in low or 'hist' in low or 'datos' in low:
+                        sheet = sh
+                        break
+            if not sheet:
+                return jsonify([]), 200
+            ws = wb[sheet]
+            headers = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+            if not headers:
+                return jsonify([]), 200
+            idx_camp = _header_index(list(headers), ['campaña','campana','skill','servicio','ring group'], 0)
+            campanas = set()
+            for values in ws.iter_rows(min_row=2, values_only=True):
+                if idx_camp >= len(values):
+                    continue
+                value = str(values[idx_camp] or '').strip()
+                if value and value.lower() != 'nan':
+                    campanas.add(value.title())
+            result = sorted(campanas)
+            _cache_excel_info_set(excel_path, f'campaigns:{mode}', result)
+            return jsonify(result), 200
+        finally:
+            wb.close()
     except Exception as e:
+        gc.collect()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/status', methods=['GET'])
 def get_forecast_status():
     excel_path = buscar_archivo_excel()
+    now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if not excel_path:
-        return jsonify({'archivo': None, 'ultimo_dato': None, 'actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}), 200
-    cached = _cache_excel_info_get(excel_path, 'status')
-    if cached is not None:
-        return jsonify(cached), 200
-    ultimo_dato = None
+        allowed_files = _excel_allowed_display_names()
+        return jsonify({
+            'ok': False,
+            'archivo': None,
+            'archivo_esperado': ' / '.join(allowed_files),
+            'archivos_permitidos': allowed_files,
+            'ultimo_dato': None,
+            'actualizacion': now_text,
+            'error': 'No se encontró ninguna de las fuentes de datos reconocidas.'
+        }), 200
+
+    # /api/status debe ser ligero y nunca competir con GENERAR FORECAST leyendo
+    # el Excel completo. Si ya conocemos el último dato lo mostramos; si no,
+    # intentamos obtenerlo del snapshot oficial sin abrir openpyxl.
+    ultimo_dato = _cache_excel_info_get(excel_path, 'status:ultimo_dato')
+    if ultimo_dato is None:
+        ultimo_dato = ''
+        # Leer sólo el sidecar pequeño del snapshot; nunca cargar decenas de miles
+        # de filas del forecast únicamente para pintar la leyenda de estado.
+        for mode_name in ('llamadas', 'chat'):
+            meta = _read_forecast_cache_meta(mode_name)
+            candidate = str(meta.get('lastDate') or '')[:10]
+            if candidate and (not ultimo_dato or candidate > ultimo_dato):
+                ultimo_dato = candidate
+
+    def _saved_at(path):
+        try:
+            return datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S') if os.path.exists(path) else None
+        except Exception:
+            return None
+
     try:
-        xls = pd.ExcelFile(excel_path, engine='openpyxl')
-        sheet = xls.sheet_names[0]
-        for sh in xls.sheet_names:
-            if 'llam' in sh.lower() or 'hist' in sh.lower() or 'datos' in sh.lower():
-                sheet = sh; break
-        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
-        col_fecha = encontrar_columna(preview, ['fecha', 'date'])
-        if col_fecha:
-            fechas = pd.to_datetime(preview[col_fecha], dayfirst=True, errors='coerce').dropna()
-            if not fechas.empty: ultimo_dato = fechas.max().strftime('%Y-%m-%d')
+        _roster_db_init()
+        conn = _roster_conn()
+        try:
+            roster_count = int(conn.execute('SELECT COUNT(*) FROM roster_agents').fetchone()[0])
+            history_count = int(conn.execute('SELECT COUNT(*) FROM roster_history').fetchone()[0])
+        finally:
+            conn.close()
     except Exception:
-        pass
-    payload = {
+        roster_count = 0
+        history_count = 0
+
+    return jsonify({
+        'ok': True,
         'archivo': os.path.basename(excel_path),
+        'archivo_ruta': os.path.abspath(excel_path),
+        'archivo_esperado': ' / '.join(_excel_allowed_display_names()),
+        'archivos_permitidos': _excel_allowed_display_names(),
         'ultimo_dato': ultimo_dato,
-        'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S')
-    }
-    _cache_excel_info_set(excel_path, 'status', payload)
-    return jsonify(payload), 200
+        'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S'),
+        'forecast_llamadas_guardado': _saved_at(CACHE_FILE_LLAMADAS),
+        'forecast_chat_guardado': _saved_at(CACHE_FILE_CHAT),
+        'roster_guardado': _saved_at(WFM_ROSTER_DB),
+        'roster_agentes': roster_count,
+        'historial_cambios': history_count,
+        'estado_persistente': True
+    }), 200
 
 
 @app.route('/api/forecast-control/status', methods=['GET'])
@@ -3127,70 +3945,142 @@ def forecast_control_history():
 
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
+    """Devuelve EXCLUSIVAMENTE la última corrida exitosa de WFM.
+
+    Operaciones nunca genera un forecast alterno. Si aún no existe una corrida
+    guardada para el canal solicitado, responde una lista vacía y el frontend
+    conserva cualquier fotografía válida que ya tuviera en memoria.
+    """
     mode = 'chat' if str(request.args.get('mode', 'llamadas')).lower() == 'chat' else 'llamadas'
-    cache_data = _leer_cache_forecast(mode)
+    cache_data = _leer_cache_forecast(mode, allow_stale=True)
     if isinstance(cache_data, list) and cache_data:
-        return jsonify(_forecast_apply_control(mode,cache_data)), 200
+        return _forecast_json_response(mode, cache_data, 'wfm_snapshot'), 200
 
-    # Serializar el recálculo por canal evita que WFM y Operaciones lancen el
-    # mismo forecast pesado al mismo tiempo. Mientras tanto el snapshot anterior
-    # permanece intacto en disco.
-    with _FORECAST_REFRESH_LOCKS[mode]:
-        cache_data = _leer_cache_forecast(mode)
-        if isinstance(cache_data, list) and cache_data:
-            return jsonify(_forecast_apply_control(mode,cache_data)), 200
+    response = jsonify([])
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['X-WFM-Data-State'] = 'no_wfm_snapshot'
+    return response, 200
 
-        excel_path = buscar_archivo_excel()
-        if excel_path:
-            try:
-                sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
-                campaign_settings = {}
-                if os.path.exists(CONFIG_FILE):
-                    try:
-                        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                            cfg = json.load(f)
-                            sl, tt = float(cfg.get('targetSl', 80.0)), float(cfg.get('targetTime', 20.0))
-                            merma_data = cfg.get('merma', 30.0)
-                            merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
-                            dias = int(clean_num(cfg.get('dias'), dias))
-                            concurrencia = float(clean_num(cfg.get('concurrencia'), concurrencia))
-                            all_settings = cfg.get('campaignSettings', {})
-                            campaign_settings = all_settings.get(mode, {}) if isinstance(all_settings, dict) else {}
-                    except Exception:
-                        pass
 
-                merma_pct = merma / 100.0
-                if mode == 'chat':
-                    data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings)
-                else:
-                    data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
-                gc.collect()
-                if isinstance(data, list) and data:
-                    return jsonify(_forecast_apply_control(mode,data)), 200
-            except Exception as e:
-                # Nunca tirar el tablero operativo si existe un último cálculo bueno.
-                stale = _leer_cache_forecast(mode, allow_stale=True)
-                if isinstance(stale, list) and stale:
-                    response = jsonify(_forecast_apply_control(mode,stale))
-                    response.headers['X-WFM-Data-State'] = 'stale'
-                    response.headers['X-WFM-Refresh-Error'] = str(e)[:180]
-                    return response, 200
-                return jsonify({'error': str(e)}), 500
+@app.route('/api/forecast/restore-snapshot', methods=['POST'])
+def forecast_restore_browser_snapshot():
+    """Recupera el último forecast del navegador SOLO si el servidor no tiene snapshot.
 
-        stale = _leer_cache_forecast(mode, allow_stale=True)
-        if isinstance(stale, list) and stale:
-            response = jsonify(_forecast_apply_control(mode,stale))
-            response.headers['X-WFM-Data-State'] = 'stale'
-            return response, 200
+    Una vez restaurado, /api/latest lo vuelve a enriquecer con el roster vigente.
+    De esta forma HC actual nunca queda congelado en el valor que tuviera el
+    respaldo local cuando se guardó.
+    """
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        mode = 'chat' if str(payload.get('mode','llamadas')).lower() == 'chat' else 'llamadas'
+        existing = _leer_cache_forecast(mode, allow_stale=True)
+        if isinstance(existing, list) and existing:
+            meta = _forecast_snapshot_meta_from_rows(existing)
+            return jsonify({
+                'ok': True, 'restored': False, 'reason': 'server_has_snapshot',
+                'rows': len(existing), 'runId': meta.get('runId','')
+            }), 200
 
-    return jsonify([]), 200
+        rows = payload.get('rows') or []
+        if not isinstance(rows, list) or not rows:
+            return jsonify({'error':'El respaldo local no contiene filas de forecast.'}),400
+        if len(rows) > 1000000:
+            return jsonify({'error':'El respaldo local excede el máximo permitido.'}),400
+
+        clean_rows = []
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+            # Una fila válida de forecast necesita al menos fecha, intervalo y campaña.
+            if not _forecast_date_key(raw.get('Fecha')) or not str(raw.get('Intervalo','')).strip():
+                continue
+            row = dict(raw)
+            row['Canal'] = 'Chat' if mode == 'chat' else 'Llamadas'
+            clean_rows.append(row)
+
+        if not clean_rows:
+            return jsonify({'error':'No se encontraron filas válidas en el respaldo local.'}),400
+
+        _guardar_cache_forecast(mode, clean_rows)
+        meta = _forecast_snapshot_meta_from_rows(clean_rows)
+        return jsonify({
+            'ok': True, 'restored': True, 'reason': 'browser_snapshot_restored',
+            'rows': len(clean_rows), 'runId': meta.get('runId',''),
+            'path': _cache_path(mode)
+        }), 200
+    except Exception as e:
+        return jsonify({'error':f'No se pudo restaurar el forecast local: {str(e)}'}),400
+
+
+@app.route('/api/forecast-snapshot-info', methods=['GET'])
+def forecast_snapshot_info():
+    mode = 'chat' if str(request.args.get('mode','llamadas')).lower() == 'chat' else 'llamadas'
+    data = _leer_cache_forecast(mode, allow_stale=True) or []
+    meta = _forecast_snapshot_meta_from_rows(data)
+    path = _cache_path(mode)
+    info = {
+        'mode': mode,
+        'rows': len(data),
+        'path': path,
+        'exists': os.path.exists(path),
+        'generatedAt': meta.get('generatedAt') or '',
+        'runId': meta.get('runId') or '',
+        'jornadaHoras': meta.get('jornadaHoras'),
+        'mermaPct': meta.get('mermaPct'),
+        'nocturno': meta.get('nocturno'),
+        'factorDescanso': meta.get('factorDescanso'),
+        'factorAsistencia': meta.get('factorAsistencia'),
+        'concurrencia': meta.get('concurrencia'),
+    }
+    try:
+        info['fileModifiedAt'] = datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec='seconds') if os.path.exists(path) else ''
+    except Exception:
+        info['fileModifiedAt'] = ''
+    return jsonify(info), 200
+
+
+@app.route('/api/roster/coverage-status', methods=['GET'])
+def roster_coverage_status():
+    """Diagnóstico compacto de la unión forecast ↔ roster para soporte."""
+    mode = 'chat' if str(request.args.get('mode','llamadas')).lower() == 'chat' else 'llamadas'
+    channel_label = 'Chat' if mode == 'chat' else 'Llamadas'
+    data = _leer_cache_forecast(mode, allow_stale=True) or []
+    agents = _roster_fetch_agents(channel=channel_label, include_inactive=False)
+    forecast_campaigns = {normalizar_nombre_campana(r.get('Campaña',r.get('Campana',''))) for r in data if isinstance(r,dict)}
+    roster_campaigns = {normalizar_nombre_campana(a.get('campaign','')) for a in agents}
+    overlay = _roster_live_forecast_overlay(mode, data) if data else []
+    rows_with_actual = sum(1 for r in overlay if int(r.get('HC_Actual_Roster',0) or 0) > 0)
+    max_actual = max([int(r.get('HC_Actual_Roster',0) or 0) for r in overlay] or [0])
+    return jsonify({
+        'mode': mode,
+        'forecastRows': len(data),
+        'activeRosterAgents': len(agents),
+        'forecastCampaigns': len(forecast_campaigns),
+        'rosterCampaigns': len(roster_campaigns),
+        'matchedCampaigns': len((forecast_campaigns & roster_campaigns) - {''}),
+        'rowsWithActualHC': rows_with_actual,
+        'maxActualHCInterval': max_actual,
+        'forecastRunId': (_forecast_snapshot_meta_from_rows(data) or {}).get('runId',''),
+        'stateDir': WFM_STATE_DIR,
+    }),200
+
 
 @app.route('/api/process', methods=['POST', 'GET'])
 def process_data():
     if request.method == 'GET': return jsonify({'status': 'API activa'}), 200
     excel_path = buscar_archivo_excel()
     if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
+    started = time.perf_counter()
     try:
+        input_signature = _forecast_input_signature('llamadas', excel_path, request.form)
+        if _cached_forecast_signature_quick('llamadas') == input_signature:
+            cached = _leer_cache_forecast('llamadas', allow_stale=True)
+            if cached:
+                print(f'Forecast llamadas reutilizado en {time.perf_counter()-started:.2f}s (mismos datos y parámetros).')
+                return _forecast_json_response('llamadas', cached, 'wfm_cache_reuse')
+        _memory_cleanup_before_forecast()
         try:
             campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
         except Exception:
@@ -3203,8 +4093,23 @@ def process_data():
             int(clean_num(request.form.get('dias'), 45)),
             campaign_settings=campaign_settings
         )
+        # La corrida oficial incluye también los supuestos con los que WFM la visualizó.
+        # Operaciones debe reutilizarlos exactamente y no reconstruir HC con defaults.
+        snapshot_meta = _forecast_snapshot_meta('llamadas', request.form, excel_path)
+        data = _stamp_forecast_snapshot(data, snapshot_meta)
+        _guardar_cache_forecast('llamadas', data)
+        try:
+            ultima_fecha = max((str((r or {}).get('Fecha',''))[:10] for r in data if (r or {}).get('Fecha')), default='')
+            if ultima_fecha:
+                _cache_excel_info_set(excel_path, 'status:ultimo_dato', ultima_fecha)
+        except Exception:
+            pass
         gc.collect()
-        return jsonify(_forecast_apply_control('llamadas',data))
+        print(f'Forecast llamadas calculado en {time.perf_counter()-started:.2f}s · {len(data)} filas.')
+        return _forecast_json_response('llamadas',data,'wfm_run')
+    except MemoryError:
+        gc.collect()
+        return jsonify({'error': 'Memoria insuficiente durante el forecast. La fuente es demasiado grande para el límite disponible.'}), 507
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
@@ -3213,7 +4118,15 @@ def process_data():
 def process_chat_data():
     excel_path = buscar_archivo_excel()
     if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
+    started = time.perf_counter()
     try:
+        input_signature = _forecast_input_signature('chat', excel_path, request.form)
+        if _cached_forecast_signature_quick('chat') == input_signature:
+            cached = _leer_cache_forecast('chat', allow_stale=True)
+            if cached:
+                print(f'Forecast chat reutilizado en {time.perf_counter()-started:.2f}s (mismos datos y parámetros).')
+                return _forecast_json_response('chat', cached, 'wfm_cache_reuse')
+        _memory_cleanup_before_forecast()
         try:
             campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
         except Exception:
@@ -3227,8 +4140,21 @@ def process_chat_data():
             int(clean_num(request.form.get('dias'), 45)),
             campaign_settings=campaign_settings
         )
+        snapshot_meta = _forecast_snapshot_meta('chat', request.form, excel_path)
+        data = _stamp_forecast_snapshot(data, snapshot_meta)
+        _guardar_cache_forecast('chat', data)
+        try:
+            ultima_fecha = max((str((r or {}).get('Fecha',''))[:10] for r in data if (r or {}).get('Fecha')), default='')
+            if ultima_fecha:
+                _cache_excel_info_set(excel_path, 'status:ultimo_dato', ultima_fecha)
+        except Exception:
+            pass
         gc.collect()
-        return jsonify(_forecast_apply_control('chat',data))
+        print(f'Forecast chat calculado en {time.perf_counter()-started:.2f}s · {len(data)} filas.')
+        return _forecast_json_response('chat',data,'wfm_run')
+    except MemoryError:
+        gc.collect()
+        return jsonify({'error': 'Memoria insuficiente durante el forecast. La fuente es demasiado grande para el límite disponible.'}), 507
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
