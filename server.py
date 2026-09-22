@@ -109,6 +109,12 @@ _FORECAST_CACHE_DIRTY = {'llamadas': False, 'chat': False}
 _FORECAST_CACHE_LOCK = threading.RLock()
 _FORECAST_REFRESH_LOCKS = {'llamadas': threading.Lock(), 'chat': threading.Lock()}
 _EXCEL_INFO_CACHE = {}
+# Cache de hojas Excel ya parseadas. El archivo histórico es la parte más cara
+# de abrir con openpyxl; mientras ruta/mtime/tamaño no cambien reutilizamos la
+# hoja en memoria y entregamos una copia al cálculo para que pueda modificarla.
+_EXCEL_DF_CACHE = {}
+_EXCEL_DF_CACHE_LOCK = threading.RLock()
+_EXCEL_DF_CACHE_MAX = 6
 _ASSISTANT_PLAN_CACHE = {}
 _ASSISTANT_PLAN_CACHE_LOCK = threading.RLock()
 _ASSISTANT_PLAN_CACHE_MAX = 64
@@ -183,6 +189,42 @@ def _excel_signature(excel_path):
         return (os.path.abspath(excel_path), st.st_mtime_ns, st.st_size)
     except Exception:
         return (os.path.abspath(excel_path), None, None)
+
+def _excel_source_path(source):
+    if isinstance(source, (str, os.PathLike)):
+        return os.path.abspath(os.fspath(source))
+    raw = getattr(source, 'io', None)
+    if isinstance(raw, (str, os.PathLike)):
+        return os.path.abspath(os.fspath(raw))
+    return None
+
+def _read_excel_cached(source, sheet_name, *, copy_frame=True):
+    """Lee una hoja una sola vez por versión física del Excel.
+
+    /api/status y /api/campaigns suelen abrir la misma hoja antes de GENERAR
+    FORECAST. Reutilizar ese parseo evita que openpyxl procese decenas de miles
+    de celdas nuevamente durante la corrida.
+    """
+    path = _excel_source_path(source)
+    if not path:
+        return pd.read_excel(source, sheet_name=sheet_name, engine='openpyxl')
+    sig = _excel_signature(path)
+    key = (sig, str(sheet_name))
+    with _EXCEL_DF_CACHE_LOCK:
+        cached = _EXCEL_DF_CACHE.get(key)
+        if cached is not None:
+            return cached.copy(deep=True) if copy_frame else cached
+    df = pd.read_excel(source, sheet_name=sheet_name, engine='openpyxl')
+    with _EXCEL_DF_CACHE_LOCK:
+        # Elimina versiones anteriores del mismo archivo y limita memoria.
+        for old_key in list(_EXCEL_DF_CACHE):
+            if old_key[0][0] == sig[0] and old_key[0] != sig:
+                _EXCEL_DF_CACHE.pop(old_key, None)
+        _EXCEL_DF_CACHE[key] = df
+        while len(_EXCEL_DF_CACHE) > _EXCEL_DF_CACHE_MAX:
+            _EXCEL_DF_CACHE.pop(next(iter(_EXCEL_DF_CACHE)))
+    return df.copy(deep=True) if copy_frame else df
+
 
 def _cache_excel_info_get(excel_path, key):
     return _EXCEL_INFO_CACHE.get((_excel_signature(excel_path), key))
@@ -406,7 +448,7 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         return [max(0.0, float(df_diario_campana.tail(7)[col_calls].mean()))] * dias_futuros
 
     features = ['dia_semana', 'es_inicio_mes', 'es_quincena', 'es_festivo']
-    modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2)
+    modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2, n_jobs=-1)
     modelo.fit(df_train[features], df_train['ratio_smooth'])
 
     # El ratio que predice el bosque depende sólo del calendario. Generarlo para
@@ -606,6 +648,7 @@ def erlang_c_sl_optimizado(A, N, AHT, target_time):
         return resultado
     except: return 0.0
 
+@lru_cache(maxsize=100000)
 def calcular_agentes_requeridos_erlang_c(A, aht, target_time, target_sl):
     if A <= 0 or aht <= 0: return 0
     base_n = int(math.floor(A + math.sqrt(A))) if A > 50 else int(math.floor(A)) + 1
@@ -1989,7 +2032,38 @@ def _forecast_snapshot_bool(value, default=False):
     return str(value).strip().lower() in ('1','true','yes','si','sí','on')
 
 
-def _forecast_snapshot_meta(mode, form):
+def _forecast_input_signature(mode, excel_path, form):
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    try:
+        source_sig = _excel_signature(excel_path)
+        source_token = f'{source_sig[0]}|{source_sig[1]}|{source_sig[2]}'
+    except Exception:
+        source_token = str(excel_path or '')
+    try:
+        campaign_cfg = json.loads(form.get('campaign_settings', '{}') or '{}')
+    except Exception:
+        campaign_cfg = {}
+    normalized_cfg = json.dumps(campaign_cfg, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    parts = [
+        mode, source_token,
+        str(float(clean_num(form.get('target_sl'), 80.0))),
+        str(float(clean_num(form.get('target_time'), 20.0))),
+        str(float(clean_num(form.get('merma'), 30.0))),
+        str(int(clean_num(form.get('dias'), 45))),
+        str(float(clean_num(form.get('concurrencia'), 3.0))) if mode == 'chat' else '1.0',
+        str(float(clean_num(form.get('jornada'), 8.0))),
+        str(_forecast_snapshot_bool(form.get('nocturno'), False)),
+        normalized_cfg,
+    ]
+    return hashlib.sha1('|'.join(parts).encode('utf-8')).hexdigest()
+
+def _forecast_cached_input_signature(data):
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        return ''
+    return str(data[0].get('Snapshot_Input_Signature') or '')
+
+
+def _forecast_snapshot_meta(mode, form, excel_path=None):
     """Supuestos que forman parte inmutable de una corrida oficial de WFM."""
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
     generated_at = datetime.now(ZoneInfo(WFM_TIMEZONE)).isoformat(timespec='seconds')
@@ -2012,6 +2086,8 @@ def _forecast_snapshot_meta(mode, form):
         'runId': run_id,
         'generatedAt': generated_at,
         'mode': mode,
+        'sourceFile': os.path.basename(excel_path) if excel_path else '',
+        'inputSignature': _forecast_input_signature(mode, excel_path, form) if excel_path else '',
         'jornadaHoras': jornada,
         'mermaPct': merma_pct,
         'nocturno': nocturno,
@@ -2032,6 +2108,8 @@ def _stamp_forecast_snapshot(data, meta):
         row['Snapshot_Run_Id'] = meta['runId']
         row['Snapshot_Generated_At'] = meta['generatedAt']
         row['Snapshot_Mode'] = meta['mode']
+        row['Snapshot_Source_File'] = meta.get('sourceFile','')
+        row['Snapshot_Input_Signature'] = meta.get('inputSignature','')
         row['Snapshot_Jornada_Horas'] = meta['jornadaHoras']
         row['Snapshot_Merma_Pct'] = meta['mermaPct']
         row['Snapshot_Nocturno'] = meta['nocturno']
@@ -2052,6 +2130,8 @@ def _forecast_snapshot_meta_from_rows(data):
     return {
         'runId': row.get('Snapshot_Run_Id',''),
         'generatedAt': row.get('Snapshot_Generated_At',''),
+        'sourceFile': row.get('Snapshot_Source_File',''),
+        'inputSignature': row.get('Snapshot_Input_Signature',''),
         'jornadaHoras': row.get('Snapshot_Jornada_Horas'),
         'mermaPct': row.get('Snapshot_Merma_Pct'),
         'nocturno': row.get('Snapshot_Nocturno'),
@@ -3234,7 +3314,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
             
     roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Llamadas')
 
-    df_raw = pd.read_excel(xls_file, sheet_name=sheet_calls, engine='openpyxl')
+    df_raw = _read_excel_cached(xls_file, sheet_calls)
     col_calls = encontrar_columna(df_raw, ['recibidas', 'llamadas', 'calls', 'volumen', 'ofrecidas', 'entrada'])
     col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
     col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
@@ -3390,7 +3470,6 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
         df_final = forzar_cuadre_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
-    _guardar_cache_forecast('llamadas', data_processed)
     return data_processed
 
 def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None):
@@ -3403,7 +3482,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Chat')
 
-    df_raw = pd.read_excel(xls_file, sheet_name=sheet_chat, engine='openpyxl')
+    df_raw = _read_excel_cached(xls_file, sheet_chat)
     col_calls = encontrar_columna(df_raw, ['recibidos', 'recibidas', 'llamadas', 'chats', 'mensajes'])
     col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
     col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill'])
@@ -3553,7 +3632,6 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
         df_final = forzar_cuadre_dashboard(df_final)
         data_processed = df_final.to_dict('records')
 
-    _guardar_cache_forecast('chat', data_processed)
     return data_processed
 
 @app.route('/api/campaigns', methods=['GET'])
@@ -3583,7 +3661,7 @@ def get_campaigns():
                     break
         if not sheet:
             return jsonify([]), 200
-        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
+        preview = _read_excel_cached(xls, sheet, copy_frame=False)
         col_camp = encontrar_columna(preview, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
         if not col_camp:
             return jsonify([]), 200
@@ -3609,22 +3687,25 @@ def get_forecast_status():
             'error': 'No se encontró ninguna de las fuentes de datos reconocidas.'
         }), 200
 
-    ultimo_dato = None
-    try:
-        xls = pd.ExcelFile(excel_path, engine='openpyxl')
-        sheet = xls.sheet_names[0]
-        for sh in xls.sheet_names:
-            if 'llam' in sh.lower() or 'hist' in sh.lower() or 'datos' in sh.lower():
-                sheet = sh
-                break
-        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
-        col_fecha = encontrar_columna(preview, ['fecha', 'date'])
-        if col_fecha:
-            fechas = pd.to_datetime(preview[col_fecha], dayfirst=True, errors='coerce').dropna()
-            if not fechas.empty:
-                ultimo_dato = fechas.max().strftime('%Y-%m-%d')
-    except Exception:
-        pass
+    ultimo_dato = _cache_excel_info_get(excel_path, 'status:ultimo_dato')
+    if ultimo_dato is None:
+        try:
+            xls = pd.ExcelFile(excel_path, engine='openpyxl')
+            sheet = xls.sheet_names[0]
+            for sh in xls.sheet_names:
+                if 'llam' in sh.lower() or 'hist' in sh.lower() or 'datos' in sh.lower():
+                    sheet = sh
+                    break
+            preview = _read_excel_cached(xls, sheet, copy_frame=False)
+            col_fecha = encontrar_columna(preview, ['fecha', 'date'])
+            ultimo_dato = ''
+            if col_fecha:
+                fechas = pd.to_datetime(preview[col_fecha], dayfirst=True, errors='coerce').dropna()
+                if not fechas.empty:
+                    ultimo_dato = fechas.max().strftime('%Y-%m-%d')
+            _cache_excel_info_set(excel_path, 'status:ultimo_dato', ultimo_dato)
+        except Exception:
+            ultimo_dato = ''
 
     def _saved_at(path):
         try:
@@ -3861,7 +3942,13 @@ def process_data():
     if request.method == 'GET': return jsonify({'status': 'API activa'}), 200
     excel_path = buscar_archivo_excel()
     if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
+    started = time.perf_counter()
     try:
+        input_signature = _forecast_input_signature('llamadas', excel_path, request.form)
+        cached = _leer_cache_forecast('llamadas', allow_stale=True)
+        if cached and _forecast_cached_input_signature(cached) == input_signature:
+            print(f'Forecast llamadas reutilizado en {time.perf_counter()-started:.2f}s (mismos datos y parámetros).')
+            return _forecast_json_response('llamadas', cached, 'wfm_cache_reuse')
         try:
             campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
         except Exception:
@@ -3876,10 +3963,11 @@ def process_data():
         )
         # La corrida oficial incluye también los supuestos con los que WFM la visualizó.
         # Operaciones debe reutilizarlos exactamente y no reconstruir HC con defaults.
-        snapshot_meta = _forecast_snapshot_meta('llamadas', request.form)
+        snapshot_meta = _forecast_snapshot_meta('llamadas', request.form, excel_path)
         data = _stamp_forecast_snapshot(data, snapshot_meta)
         _guardar_cache_forecast('llamadas', data)
         gc.collect()
+        print(f'Forecast llamadas calculado en {time.perf_counter()-started:.2f}s · {len(data)} filas.')
         return _forecast_json_response('llamadas',data,'wfm_run')
     except Exception as e:
         gc.collect()
@@ -3889,7 +3977,13 @@ def process_data():
 def process_chat_data():
     excel_path = buscar_archivo_excel()
     if not excel_path: return jsonify({'error': 'No se encontro Excel (.xlsx).'}), 400
+    started = time.perf_counter()
     try:
+        input_signature = _forecast_input_signature('chat', excel_path, request.form)
+        cached = _leer_cache_forecast('chat', allow_stale=True)
+        if cached and _forecast_cached_input_signature(cached) == input_signature:
+            print(f'Forecast chat reutilizado en {time.perf_counter()-started:.2f}s (mismos datos y parámetros).')
+            return _forecast_json_response('chat', cached, 'wfm_cache_reuse')
         try:
             campaign_settings = json.loads(request.form.get('campaign_settings', '{}') or '{}')
         except Exception:
@@ -3903,10 +3997,11 @@ def process_chat_data():
             int(clean_num(request.form.get('dias'), 45)),
             campaign_settings=campaign_settings
         )
-        snapshot_meta = _forecast_snapshot_meta('chat', request.form)
+        snapshot_meta = _forecast_snapshot_meta('chat', request.form, excel_path)
         data = _stamp_forecast_snapshot(data, snapshot_meta)
         _guardar_cache_forecast('chat', data)
         gc.collect()
+        print(f'Forecast chat calculado en {time.perf_counter()-started:.2f}s · {len(data)} filas.')
         return _forecast_json_response('chat',data,'wfm_run')
     except Exception as e:
         gc.collect()
