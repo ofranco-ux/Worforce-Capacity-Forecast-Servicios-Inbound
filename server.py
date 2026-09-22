@@ -83,9 +83,19 @@ WFM_ROSTER_DB = _persistent_state_file('wfm_roster.db')
 WFM_ROSTER_BACKUP_DB = _persistent_state_file('wfm_roster_backup.db')
 
 # El Excel continúa junto al código/proyecto; solo el ESTADO generado se separa.
-EXCEL_FILENAME = os.environ.get('WFM_EXCEL_FILE', 'Data Real Hexalud.xlsx')
-EXCEL_DEFAULT = os.path.join(BASE_DIR, EXCEL_FILENAME)
+# WFM reconoce de forma explícita las tres fuentes oficiales que puede recibir.
+# Si WFM_EXCEL_FILE está definido, conserva prioridad como override administrativo.
+EXCEL_SOURCE_STEMS = (
+    'Data Real Servicios',
+    'Data Real Hexalud',
+    'Data Real Retenciones y Experiencias',
+)
+EXCEL_SOURCE_EXTENSIONS = ('.xlsx', '.xlsm')
+EXCEL_FILENAME = os.environ.get('WFM_EXCEL_FILE', '').strip()
 WFM_TIMEZONE = os.environ.get('WFM_TIMEZONE','America/Mexico_City')
+
+def _excel_allowed_display_names():
+    return [f'{stem}.xlsx' for stem in EXCEL_SOURCE_STEMS]
 _WFM_ROSTER_LOCK = threading.RLock()
 _ROSTER_DB_READY = False
 _WFM_ACTION_LOG_LOCK = threading.RLock()
@@ -423,45 +433,80 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
 
     return preds_finales
 
-def buscar_archivo_excel():
-    """Localiza el archivo fuente del forecast.
+def _excel_search_dirs():
+    """Directorios válidos para localizar el Excel fuente sin mezclar copias antiguas."""
+    dirs = []
+    for raw in (BASE_DIR, os.getcwd(), os.path.dirname(BASE_DIR)):
+        try:
+            path = os.path.abspath(raw)
+        except Exception:
+            continue
+        if path not in dirs and os.path.isdir(path):
+            dirs.append(path)
+    return dirs
 
-    Prioridad:
-    1) WFM_EXCEL_FILE (por defecto: Data Real Hexalud.xlsx).
-    2) Coincidencia por nombre "Data Real Hexalud".
-    3) Compatibilidad con nombres anteriores (data / servicios / historico).
-    4) Primer Excel disponible como último recurso.
+
+def buscar_archivo_excel():
+    """Localiza una de las fuentes oficiales del forecast.
+
+    Archivos reconocidos (también se acepta .xlsm):
+      - Data Real Servicios
+      - Data Real Hexalud
+      - Data Real Retenciones y Experiencias
+
+    Si hay más de una fuente reconocida disponible, se utiliza la que tenga la
+    modificación más reciente. De esta forma el archivo recién cargado se vuelve
+    la fuente activa sin depender de una prioridad oculta por nombre.
+
+    WFM_EXCEL_FILE, cuando está configurado explícitamente, mantiene prioridad y
+    puede ser una ruta absoluta o un nombre de archivo dentro de los directorios
+    de búsqueda.
     """
     try:
-        # Ruta configurada explícitamente / nombre oficial actual.
-        if os.path.isfile(EXCEL_DEFAULT):
-            return EXCEL_DEFAULT
+        raw_configured = str(EXCEL_FILENAME or '').strip()
+        if raw_configured:
+            if os.path.isabs(raw_configured):
+                candidate = os.path.abspath(raw_configured)
+                if os.path.isfile(candidate):
+                    return candidate
+            else:
+                for directory in _excel_search_dirs():
+                    candidate = os.path.join(directory, raw_configured)
+                    if os.path.isfile(candidate):
+                        return candidate
 
-        archivos = [
-            f for f in os.listdir(BASE_DIR)
-            if f.lower().endswith(('.xlsx', '.xlsm')) and not f.startswith('~')
-        ]
-        if not archivos:
+        allowed_stems = {stem.strip().lower() for stem in EXCEL_SOURCE_STEMS}
+        candidates = []
+        seen = set()
+        for directory in _excel_search_dirs():
+            try:
+                filenames = os.listdir(directory)
+            except Exception:
+                continue
+            for filename in filenames:
+                if filename.startswith('~'):
+                    continue
+                stem, ext = os.path.splitext(filename)
+                if ext.lower() not in EXCEL_SOURCE_EXTENSIONS:
+                    continue
+                if stem.strip().lower() not in allowed_stems:
+                    continue
+                candidate = os.path.abspath(os.path.join(directory, filename))
+                if candidate in seen or not os.path.isfile(candidate):
+                    continue
+                seen.add(candidate)
+                try:
+                    mtime = os.path.getmtime(candidate)
+                except Exception:
+                    mtime = 0.0
+                candidates.append((mtime, candidate))
+
+        if not candidates:
             return None
 
-        # La comparación case-insensitive permite variaciones de mayúsculas/minúsculas.
-        objetivo = os.path.splitext(os.path.basename(EXCEL_FILENAME))[0].strip().lower()
-        for f in archivos:
-            base = os.path.splitext(f)[0].strip().lower()
-            if base == objetivo or base == 'data real hexalud':
-                return os.path.join(BASE_DIR, f)
-
-        # Respaldo para instalaciones que todavía conserven el nombre anterior.
-        for f in archivos:
-            nombre = f.lower()
-            if 'data real hexalud' in nombre:
-                return os.path.join(BASE_DIR, f)
-        for f in archivos:
-            nombre = f.lower()
-            if 'data' in nombre or 'servicios' in nombre or 'historico' in nombre:
-                return os.path.join(BASE_DIR, f)
-
-        return os.path.join(BASE_DIR, archivos[0])
+        # Último archivo reconocido actualizado/cargado.
+        candidates.sort(key=lambda item: (item[0], item[1].lower()), reverse=True)
+        return candidates[0][1]
     except Exception:
         return None
 
@@ -1341,7 +1386,7 @@ def _forecast_generate_raw(channel):
     mode = _forecast_channel_norm(channel)
     excel_path = buscar_archivo_excel()
     if not excel_path:
-        raise ValueError(f'No se encontró {EXCEL_FILENAME} para recalcular el forecast.')
+        raise ValueError('No se encontró una fuente válida. Usa Data Real Servicios.xlsx, Data Real Hexalud.xlsx o Data Real Retenciones y Experiencias.xlsx.')
 
     sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
     campaign_settings = {}
@@ -3551,25 +3596,36 @@ def get_campaigns():
 @app.route('/api/status', methods=['GET'])
 def get_forecast_status():
     excel_path = buscar_archivo_excel()
+    now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if not excel_path:
-        return jsonify({'archivo': None, 'ultimo_dato': None, 'actualizacion': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}), 200
-    cached = _cache_excel_info_get(excel_path, 'status')
-    if cached is not None:
-        return jsonify(cached), 200
+        allowed_files = _excel_allowed_display_names()
+        return jsonify({
+            'ok': False,
+            'archivo': None,
+            'archivo_esperado': ' / '.join(allowed_files),
+            'archivos_permitidos': allowed_files,
+            'ultimo_dato': None,
+            'actualizacion': now_text,
+            'error': 'No se encontró ninguna de las fuentes de datos reconocidas.'
+        }), 200
+
     ultimo_dato = None
     try:
         xls = pd.ExcelFile(excel_path, engine='openpyxl')
         sheet = xls.sheet_names[0]
         for sh in xls.sheet_names:
             if 'llam' in sh.lower() or 'hist' in sh.lower() or 'datos' in sh.lower():
-                sheet = sh; break
+                sheet = sh
+                break
         preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
         col_fecha = encontrar_columna(preview, ['fecha', 'date'])
         if col_fecha:
             fechas = pd.to_datetime(preview[col_fecha], dayfirst=True, errors='coerce').dropna()
-            if not fechas.empty: ultimo_dato = fechas.max().strftime('%Y-%m-%d')
+            if not fechas.empty:
+                ultimo_dato = fechas.max().strftime('%Y-%m-%d')
     except Exception:
         pass
+
     def _saved_at(path):
         try:
             return datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S') if os.path.exists(path) else None
@@ -3588,8 +3644,12 @@ def get_forecast_status():
         roster_count = 0
         history_count = 0
 
-    payload = {
+    return jsonify({
+        'ok': True,
         'archivo': os.path.basename(excel_path),
+        'archivo_ruta': os.path.abspath(excel_path),
+        'archivo_esperado': ' / '.join(_excel_allowed_display_names()),
+        'archivos_permitidos': _excel_allowed_display_names(),
         'ultimo_dato': ultimo_dato,
         'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S'),
         'forecast_llamadas_guardado': _saved_at(CACHE_FILE_LLAMADAS),
@@ -3598,9 +3658,7 @@ def get_forecast_status():
         'roster_agentes': roster_count,
         'historial_cambios': history_count,
         'estado_persistente': True
-    }
-    _cache_excel_info_set(excel_path, 'status', payload)
-    return jsonify(payload), 200
+    }), 200
 
 
 @app.route('/api/forecast-control/status', methods=['GET'])
