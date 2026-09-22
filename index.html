@@ -5149,8 +5149,9 @@
             btn.disabled = true;
             btn.innerText = "⏳ RECALCULANDO...";
             document.getElementById('dashboardError').classList.add('hidden');
-            setRunStatus('Leyendo histórico…', 'amber');
-            await loadSourceMeta();
+            setRunStatus('Preparando cálculo…', 'amber');
+            // Los metadatos son informativos; no deben bloquear el inicio del forecast.
+            loadSourceMeta().catch(()=>{});
             
             const formData = new FormData();
             
