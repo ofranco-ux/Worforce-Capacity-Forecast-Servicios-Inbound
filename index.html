@@ -4759,12 +4759,26 @@
         }
 
         function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
+
+        async function readJsonResponse(response, context='Servidor') {
+            const raw = await response.text();
+            if (!raw || !raw.trim()) {
+                throw new Error(`${context}: respuesta vacía del servidor (HTTP ${response.status}). Reinicia server.py y vuelve a intentar.`);
+            }
+            try {
+                return JSON.parse(raw);
+            } catch (_) {
+                const sample = raw.replace(/\s+/g,' ').slice(0,180);
+                throw new Error(`${context}: respuesta no válida (HTTP ${response.status})${sample ? ` · ${sample}` : ''}`);
+            }
+        }
+
         let wfmProcessRunning = false;
         async function loadSourceMeta(){
             const metaEl=document.getElementById('sourceMeta');
             try {
                 const r=await fetch('/api/status?t='+Date.now(), {cache:'no-store'});
-                const m=await r.json();
+                const m=await readJsonResponse(r, 'Estado del servidor');
                 if(!r.ok) throw new Error(m?.error || `HTTP ${r.status}`);
 
                 if(m.ok === false || !m.archivo){
@@ -5149,9 +5163,9 @@
             btn.disabled = true;
             btn.innerText = "⏳ RECALCULANDO...";
             document.getElementById('dashboardError').classList.add('hidden');
-            setRunStatus('Preparando cálculo…', 'amber');
-            // Los metadatos son informativos; no deben bloquear el inicio del forecast.
-            loadSourceMeta().catch(()=>{});
+            setRunStatus('Verificando fuente…', 'amber');
+            // Evitar dos lecturas/procesos pesados en paralelo contra el mismo Excel.
+            await loadSourceMeta();
             
             const formData = new FormData();
             
@@ -5174,7 +5188,7 @@
             try {
                 setRunStatus('Calculando campañas…', 'amber');
                 const response = await fetch(url, { method: 'POST', body: formData });
-                globalData = await response.json();
+                globalData = await readJsonResponse(response, 'Forecast');
                 wfmDataVersion += 1;
                 
                 if (response.ok && Array.isArray(globalData)) {
@@ -5195,7 +5209,7 @@
                     const box=document.getElementById('dashboardError'); box.innerText='Error: '+msg; box.classList.remove('hidden'); setRunStatus('Falló el cálculo', 'red');
                 }
             } catch (e) {
-                const box=document.getElementById('dashboardError'); box.innerText='Error de conexión: '+e.message; box.classList.remove('hidden'); setRunStatus('Sin conexión', 'red');
+                const box=document.getElementById('dashboardError'); box.innerText='Error: '+e.message; box.classList.remove('hidden'); setRunStatus('Error del servidor', 'red');
             } finally {
                 wfmProcessRunning = false;
                 btn.disabled = false;
