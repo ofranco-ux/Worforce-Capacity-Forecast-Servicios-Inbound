@@ -114,7 +114,7 @@ _EXCEL_INFO_CACHE = {}
 # hoja en memoria y entregamos una copia al cálculo para que pueda modificarla.
 _EXCEL_DF_CACHE = {}
 _EXCEL_DF_CACHE_LOCK = threading.RLock()
-_EXCEL_DF_CACHE_MAX = 6
+_EXCEL_DF_CACHE_MAX = 1
 _ASSISTANT_PLAN_CACHE = {}
 _ASSISTANT_PLAN_CACHE_LOCK = threading.RLock()
 _ASSISTANT_PLAN_CACHE_MAX = 64
@@ -448,7 +448,8 @@ def pronosticar_con_machine_learning(df_diario_campana, dias_futuros, fecha_inic
         return [max(0.0, float(df_diario_campana.tail(7)[col_calls].mean()))] * dias_futuros
 
     features = ['dia_semana', 'es_inicio_mes', 'es_quincena', 'es_festivo']
-    modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2, n_jobs=-1)
+    ml_jobs = max(1, min(4, int(os.environ.get('WFM_ML_JOBS', '1') or 1)))
+    modelo = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5, min_samples_leaf=2, n_jobs=ml_jobs)
     modelo.fit(df_train[features], df_train['ratio_smooth'])
 
     # El ratio que predice el bosque depende sólo del calendario. Generarlo para
@@ -3314,7 +3315,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
             
     roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Llamadas')
 
-    df_raw = _read_excel_cached(xls_file, sheet_calls)
+    df_raw = pd.read_excel(xls_file, sheet_name=sheet_calls, engine='openpyxl')
     col_calls = encontrar_columna(df_raw, ['recibidas', 'llamadas', 'calls', 'volumen', 'ofrecidas', 'entrada'])
     col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
     col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
@@ -3482,7 +3483,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
 
     roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Chat')
 
-    df_raw = _read_excel_cached(xls_file, sheet_chat)
+    df_raw = pd.read_excel(xls_file, sheet_name=sheet_chat, engine='openpyxl')
     col_calls = encontrar_columna(df_raw, ['recibidos', 'recibidas', 'llamadas', 'chats', 'mensajes'])
     col_aht = encontrar_columna(df_raw, ['aht', 'tmo', 'handle', 'duracion'])
     col_camp = encontrar_columna(df_raw, ['campaña', 'campana', 'skill'])
@@ -3661,7 +3662,7 @@ def get_campaigns():
                     break
         if not sheet:
             return jsonify([]), 200
-        preview = _read_excel_cached(xls, sheet, copy_frame=False)
+        preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
         col_camp = encontrar_columna(preview, ['campaña', 'campana', 'skill', 'servicio', 'ring group'])
         if not col_camp:
             return jsonify([]), 200
@@ -3687,25 +3688,27 @@ def get_forecast_status():
             'error': 'No se encontró ninguna de las fuentes de datos reconocidas.'
         }), 200
 
+    # /api/status debe ser ligero y nunca competir con GENERAR FORECAST leyendo
+    # el Excel completo. Si ya conocemos el último dato lo mostramos; si no,
+    # intentamos obtenerlo del snapshot oficial sin abrir openpyxl.
     ultimo_dato = _cache_excel_info_get(excel_path, 'status:ultimo_dato')
     if ultimo_dato is None:
-        try:
-            xls = pd.ExcelFile(excel_path, engine='openpyxl')
-            sheet = xls.sheet_names[0]
-            for sh in xls.sheet_names:
-                if 'llam' in sh.lower() or 'hist' in sh.lower() or 'datos' in sh.lower():
-                    sheet = sh
-                    break
-            preview = _read_excel_cached(xls, sheet, copy_frame=False)
-            col_fecha = encontrar_columna(preview, ['fecha', 'date'])
-            ultimo_dato = ''
-            if col_fecha:
-                fechas = pd.to_datetime(preview[col_fecha], dayfirst=True, errors='coerce').dropna()
-                if not fechas.empty:
-                    ultimo_dato = fechas.max().strftime('%Y-%m-%d')
-            _cache_excel_info_set(excel_path, 'status:ultimo_dato', ultimo_dato)
-        except Exception:
-            ultimo_dato = ''
+        ultimo_dato = ''
+        for mode_name in ('llamadas', 'chat'):
+            cached_rows = _leer_cache_forecast(mode_name, allow_stale=True)
+            if not cached_rows:
+                continue
+            fechas = []
+            for row in cached_rows:
+                raw_fecha = str((row or {}).get('Fecha', ''))[:10]
+                try:
+                    fechas.append(datetime.strptime(raw_fecha, '%Y-%m-%d'))
+                except Exception:
+                    pass
+            if fechas:
+                candidate = max(fechas).strftime('%Y-%m-%d')
+                if not ultimo_dato or candidate > ultimo_dato:
+                    ultimo_dato = candidate
 
     def _saved_at(path):
         try:
@@ -3966,6 +3969,12 @@ def process_data():
         snapshot_meta = _forecast_snapshot_meta('llamadas', request.form, excel_path)
         data = _stamp_forecast_snapshot(data, snapshot_meta)
         _guardar_cache_forecast('llamadas', data)
+        try:
+            fechas_snapshot = [str((r or {}).get('Fecha',''))[:10] for r in data if (r or {}).get('Fecha')]
+            if fechas_snapshot:
+                _cache_excel_info_set(excel_path, 'status:ultimo_dato', max(fechas_snapshot))
+        except Exception:
+            pass
         gc.collect()
         print(f'Forecast llamadas calculado en {time.perf_counter()-started:.2f}s · {len(data)} filas.')
         return _forecast_json_response('llamadas',data,'wfm_run')
@@ -4000,6 +4009,12 @@ def process_chat_data():
         snapshot_meta = _forecast_snapshot_meta('chat', request.form, excel_path)
         data = _stamp_forecast_snapshot(data, snapshot_meta)
         _guardar_cache_forecast('chat', data)
+        try:
+            fechas_snapshot = [str((r or {}).get('Fecha',''))[:10] for r in data if (r or {}).get('Fecha')]
+            if fechas_snapshot:
+                _cache_excel_info_set(excel_path, 'status:ultimo_dato', max(fechas_snapshot))
+        except Exception:
+            pass
         gc.collect()
         print(f'Forecast chat calculado en {time.perf_counter()-started:.2f}s · {len(data)} filas.')
         return _forecast_json_response('chat',data,'wfm_run')
