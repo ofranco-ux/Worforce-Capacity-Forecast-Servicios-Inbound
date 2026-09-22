@@ -2589,6 +2589,167 @@ def roster_list():
     except Exception as e:
         return jsonify({'error':f'No se pudo cargar el roster: {str(e)}'}),500
 
+def _roster_restore_from_browser_snapshot(payload):
+    """Recupera la última plantilla que el navegador conserva SOLO si SQLite está vacío.
+
+    Este mecanismo es una red de seguridad para despliegues/copias nuevas del servidor:
+    la UI puede seguir mostrando su último roster válido aunque el nuevo STATE_DIR aún
+    no tenga wfm_roster.db. Nunca sobrescribe un roster existente.
+    """
+    payload = payload or {}
+    agents = payload.get('agents') or []
+    vacations = payload.get('vacations') or []
+    history = payload.get('history') or []
+    if not isinstance(agents, list) or not agents:
+        raise ValueError('El respaldo local no contiene agentes para restaurar.')
+    if len(agents) > 10000:
+        raise ValueError('El respaldo local excede el máximo permitido de agentes.')
+
+    _roster_db_init()
+    restored = 0
+    restored_vacations = 0
+    restored_history = 0
+    now = datetime.now().isoformat(timespec='seconds')
+    snapshot_saved_at = str(payload.get('savedAt') or '')[:40]
+
+    with _WFM_ROSTER_LOCK:
+        conn = _roster_conn()
+        try:
+            current_count = int(conn.execute('SELECT COUNT(*) FROM roster_agents').fetchone()[0] or 0)
+            if current_count > 0:
+                return {
+                    'restored': False,
+                    'reason': 'server_not_empty',
+                    'serverCount': current_count,
+                    'restoredAgents': 0,
+                    'restoredVacations': 0,
+                    'restoredHistory': 0,
+                }
+
+            for raw in agents:
+                try:
+                    clean = _roster_validate_payload(raw or {})
+                except Exception as e:
+                    print(f'Agente omitido durante recuperación local: {e}')
+                    continue
+                schedules = clean['schedules']
+                created_at = str((raw or {}).get('createdAt') or now)[:40]
+                updated_at = str((raw or {}).get('updatedAt') or snapshot_saved_at or now)[:40]
+                updated_by = str((raw or {}).get('updatedBy') or 'browser_recovery')[:80]
+                conn.execute(
+                    """INSERT OR REPLACE INTO roster_agents
+                    (agent_id,full_name,supervisor,coordinator,campaign,channel,status,
+                     lunes,martes,miercoles,jueves,viernes,sabado,domingo,source,created_at,updated_at,updated_by)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        clean['agentId'], clean['fullName'], clean['supervisor'], clean['coordinator'],
+                        clean['campaign'], clean['channel'], clean['status'],
+                        schedules['Lunes'], schedules['Martes'], schedules['Miércoles'], schedules['Jueves'],
+                        schedules['Viernes'], schedules['Sábado'], schedules['Domingo'],
+                        'browser_recovery', created_at, updated_at, updated_by
+                    )
+                )
+                restored += 1
+
+            if restored <= 0:
+                raise ValueError('No se pudo recuperar ningún agente válido del respaldo local.')
+
+            # Vacaciones sí contienen toda la información necesaria en el snapshot visual.
+            # Se restauran solo si la tabla está vacía para evitar duplicados.
+            absence_count = int(conn.execute("SELECT COUNT(*) FROM roster_absences").fetchone()[0] or 0)
+            if absence_count == 0 and isinstance(vacations, list):
+                for vac in vacations:
+                    agent_id = str((vac or {}).get('agentId') or '').strip()
+                    if not agent_id:
+                        continue
+                    exists = conn.execute('SELECT 1 FROM roster_agents WHERE agent_id=?',(agent_id,)).fetchone()
+                    if not exists:
+                        continue
+                    start_date = str((vac or {}).get('startDate') or '')[:10]
+                    end_date = str((vac or {}).get('endDate') or '')[:10]
+                    if not start_date or not end_date:
+                        continue
+                    status = _assistant_norm((vac or {}).get('status') or 'requested')
+                    if status not in ('requested','approved','rejected','cancelled'):
+                        status = 'requested'
+                    created_at = str((vac or {}).get('createdAt') or now)[:40]
+                    updated_at = str((vac or {}).get('updatedAt') or created_at)[:40]
+                    created_by = str((vac or {}).get('createdBy') or 'browser_recovery')[:80]
+                    updated_by = str((vac or {}).get('updatedBy') or created_by)[:80]
+                    conn.execute(
+                        """INSERT INTO roster_absences
+                        (agent_id,absence_type,start_date,end_date,status,reason,created_at,updated_at,created_by,updated_by)
+                        VALUES (?,'vacation',?,?,?,?,?,?,?,?)""",
+                        (agent_id,start_date,end_date,status,str((vac or {}).get('reason') or '')[:500],
+                         created_at,updated_at,created_by,updated_by)
+                    )
+                    restored_vacations += 1
+
+            # El historial visible se usa como rescate únicamente si SQLite no tiene historial.
+            history_count = int(conn.execute('SELECT COUNT(*) FROM roster_history').fetchone()[0] or 0)
+            if history_count == 0 and isinstance(history, list):
+                for item in reversed(history[:1000]):
+                    if not isinstance(item, dict):
+                        continue
+                    change_type = str(item.get('changeType') or '').strip()
+                    if not change_type:
+                        continue
+                    conn.execute(
+                        """INSERT INTO roster_history
+                        (agent_id,change_type,before_json,after_json,reason,changed_at,changed_by)
+                        VALUES (?,?,?,?,?,?,?)""",
+                        (
+                            str(item.get('agentId') or '')[:120] or None,
+                            change_type[:120],
+                            json.dumps(item.get('before'),ensure_ascii=False) if item.get('before') is not None else None,
+                            json.dumps(item.get('after'),ensure_ascii=False) if item.get('after') is not None else None,
+                            str(item.get('reason') or '')[:500],
+                            str(item.get('changedAt') or snapshot_saved_at or now)[:40],
+                            str(item.get('changedBy') or 'browser_recovery')[:80],
+                        )
+                    )
+                    restored_history += 1
+
+            # Dejar trazabilidad sin crear cientos de eventos artificiales.
+            conn.execute(
+                """INSERT INTO roster_history
+                (agent_id,change_type,before_json,after_json,reason,changed_at,changed_by)
+                VALUES (NULL,'roster_snapshot_restored',NULL,?,?,?,'system')""",
+                (
+                    json.dumps({'agents':restored,'vacations':restored_vacations,'savedAt':snapshot_saved_at},ensure_ascii=False),
+                    'Recuperación automática desde el último respaldo local del navegador',
+                    now,
+                )
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    _roster_backup_database()
+    _invalidate_roster_dependent_caches()
+    return {
+        'restored': True,
+        'serverCount': restored,
+        'restoredAgents': restored,
+        'restoredVacations': restored_vacations,
+        'restoredHistory': restored_history,
+        'stateDir': WFM_STATE_DIR,
+    }
+
+
+@app.route('/api/roster/restore-snapshot', methods=['POST'])
+def roster_restore_snapshot():
+    try:
+        payload = request.get_json(force=True,silent=False) or {}
+        result = _roster_restore_from_browser_snapshot(payload)
+        return jsonify({'ok':True, **result}), 200
+    except Exception as e:
+        return jsonify({'error':str(e)}), 400
+
+
 @app.route('/api/roster/agent', methods=['POST'])
 def roster_save_agent():
     try:
