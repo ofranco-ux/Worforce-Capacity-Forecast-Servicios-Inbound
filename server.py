@@ -1901,6 +1901,86 @@ def _roster_live_forecast_overlay(channel, data):
         return [dict(r) for r in data]
 
 
+def _forecast_snapshot_bool(value, default=False):
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('1','true','yes','si','sí','on')
+
+
+def _forecast_snapshot_meta(mode, form):
+    """Supuestos que forman parte inmutable de una corrida oficial de WFM."""
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    generated_at = datetime.now(ZoneInfo(WFM_TIMEZONE)).isoformat(timespec='seconds')
+    jornada = max(0.5, float(clean_num(form.get('jornada'), 8.0)))
+    merma_pct = min(99.0, max(0.0, float(clean_num(form.get('merma'), 30.0))))
+    nocturno = _forecast_snapshot_bool(form.get('nocturno'), False)
+    concurrencia = max(1.0, float(clean_num(form.get('concurrencia'), 3.0))) if mode == 'chat' else 1.0
+    factor_descanso = (7.0 / 5.0) if nocturno else (7.0 / 6.0)
+    factor_asistencia = max(0.01, 1.0 - (merma_pct / 100.0))
+    target_sl = min(100.0, max(1.0, float(clean_num(form.get('target_sl'), 80.0))))
+    target_asa = max(1.0, float(clean_num(form.get('target_time'), 20.0)))
+    dias = max(1, int(clean_num(form.get('dias'), 45)))
+    signature_source = '|'.join([
+        mode, generated_at, f'{jornada:.4f}', f'{merma_pct:.4f}',
+        str(int(nocturno)), f'{concurrencia:.4f}', f'{target_sl:.4f}',
+        f'{target_asa:.4f}', str(dias)
+    ])
+    run_id = hashlib.sha1(signature_source.encode('utf-8')).hexdigest()[:16]
+    return {
+        'runId': run_id,
+        'generatedAt': generated_at,
+        'mode': mode,
+        'jornadaHoras': jornada,
+        'mermaPct': merma_pct,
+        'nocturno': nocturno,
+        'factorDescanso': factor_descanso,
+        'factorAsistencia': factor_asistencia,
+        'concurrencia': concurrencia,
+        'targetSl': target_sl,
+        'targetAsa': target_asa,
+        'dias': dias,
+    }
+
+
+def _stamp_forecast_snapshot(data, meta):
+    """Incrusta los supuestos de la corrida en cada fila para que viajen con el snapshot."""
+    stamped = []
+    for raw in (data or []):
+        row = dict(raw)
+        row['Snapshot_Run_Id'] = meta['runId']
+        row['Snapshot_Generated_At'] = meta['generatedAt']
+        row['Snapshot_Mode'] = meta['mode']
+        row['Snapshot_Jornada_Horas'] = meta['jornadaHoras']
+        row['Snapshot_Merma_Pct'] = meta['mermaPct']
+        row['Snapshot_Nocturno'] = meta['nocturno']
+        row['Snapshot_Factor_Descanso'] = meta['factorDescanso']
+        row['Snapshot_Factor_Asistencia'] = meta['factorAsistencia']
+        row['Snapshot_Concurrencia'] = meta['concurrencia']
+        row['Snapshot_Target_SL'] = meta['targetSl']
+        row['Snapshot_Target_ASA'] = meta['targetAsa']
+        row['Snapshot_Dias'] = meta['dias']
+        stamped.append(row)
+    return stamped
+
+
+def _forecast_snapshot_meta_from_rows(data):
+    if not isinstance(data, list) or not data:
+        return {}
+    row = data[0] if isinstance(data[0], dict) else {}
+    return {
+        'runId': row.get('Snapshot_Run_Id',''),
+        'generatedAt': row.get('Snapshot_Generated_At',''),
+        'jornadaHoras': row.get('Snapshot_Jornada_Horas'),
+        'mermaPct': row.get('Snapshot_Merma_Pct'),
+        'nocturno': row.get('Snapshot_Nocturno'),
+        'factorDescanso': row.get('Snapshot_Factor_Descanso'),
+        'factorAsistencia': row.get('Snapshot_Factor_Asistencia'),
+        'concurrencia': row.get('Snapshot_Concurrencia'),
+    }
+
+
 def _forecast_api_payload(channel, data):
     """Aplica locks del forecast y después superpone el roster vigente."""
     controlled = _forecast_apply_control(channel, data)
@@ -1915,6 +1995,15 @@ def _forecast_json_response(channel, data, data_state='snapshot'):
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     response.headers['X-WFM-Data-State'] = str(data_state or 'snapshot')
+    meta = _forecast_snapshot_meta_from_rows(data)
+    if meta.get('runId'):
+        response.headers['X-WFM-Forecast-Run'] = str(meta.get('runId'))
+    if meta.get('generatedAt'):
+        response.headers['X-WFM-Forecast-Generated-At'] = str(meta.get('generatedAt'))
+    if meta.get('jornadaHoras') is not None:
+        response.headers['X-WFM-Forecast-Jornada'] = str(meta.get('jornadaHoras'))
+    if meta.get('mermaPct') is not None:
+        response.headers['X-WFM-Forecast-Merma'] = str(meta.get('mermaPct'))
     cache_path = _cache_path(channel)
     try:
         if os.path.exists(cache_path):
@@ -3410,6 +3499,33 @@ def get_latest_forecast():
     return response, 200
 
 
+@app.route('/api/forecast-snapshot-info', methods=['GET'])
+def forecast_snapshot_info():
+    mode = 'chat' if str(request.args.get('mode','llamadas')).lower() == 'chat' else 'llamadas'
+    data = _leer_cache_forecast(mode, allow_stale=True) or []
+    meta = _forecast_snapshot_meta_from_rows(data)
+    path = _cache_path(mode)
+    info = {
+        'mode': mode,
+        'rows': len(data),
+        'path': path,
+        'exists': os.path.exists(path),
+        'generatedAt': meta.get('generatedAt') or '',
+        'runId': meta.get('runId') or '',
+        'jornadaHoras': meta.get('jornadaHoras'),
+        'mermaPct': meta.get('mermaPct'),
+        'nocturno': meta.get('nocturno'),
+        'factorDescanso': meta.get('factorDescanso'),
+        'factorAsistencia': meta.get('factorAsistencia'),
+        'concurrencia': meta.get('concurrencia'),
+    }
+    try:
+        info['fileModifiedAt'] = datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec='seconds') if os.path.exists(path) else ''
+    except Exception:
+        info['fileModifiedAt'] = ''
+    return jsonify(info), 200
+
+
 @app.route('/api/process', methods=['POST', 'GET'])
 def process_data():
     if request.method == 'GET': return jsonify({'status': 'API activa'}), 200
@@ -3428,6 +3544,11 @@ def process_data():
             int(clean_num(request.form.get('dias'), 45)),
             campaign_settings=campaign_settings
         )
+        # La corrida oficial incluye también los supuestos con los que WFM la visualizó.
+        # Operaciones debe reutilizarlos exactamente y no reconstruir HC con defaults.
+        snapshot_meta = _forecast_snapshot_meta('llamadas', request.form)
+        data = _stamp_forecast_snapshot(data, snapshot_meta)
+        _guardar_cache_forecast('llamadas', data)
         gc.collect()
         return _forecast_json_response('llamadas',data,'wfm_run')
     except Exception as e:
@@ -3452,6 +3573,9 @@ def process_chat_data():
             int(clean_num(request.form.get('dias'), 45)),
             campaign_settings=campaign_settings
         )
+        snapshot_meta = _forecast_snapshot_meta('chat', request.form)
+        data = _stamp_forecast_snapshot(data, snapshot_meta)
+        _guardar_cache_forecast('chat', data)
         gc.collect()
         return _forecast_json_response('chat',data,'wfm_run')
     except Exception as e:
