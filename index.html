@@ -4889,7 +4889,7 @@
 
             const promise = (async () => {
                 try {
-                    const response = await fetch('/api/latest?mode=' + mode, { cache: force ? 'no-cache' : 'default' });
+                    const response = await fetch('/api/latest?mode=' + mode, { cache: 'no-store' });
                     let data = null;
                     try { data = await response.json(); } catch (_) { data = null; }
                     if (!response.ok) {
@@ -6444,22 +6444,22 @@
         }
 
         function scheduleRosterForecastRefresh(delay=350) {
-            // No vaciar el último forecast visible. El servidor marcará el dato
-            // como pendiente de refresco y lo reemplazará únicamente cuando el
-            // nuevo cálculo sea válido.
+            // Un cambio de roster no vuelve a pronosticar la demanda. Conserva
+            // exactamente la última corrida WFM y refresca únicamente el HC actual
+            // desde el roster persistente.
             wfmAutopilotLastSignature='';
             wfmAutopilotPayload=null;
             invalidateWfmAssistantContext();
 
             clearTimeout(rosterForecastRefreshTimer);
             const sequence=++rosterForecastRefreshSequence;
-            setRosterSyncStatus('recalculating','Guardado · recalculando');
+            setRosterSyncStatus('recalculating','Guardado · sincronizando HC');
 
             rosterForecastRefreshTimer=setTimeout(async()=>{
                 try{
                     await fetchLatestData(forecastMode,true);
                     if(sequence===rosterForecastRefreshSequence){
-                        setRosterSyncStatus('ready','Proyección actualizada');
+                        setRosterSyncStatus('ready','HC actual sincronizado');
                         setTimeout(()=>{
                             if(sequence===rosterForecastRefreshSequence){
                                 setRosterSyncStatus('ready','Sincronizado');
@@ -6469,7 +6469,7 @@
                 }catch(error){
                     console.warn('Actualización forecast después del roster:',error);
                     if(sequence===rosterForecastRefreshSequence){
-                        setRosterSyncStatus('error','Guardado · falta recalcular');
+                        setRosterSyncStatus('error','Guardado · falta sincronizar HC');
                     }
                 }
             },delay);
