@@ -5783,17 +5783,20 @@
                 });
 
                 // Para el KPI principal y las tarjetas consolidadas, usar el
-                // headcount activo total real por canal desde Gestión de horarios.
+                // headcount activo real del roster respetando el filtro de campaña.
                 if (rosterChannelTotals) {
-                    hcDispDict['Llamadas'] = Number(rosterChannelTotals.llamadas || 0);
-                    hcDispDict['Chat'] = Number(rosterChannelTotals.chat || 0);
+                    hcDispDict['Llamadas'] = rosterTotalForCampaignFilter(rosterChannelTotals, 'llamadas');
+                    hcDispDict['Chat'] = rosterTotalForCampaignFilter(rosterChannelTotals, 'chat');
                 }
                 const totalReqGlobal = hcReqDict['Llamadas'] + hcReqDict['Chat'];
-                const totalDispGlobal = rosterChannelTotals
-                    ? Number(rosterChannelTotals.total || 0)
-                    : (hcDispDict['Llamadas'] + hcDispDict['Chat']);
+                const totalDispGlobal = hcDispDict['Llamadas'] + hcDispDict['Chat'];
                 const hcHelpGeneral = document.getElementById('kpiHcRosterHelp');
-                if (hcHelpGeneral) hcHelpGeneral.textContent = 'Dotación activa total de Llamadas + Chat según Gestión de horarios.';
+                if (hcHelpGeneral) {
+                    const campaignLabel = rosterCampaignFilterLabel();
+                    hcHelpGeneral.textContent = campaignLabel
+                        ? `Dotación activa de ${campaignLabel} en Llamadas + Chat según Gestión de horarios.`
+                        : 'Dotación activa total de Llamadas + Chat según Gestión de horarios.';
+                }
 
                 const hcReqGeneralEl=document.getElementById('kpiHcRequerido');
                 const allGeneralLocked=dfFiltered.length>0&&dfFiltered.every(r=>!!getProp(r,['HC_Bloqueado'],false));
@@ -6044,17 +6047,19 @@
 
             let totalRosterKPI = 0;
             new Set(dfFiltered.map(r => String(getProp(r, ['Campaña', 'Campana'], 'General')))).forEach(camp => { if(rosterPorCampana[camp]) totalRosterKPI += rosterPorCampana[camp]; });
-            // El KPI HC actual debe ser el total activo del canal, no la suma de
-            // máximos por campaña/intervalo (esa suma podía duplicar headcount).
+            // El KPI HC actual usa headcount activo único del roster y respeta
+            // el filtro de campaña. Mes/semana/fecha/intervalo no duplican personas.
             if (rosterChannelTotals) {
-                totalRosterKPI = forecastMode === 'chat'
-                    ? Number(rosterChannelTotals.chat || 0)
-                    : Number(rosterChannelTotals.llamadas || 0);
+                totalRosterKPI = rosterTotalForCampaignFilter(rosterChannelTotals, forecastMode);
             }
             const hcRosterHelp = document.getElementById('kpiHcRosterHelp');
-            if (hcRosterHelp) hcRosterHelp.textContent = forecastMode === 'chat'
-                ? 'Dotación activa total de Chat según Gestión de horarios.'
-                : 'Dotación activa total de Llamadas según Gestión de horarios.';
+            if (hcRosterHelp) {
+                const channelLabel = forecastMode === 'chat' ? 'Chat' : 'Llamadas';
+                const campaignLabel = rosterCampaignFilterLabel();
+                hcRosterHelp.textContent = campaignLabel
+                    ? `Dotación activa de ${campaignLabel} en ${channelLabel} según Gestión de horarios.`
+                    : `Dotación activa total de ${channelLabel} según Gestión de horarios.`;
+            }
 
             let hcNominaCalculado = 0;
             for (let c in ftePorCampanaParaKPI) {
@@ -6626,8 +6631,18 @@
         const ROSTER_CHANNEL_TOTALS_TTL = 10000;
         const ROSTER_UI_CACHE_KEY = 'wfmRosterUiSnapshotV2';
 
+        function rosterCampaignKey(value) {
+            return String(value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, ' ');
+        }
+
         function rosterChannelTotalsFromAgents(agents) {
             const seen = { llamadas:new Set(), chat:new Set(), otros:new Set() };
+            const campaignSeen = { llamadas:new Map(), chat:new Map(), otros:new Map() };
             (Array.isArray(agents) ? agents : []).forEach(a => {
                 const status = rosterNormalizeStatus(a?.status);
                 if (status === 'Baja') return;
@@ -6635,16 +6650,55 @@
                 const bucket = (raw.includes('chat') || raw.includes('mensaje'))
                     ? 'chat'
                     : ((raw.includes('llam') || raw.includes('call')) ? 'llamadas' : 'otros');
-                const key = String(a?.agentId || a?.agent_id || '').trim() || `${a?.fullName||''}|${a?.campaign||''}`;
-                seen[bucket].add(key);
+                const agentKey = String(a?.agentId || a?.agent_id || '').trim() || `${a?.fullName||''}|${a?.campaign||''}`;
+                seen[bucket].add(agentKey);
+
+                const campaignKey = rosterCampaignKey(a?.campaign);
+                if (campaignKey) {
+                    if (!campaignSeen[bucket].has(campaignKey)) campaignSeen[bucket].set(campaignKey, new Set());
+                    campaignSeen[bucket].get(campaignKey).add(agentKey);
+                }
+            });
+            const byCampaign = { llamadas:{}, chat:{}, otros:{} };
+            ['llamadas','chat','otros'].forEach(bucket => {
+                campaignSeen[bucket].forEach((ids, campaignKey) => {
+                    byCampaign[bucket][campaignKey] = ids.size;
+                });
             });
             const totals = {
                 llamadas: seen.llamadas.size,
                 chat: seen.chat.size,
-                otros: seen.otros.size
+                otros: seen.otros.size,
+                byCampaign
             };
             totals.total = totals.llamadas + totals.chat;
             return totals;
+        }
+
+        function rosterCampaignFilterIsAll() {
+            if (!Array.isArray(allCampanasOptions) || !allCampanasOptions.length) return true;
+            if (selectedCampanas.size !== allCampanasOptions.length) return false;
+            return allCampanasOptions.every(c => selectedCampanas.has(c));
+        }
+
+        function rosterTotalForCampaignFilter(totals, channelKey) {
+            if (!totals) return 0;
+            const bucket = channelKey === 'chat' ? 'chat' : 'llamadas';
+            if (rosterCampaignFilterIsAll()) return Number(totals[bucket] || 0);
+            if (!selectedCampanas.size) return 0;
+            const lookup = totals.byCampaign?.[bucket] || {};
+            let value = 0;
+            selectedCampanas.forEach(campaign => {
+                value += Number(lookup[rosterCampaignKey(campaign)] || 0);
+            });
+            return value;
+        }
+
+        function rosterCampaignFilterLabel() {
+            if (rosterCampaignFilterIsAll()) return '';
+            if (!selectedCampanas.size) return 'sin campañas seleccionadas';
+            if (selectedCampanas.size === 1) return `campaña ${Array.from(selectedCampanas)[0]}`;
+            return `${selectedCampanas.size} campañas seleccionadas`;
         }
 
         async function getRosterChannelTotals(force=false) {
