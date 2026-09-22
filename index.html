@@ -4587,6 +4587,33 @@
             });
         }
 
+        async function restoreForecastServerFromBrowser(mode, rows) {
+            if (!Array.isArray(rows) || !rows.length) return null;
+            try {
+                const response = await fetch('/api/forecast/restore-snapshot', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    cache:'no-store',
+                    body:JSON.stringify({mode, rows})
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'No se pudo restaurar el forecast en el servidor.');
+                return data;
+            } catch (error) {
+                console.warn(`No se pudo restaurar el forecast local de ${mode} en el servidor:`, error);
+                return null;
+            }
+        }
+
+        async function fetchServerForecastSnapshot(mode) {
+            const response = await fetch('/api/latest?mode=' + mode + '&t=' + Date.now(), { cache:'no-store' });
+            let data = null;
+            try { data = await response.json(); } catch (_) { data = null; }
+            if (!response.ok) throw new Error((data && data.error) || `HTTP ${response.status}`);
+            const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
+            return Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
+        }
+
 
         function updateAnalysisPresentation(isGeneral) {
             const titleEl = document.querySelector('.analysis-title');
@@ -4955,28 +4982,40 @@
 
             const promise = (async () => {
                 try {
-                    const response = await fetch('/api/latest?mode=' + mode + '&t=' + Date.now(), { cache: 'no-store' });
-                    let data = null;
-                    try { data = await response.json(); } catch (_) { data = null; }
-                    if (!response.ok) {
-                        throw new Error((data && data.error) || `HTTP ${response.status}`);
-                    }
-                    const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
-                    const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
+                    let prepared = await fetchServerForecastSnapshot(mode);
 
-                    // El servidor siempre tiene prioridad. Cada respuesta válida se
-                    // conserva también en IndexedDB como red de seguridad local.
+                    // El servidor siempre tiene prioridad. Cada respuesta válida ya
+                    // viene enriquecida con HC actual desde wfm_roster.db.
                     if (prepared.length) {
                         modeDataCache[mode] = prepared;
                         saveForecastBrowserSnapshot(mode, prepared).catch(()=>{});
                         return prepared;
                     }
-                    if (previous && previous.length) return previous;
 
+                    // Si el servidor perdió únicamente el snapshot de forecast pero
+                    // IndexedDB conserva la última corrida WFM, se restaura primero
+                    // en el servidor. Después se vuelve a pedir /api/latest para que
+                    // el HC actual se calcule contra el roster persistente vigente.
                     const browserSnapshot = await loadForecastBrowserSnapshot(mode);
                     if (browserSnapshot.length) {
+                        const recovery = await restoreForecastServerFromBrowser(mode, browserSnapshot);
+                        if (recovery?.restored || recovery?.reason === 'server_has_snapshot') {
+                            prepared = await fetchServerForecastSnapshot(mode);
+                            if (prepared.length) {
+                                modeDataCache[mode] = prepared;
+                                saveForecastBrowserSnapshot(mode, prepared).catch(()=>{});
+                                console.info(`Forecast ${mode} restaurado en servidor y HC actual recalculado desde roster.`);
+                                return prepared;
+                            }
+                        }
+                    }
+
+                    if (previous && previous.length) return previous;
+                    // Último recurso visual: conservar el forecast local, aunque el
+                    // servidor haya rechazado la recuperación. No debe borrar la UI.
+                    if (browserSnapshot.length) {
                         modeDataCache[mode] = browserSnapshot;
-                        console.warn(`Servidor sin snapshot de ${mode}; se usa la última fotografía local guardada.`);
+                        console.warn(`Se conserva el forecast local de ${mode}; no fue posible sincronizarlo con el servidor.`);
                         return browserSnapshot;
                     }
 
@@ -4989,8 +5028,19 @@
                     }
                     const browserSnapshot = await loadForecastBrowserSnapshot(mode);
                     if (browserSnapshot.length) {
+                        const recovery = await restoreForecastServerFromBrowser(mode, browserSnapshot);
+                        if (recovery?.restored || recovery?.reason === 'server_has_snapshot') {
+                            try {
+                                const prepared = await fetchServerForecastSnapshot(mode);
+                                if (prepared.length) {
+                                    modeDataCache[mode] = prepared;
+                                    saveForecastBrowserSnapshot(mode, prepared).catch(()=>{});
+                                    return prepared;
+                                }
+                            } catch (_) {}
+                        }
                         modeDataCache[mode] = browserSnapshot;
-                        console.warn(`Se recuperó el forecast local de ${mode} por una falla de servidor:`, error);
+                        console.warn(`Se recuperó solo la fotografía local de ${mode} por una falla de servidor:`, error);
                         return browserSnapshot;
                     }
                     throw error;
@@ -6844,6 +6894,11 @@
                 renderRosterTable();
                 saveRosterUiSnapshot();
                 setRosterSyncStatus('ready','Sincronizado · persistente');
+                // El roster ya está confirmado en servidor: invalidar solo la capa
+                // visual del forecast para que /api/latest vuelva a superponer HC actual.
+                modeDataCache.llamadas=null;
+                modeDataCache.chat=null;
+                if (typeof forecastMode !== 'undefined') fetchLatestData(forecastMode,true).catch(()=>{});
             } catch (error) {
                 // Si ya había un roster visible, conservarlo ante una falla temporal
                 // en lugar de reemplazar la gestión de horarios por una pantalla vacía.
