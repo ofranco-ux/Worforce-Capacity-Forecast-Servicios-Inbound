@@ -9,6 +9,7 @@ import hashlib
 import time
 import sqlite3
 import shutil
+import unicodedata
 import io
 import csv
 from functools import lru_cache
@@ -235,7 +236,33 @@ def factor_cobertura_ambulancia(campana):
     return 1.0 + regla['porcentaje_volumen'] * (regla['personas_por_atencion'] - 1)
 
 def normalizar_nombre_campana(campana):
-    return re.sub(r'\s+', ' ', str(campana or '').strip().lower())
+    """Clave canónica para cruzar forecast y roster sin depender de acentos/formato."""
+    text = str(campana or '').strip().lower()
+    text = unicodedata.normalize('NFKD', text)
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+def _forecast_date_key(value):
+    """Convierte las fechas del snapshot a YYYY-MM-DD para cruzarlas con el roster."""
+    raw = str(value or '').strip()
+    if not raw:
+        return ''
+    candidates = [raw[:10], raw.split('T')[0].split(' ')[0]]
+    for candidate in candidates:
+        for fmt in ('%Y-%m-%d','%d/%m/%Y','%m/%d/%Y'):
+            try:
+                return datetime.strptime(candidate, fmt).strftime('%Y-%m-%d')
+            except Exception:
+                pass
+    return raw[:10]
+
+def _forecast_interval_key(value):
+    minute = parse_time_str(value)
+    if minute is None:
+        return str(value or '').strip()
+    minute = int(minute) % (24 * 60)
+    return f"{minute // 60:02d}:{minute % 60:02d}"
 
 def normalizar_config_campanas(config):
     if not isinstance(config, dict):
@@ -1037,20 +1064,28 @@ def _invalidate_roster_dependent_caches():
     _EXCEL_INFO_CACHE = {}
 
 def _roster_fetch_agents(channel=None, include_inactive=True):
+    """Lee el roster con filtros tolerantes a datos heredados.
+
+    La UI considera Activo todo estado que no sea Baja/Inactivo. Aplicamos el
+    mismo criterio aquí para que una variante antigua (espacios, mayúsculas, etc.)
+    no haga desaparecer agentes de las proyecciones.
+    """
     _roster_db_init()
     conn = _roster_conn()
     try:
         sql = "SELECT * FROM roster_agents WHERE 1=1"
         args = []
-        if channel and str(channel).lower() != 'all':
-            sql += " AND lower(channel)=?"
-            args.append(str(channel).lower())
         if not include_inactive:
-            sql += " AND lower(status)='activo'"
+            sql += " AND lower(trim(coalesce(status,''))) NOT IN ('baja','inactivo')"
         sql += " ORDER BY campaign, supervisor, full_name, agent_id"
-        return [_roster_row_dict(r) for r in conn.execute(sql,args).fetchall()]
+        rows = [_roster_row_dict(r) for r in conn.execute(sql,args).fetchall()]
     finally:
         conn.close()
+
+    if channel and str(channel).strip().lower() != 'all':
+        wanted = _assistant_norm_channel(channel)
+        rows = [a for a in rows if _assistant_norm_channel(a.get('channel','')) == wanted]
+    return rows
 
 def _roster_dataframe(channel):
     agents = _roster_fetch_agents(channel=channel, include_inactive=False)
@@ -1758,7 +1793,7 @@ def _roster_live_forecast_overlay(channel, data):
         forecast_dates = set()
         parsed_dates = []
         for raw in data:
-            date_text = str((raw or {}).get('Fecha',''))[:10]
+            date_text = _forecast_date_key((raw or {}).get('Fecha',''))
             try:
                 dt = datetime.strptime(date_text,'%Y-%m-%d')
             except Exception:
@@ -1879,7 +1914,7 @@ def _roster_live_forecast_overlay(channel, data):
                     target_date = target_dt.strftime('%Y-%m-%d')
                     if target_date not in forecast_dates:
                         continue
-                    key = (camp_norm,target_date,interval)
+                    key = (camp_norm,target_date,_forecast_interval_key(interval))
                     coverage[key] = coverage.get(key,0) + 1
                     presence.setdefault((camp_norm,target_date),set()).add(agent_id)
 
@@ -1887,8 +1922,8 @@ def _roster_live_forecast_overlay(channel, data):
         for raw in data:
             row = dict(raw)
             camp_norm = normalizar_nombre_campana(row.get('Campaña',row.get('Campana','')))
-            date = str(row.get('Fecha',''))[:10]
-            interval = str(row.get('Intervalo','')).strip()
+            date = _forecast_date_key(row.get('Fecha',''))
+            interval = _forecast_interval_key(row.get('Intervalo',''))
             row['HC_Actual_Roster'] = max(0,int(coverage.get((camp_norm,date,interval),0)))
             row['Total_Roster_Campana'] = max(0,int(total_campaign.get(camp_norm,0)))
             row['Total_Roster_Dia'] = len(presence.get((camp_norm,date),set()))
@@ -3660,6 +3695,56 @@ def get_latest_forecast():
     return response, 200
 
 
+@app.route('/api/forecast/restore-snapshot', methods=['POST'])
+def forecast_restore_browser_snapshot():
+    """Recupera el último forecast del navegador SOLO si el servidor no tiene snapshot.
+
+    Una vez restaurado, /api/latest lo vuelve a enriquecer con el roster vigente.
+    De esta forma HC actual nunca queda congelado en el valor que tuviera el
+    respaldo local cuando se guardó.
+    """
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        mode = 'chat' if str(payload.get('mode','llamadas')).lower() == 'chat' else 'llamadas'
+        existing = _leer_cache_forecast(mode, allow_stale=True)
+        if isinstance(existing, list) and existing:
+            meta = _forecast_snapshot_meta_from_rows(existing)
+            return jsonify({
+                'ok': True, 'restored': False, 'reason': 'server_has_snapshot',
+                'rows': len(existing), 'runId': meta.get('runId','')
+            }), 200
+
+        rows = payload.get('rows') or []
+        if not isinstance(rows, list) or not rows:
+            return jsonify({'error':'El respaldo local no contiene filas de forecast.'}),400
+        if len(rows) > 1000000:
+            return jsonify({'error':'El respaldo local excede el máximo permitido.'}),400
+
+        clean_rows = []
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+            # Una fila válida de forecast necesita al menos fecha, intervalo y campaña.
+            if not _forecast_date_key(raw.get('Fecha')) or not str(raw.get('Intervalo','')).strip():
+                continue
+            row = dict(raw)
+            row['Canal'] = 'Chat' if mode == 'chat' else 'Llamadas'
+            clean_rows.append(row)
+
+        if not clean_rows:
+            return jsonify({'error':'No se encontraron filas válidas en el respaldo local.'}),400
+
+        _guardar_cache_forecast(mode, clean_rows)
+        meta = _forecast_snapshot_meta_from_rows(clean_rows)
+        return jsonify({
+            'ok': True, 'restored': True, 'reason': 'browser_snapshot_restored',
+            'rows': len(clean_rows), 'runId': meta.get('runId',''),
+            'path': _cache_path(mode)
+        }), 200
+    except Exception as e:
+        return jsonify({'error':f'No se pudo restaurar el forecast local: {str(e)}'}),400
+
+
 @app.route('/api/forecast-snapshot-info', methods=['GET'])
 def forecast_snapshot_info():
     mode = 'chat' if str(request.args.get('mode','llamadas')).lower() == 'chat' else 'llamadas'
@@ -3685,6 +3770,32 @@ def forecast_snapshot_info():
     except Exception:
         info['fileModifiedAt'] = ''
     return jsonify(info), 200
+
+
+@app.route('/api/roster/coverage-status', methods=['GET'])
+def roster_coverage_status():
+    """Diagnóstico compacto de la unión forecast ↔ roster para soporte."""
+    mode = 'chat' if str(request.args.get('mode','llamadas')).lower() == 'chat' else 'llamadas'
+    channel_label = 'Chat' if mode == 'chat' else 'Llamadas'
+    data = _leer_cache_forecast(mode, allow_stale=True) or []
+    agents = _roster_fetch_agents(channel=channel_label, include_inactive=False)
+    forecast_campaigns = {normalizar_nombre_campana(r.get('Campaña',r.get('Campana',''))) for r in data if isinstance(r,dict)}
+    roster_campaigns = {normalizar_nombre_campana(a.get('campaign','')) for a in agents}
+    overlay = _roster_live_forecast_overlay(mode, data) if data else []
+    rows_with_actual = sum(1 for r in overlay if int(r.get('HC_Actual_Roster',0) or 0) > 0)
+    max_actual = max([int(r.get('HC_Actual_Roster',0) or 0) for r in overlay] or [0])
+    return jsonify({
+        'mode': mode,
+        'forecastRows': len(data),
+        'activeRosterAgents': len(agents),
+        'forecastCampaigns': len(forecast_campaigns),
+        'rosterCampaigns': len(roster_campaigns),
+        'matchedCampaigns': len((forecast_campaigns & roster_campaigns) - {''}),
+        'rowsWithActualHC': rows_with_actual,
+        'maxActualHCInterval': max_actual,
+        'forecastRunId': (_forecast_snapshot_meta_from_rows(data) or {}).get('runId',''),
+        'stateDir': WFM_STATE_DIR,
+    }),200
 
 
 @app.route('/api/process', methods=['POST', 'GET'])
