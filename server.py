@@ -29,18 +29,61 @@ if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
 import holidays
 from sklearn.ensemble import RandomForestRegressor
 
-CACHE_FILE_LLAMADAS = os.path.join(BASE_DIR, 'forecast_cache_llamadas.json')
-CACHE_FILE_CHAT = os.path.join(BASE_DIR, 'forecast_cache_chat.json')
-CONFIG_FILE = os.path.join(BASE_DIR, 'wfm_config.json') 
+# =====================================================================
+# ESTADO PERSISTENTE UNIFICADO
+# =====================================================================
+# El forecast oficial, el roster, el historial y la configuración NO deben
+# depender de la carpeta/nombre de la copia actual del código. Si no se define
+# WFM_STATE_DIR, se usa una carpeta estable del usuario:
+#   Windows: %LOCALAPPDATA%\HexaludWFM
+#   Otros:   ~/.hexalud_wfm
+# Esto permite reemplazar/copiar server.py sin perder el último estado operativo.
+def _default_wfm_state_dir():
+    local_app_data = str(os.environ.get('LOCALAPPDATA') or '').strip()
+    if local_app_data:
+        return os.path.join(local_app_data, 'HexaludWFM')
+    return os.path.join(os.path.expanduser('~'), '.hexalud_wfm')
+
+WFM_STATE_DIR = os.path.abspath(os.environ.get('WFM_STATE_DIR') or _default_wfm_state_dir())
+os.makedirs(WFM_STATE_DIR, exist_ok=True)
+
+
+def _persistent_state_file(filename):
+    """Devuelve una ruta estable y migra automáticamente el estado legado."""
+    target = os.path.join(WFM_STATE_DIR, filename)
+    if os.path.exists(target):
+        return target
+
+    # Compatibilidad: las versiones anteriores guardaban todo junto a server.py.
+    # También se revisa el directorio desde donde se lanzó Python.
+    candidates = [os.path.join(BASE_DIR, filename), os.path.join(os.getcwd(), filename)]
+    seen = set()
+    for source in candidates:
+        source = os.path.abspath(source)
+        if source in seen or source == os.path.abspath(target):
+            continue
+        seen.add(source)
+        if not os.path.isfile(source):
+            continue
+        try:
+            shutil.copy2(source, target)
+            print(f'Migrando estado persistente: {source} -> {target}')
+            break
+        except Exception as e:
+            print(f'No se pudo migrar {filename} desde {source}: {e}')
+    return target
+
+
+CACHE_FILE_LLAMADAS = _persistent_state_file('forecast_cache_llamadas.json')
+CACHE_FILE_CHAT = _persistent_state_file('forecast_cache_chat.json')
+CONFIG_FILE = _persistent_state_file('wfm_config.json')
+WFM_ACTION_LOG_FILE = _persistent_state_file('wfm_action_log.json')
+WFM_ROSTER_DB = _persistent_state_file('wfm_roster.db')
+WFM_ROSTER_BACKUP_DB = _persistent_state_file('wfm_roster_backup.db')
+
+# El Excel continúa junto al código/proyecto; solo el ESTADO generado se separa.
 EXCEL_FILENAME = os.environ.get('WFM_EXCEL_FILE', 'Data Real Hexalud.xlsx')
 EXCEL_DEFAULT = os.path.join(BASE_DIR, EXCEL_FILENAME)
-WFM_ACTION_LOG_FILE = os.path.join(BASE_DIR, 'wfm_action_log.json')
-# Estado operativo persistente. Si en el futuro se despliega otra copia del código
-# en una carpeta distinta, WFM_STATE_DIR permite mantener el mismo roster/historial.
-WFM_STATE_DIR = os.environ.get('WFM_STATE_DIR', BASE_DIR)
-os.makedirs(WFM_STATE_DIR, exist_ok=True)
-WFM_ROSTER_DB = os.path.join(WFM_STATE_DIR, 'wfm_roster.db')
-WFM_ROSTER_BACKUP_DB = os.path.join(WFM_STATE_DIR, 'wfm_roster_backup.db')
 WFM_TIMEZONE = os.environ.get('WFM_TIMEZONE','America/Mexico_City')
 _WFM_ROSTER_LOCK = threading.RLock()
 _ROSTER_DB_READY = False
@@ -3242,10 +3285,34 @@ def get_forecast_status():
             if not fechas.empty: ultimo_dato = fechas.max().strftime('%Y-%m-%d')
     except Exception:
         pass
+    def _saved_at(path):
+        try:
+            return datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S') if os.path.exists(path) else None
+        except Exception:
+            return None
+
+    try:
+        _roster_db_init()
+        conn = _roster_conn()
+        try:
+            roster_count = int(conn.execute('SELECT COUNT(*) FROM roster_agents').fetchone()[0])
+            history_count = int(conn.execute('SELECT COUNT(*) FROM roster_history').fetchone()[0])
+        finally:
+            conn.close()
+    except Exception:
+        roster_count = 0
+        history_count = 0
+
     payload = {
         'archivo': os.path.basename(excel_path),
         'ultimo_dato': ultimo_dato,
-        'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S')
+        'actualizacion': datetime.fromtimestamp(os.path.getmtime(excel_path)).strftime('%Y-%m-%d %H:%M:%S'),
+        'forecast_llamadas_guardado': _saved_at(CACHE_FILE_LLAMADAS),
+        'forecast_chat_guardado': _saved_at(CACHE_FILE_CHAT),
+        'roster_guardado': _saved_at(WFM_ROSTER_DB),
+        'roster_agentes': roster_count,
+        'historial_cambios': history_count,
+        'estado_persistente': True
     }
     _cache_excel_info_set(excel_path, 'status', payload)
     return jsonify(payload), 200
@@ -3324,61 +3391,24 @@ def forecast_control_history():
 
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
+    """Devuelve EXCLUSIVAMENTE la última corrida exitosa de WFM.
+
+    Operaciones nunca genera un forecast alterno. Si aún no existe una corrida
+    guardada para el canal solicitado, responde una lista vacía y el frontend
+    conserva cualquier fotografía válida que ya tuviera en memoria.
+    """
     mode = 'chat' if str(request.args.get('mode', 'llamadas')).lower() == 'chat' else 'llamadas'
-    cache_data = _leer_cache_forecast(mode)
+    cache_data = _leer_cache_forecast(mode, allow_stale=True)
     if isinstance(cache_data, list) and cache_data:
-        return _forecast_json_response(mode,cache_data,'wfm_snapshot'), 200
+        return _forecast_json_response(mode, cache_data, 'wfm_snapshot'), 200
 
-    # Serializar el recálculo por canal evita que WFM y Operaciones lancen el
-    # mismo forecast pesado al mismo tiempo. Mientras tanto el snapshot anterior
-    # permanece intacto en disco.
-    with _FORECAST_REFRESH_LOCKS[mode]:
-        cache_data = _leer_cache_forecast(mode)
-        if isinstance(cache_data, list) and cache_data:
-            return _forecast_json_response(mode,cache_data,'wfm_snapshot'), 200
+    response = jsonify([])
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['X-WFM-Data-State'] = 'no_wfm_snapshot'
+    return response, 200
 
-        excel_path = buscar_archivo_excel()
-        if excel_path:
-            try:
-                sl, tt, merma, dias, concurrencia = 80.0, 20.0, 30.0, 130, 3.0
-                campaign_settings = {}
-                if os.path.exists(CONFIG_FILE):
-                    try:
-                        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                            cfg = json.load(f)
-                            sl, tt = float(cfg.get('targetSl', 80.0)), float(cfg.get('targetTime', 20.0))
-                            merma_data = cfg.get('merma', 30.0)
-                            merma = float(merma_data.get(mode, 30.0)) if isinstance(merma_data, dict) else float(merma_data)
-                            dias = int(clean_num(cfg.get('dias'), dias))
-                            concurrencia = float(clean_num(cfg.get('concurrencia'), concurrencia))
-                            all_settings = cfg.get('campaignSettings', {})
-                            campaign_settings = all_settings.get(mode, {}) if isinstance(all_settings, dict) else {}
-                    except Exception:
-                        pass
-
-                merma_pct = merma / 100.0
-                if mode == 'chat':
-                    data = procesar_archivo_chat(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, concurrencia=concurrencia, dias_futuros=dias, campaign_settings=campaign_settings)
-                else:
-                    data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
-                gc.collect()
-                if isinstance(data, list) and data:
-                    return _forecast_json_response(mode,data,'generated_fallback'), 200
-            except Exception as e:
-                # Nunca tirar el tablero operativo si existe un último cálculo bueno.
-                stale = _leer_cache_forecast(mode, allow_stale=True)
-                if isinstance(stale, list) and stale:
-                    response = _forecast_json_response(mode,stale,'stale')
-                    response.headers['X-WFM-Refresh-Error'] = str(e)[:180]
-                    return response, 200
-                return jsonify({'error': str(e)}), 500
-
-        stale = _leer_cache_forecast(mode, allow_stale=True)
-        if isinstance(stale, list) and stale:
-            response = _forecast_json_response(mode,stale,'stale')
-            return response, 200
-
-    return jsonify([]), 200
 
 @app.route('/api/process', methods=['POST', 'GET'])
 def process_data():
