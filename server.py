@@ -64,6 +64,11 @@ def _cache_path(mode):
     return CACHE_FILE_CHAT if str(mode).lower() == 'chat' else CACHE_FILE_LLAMADAS
 
 def _guardar_cache_forecast(mode, data):
+    """
+    Guarda en memoria y en disco de forma atómica antes de dar por terminada
+    una corrida. De esta manera, la última corrida exitosa de WFM queda
+    garantizada para el siguiente día/reinicio del servidor.
+    """
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
     with _FORECAST_CACHE_LOCK:
         _FORECAST_MEMORY_CACHE[mode] = data
@@ -71,24 +76,28 @@ def _guardar_cache_forecast(mode, data):
         _FORECAST_CACHE_GENERATION[mode] += 1
         generation = _FORECAST_CACHE_GENERATION[mode]
 
-    # Persistir en segundo plano evita que json.dump bloquee la respuesta HTTP.
-    # Si se lanza un cálculo nuevo antes de terminar, el resultado anterior no
-    # sobreescribe al más reciente.
-    def _persistir():
-        try:
-            payload = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-            with _FORECAST_CACHE_LOCK:
-                if generation != _FORECAST_CACHE_GENERATION[mode]:
-                    return
-                target = _cache_path(mode)
-                tmp = f"{target}.{generation}.tmp"
-                with open(tmp, 'w', encoding='utf-8') as f:
-                    f.write(payload)
-                os.replace(tmp, target)
-        except Exception as e:
-            print(f"No se pudo persistir caché {mode}: {e}")
+    try:
+        payload = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+        target = _cache_path(mode)
+        tmp = f"{target}.{generation}.tmp"
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.write(payload)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        with _FORECAST_CACHE_LOCK:
+            if generation != _FORECAST_CACHE_GENERATION[mode]:
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+                return
+            os.replace(tmp, target)
+    except Exception as e:
+        print(f"No se pudo persistir caché {mode}: {e}")
 
-    threading.Thread(target=_persistir, daemon=True, name=f'wfm-cache-{mode}').start()
 
 def _leer_cache_forecast(mode, allow_stale=False):
     mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
@@ -969,17 +978,17 @@ def _roster_seed_from_excel_if_empty():
 
 def _invalidate_roster_dependent_caches():
     global _EXCEL_INFO_CACHE
-    # Cada modificación que afecta la operación deja además un respaldo físico
-    # del roster e historial. Cambiar de vista o recalcular el FCST nunca lo borra.
+    # El roster y su historial son estado operativo persistente.
     _roster_backup_database()
-    # El roster cambió: el forecast debe recalcular HC Actual, pero no se borra
-    # el último snapshot válido. Se marca como sucio para que /api/latest intente
-    # refrescarlo; si ese cálculo falla, Operaciones seguirá recibiendo el último
-    # resultado válido en vez de una pantalla en ceros.
-    with _FORECAST_CACHE_LOCK:
-        for mode in ('llamadas','chat'):
-            _FORECAST_CACHE_DIRTY[mode] = True
-            _FORECAST_CACHE_GENERATION[mode] += 1
+
+    # IMPORTANTE: un cambio de roster NO invalida el forecast oficial.
+    # El forecast / HC requerido debe seguir siendo exactamente la última
+    # corrida exitosa de WFM. El HC actual se superpone en vivo desde
+    # wfm_roster.db al responder /api/latest.
+    #
+    # Antes se marcaba _FORECAST_CACHE_DIRTY=True y Operaciones podía disparar
+    # un forecast nuevo al editar horarios. Eso hacía que la vista operativa no
+    # coincidiera necesariamente con la última corrida realizada por WFM.
     with _ASSISTANT_PLAN_CACHE_LOCK:
         _ASSISTANT_PLAN_CACHE.clear()
     _EXCEL_INFO_CACHE = {}
@@ -1684,6 +1693,194 @@ def _roster_forecast_metrics(xls_file, channel):
             pass
     return {},{},{},{},{}
 
+
+def _roster_live_forecast_overlay(channel, data):
+    """
+    Mantiene dos fuentes separadas y coherentes:
+      1) Forecast / HC requerido: snapshot de la última corrida WFM.
+      2) HC actual: roster operativo vigente en wfm_roster.db.
+
+    La cobertura se reconstruye por FECHA real. Esto es especialmente importante
+    para turnos nocturnos: por ejemplo, Martes 22:00-07:00 cubre Martes 22:00-
+    23:30 y Miércoles 00:00-06:30. Así Gestión de horarios y las proyecciones
+    consultan exactamente la misma plantilla vigente.
+    """
+    if not isinstance(data, list) or not data:
+        return data
+
+    channel_label = 'Chat' if _forecast_channel_norm(channel) == 'chat' else 'Llamadas'
+    try:
+        agents = _roster_fetch_agents(channel=channel_label, include_inactive=False)
+
+        forecast_dates = set()
+        parsed_dates = []
+        for raw in data:
+            date_text = str((raw or {}).get('Fecha',''))[:10]
+            try:
+                dt = datetime.strptime(date_text,'%Y-%m-%d')
+            except Exception:
+                continue
+            forecast_dates.add(date_text)
+            parsed_dates.append(dt)
+
+        if not forecast_dates:
+            return [dict(r) for r in data]
+
+        if not agents:
+            result = []
+            for raw in data:
+                row = dict(raw)
+                row['HC_Actual_Roster'] = 0
+                row['Total_Roster_Campana'] = 0
+                row['Total_Roster_Dia'] = 0
+                row['Roster_Fuente'] = 'wfm_roster.db'
+                result.append(row)
+            return result
+
+        # Para intervalos posteriores a medianoche también hay que revisar el
+        # turno que inició el día anterior.
+        shift_dates = set(forecast_dates)
+        for dt in parsed_dates:
+            shift_dates.add((dt - timedelta(days=1)).strftime('%Y-%m-%d'))
+
+        min_shift = min(shift_dates)
+        max_shift = max(shift_dates)
+        agent_ids = {str(a.get('agentId') or '') for a in agents}
+
+        _roster_db_init()
+        conn = _roster_conn()
+        try:
+            overrides = {
+                (str(r['agent_id']), str(r['work_date'])[:10]): str(r['schedule'] or 'DD-DD')
+                for r in conn.execute(
+                    """SELECT agent_id,work_date,schedule
+                       FROM roster_overrides
+                       WHERE work_date>=? AND work_date<=?""",
+                    (min_shift,max_shift)
+                ).fetchall()
+                if str(r['agent_id']) in agent_ids
+            }
+            vacations = conn.execute(
+                """SELECT agent_id,start_date,end_date
+                   FROM roster_absences
+                   WHERE absence_type='vacation' AND status='approved'
+                     AND end_date>=? AND start_date<=?""",
+                (min_shift,max_shift)
+            ).fetchall()
+        finally:
+            conn.close()
+
+        absence_dates = set()
+        for vac in vacations:
+            agent_id = str(vac['agent_id'])
+            if agent_id not in agent_ids:
+                continue
+            try:
+                cur = datetime.strptime(str(vac['start_date'])[:10],'%Y-%m-%d')
+                end_dt = datetime.strptime(str(vac['end_date'])[:10],'%Y-%m-%d')
+            except Exception:
+                continue
+            while cur <= end_dt:
+                key_date = cur.strftime('%Y-%m-%d')
+                if min_shift <= key_date <= max_shift:
+                    absence_dates.add((agent_id,key_date))
+                cur += timedelta(days=1)
+
+        total_campaign = {}
+        coverage = {}
+        presence = {}
+
+        def schedule_parts(schedule):
+            text = str(schedule or 'DD-DD').strip().upper()
+            if text == 'DD-DD' or '-' not in text:
+                return None
+            p = text.split('-',1)
+            start_min = parse_time_str(p[0].strip())
+            end_min = parse_time_str(p[1].strip())
+            if start_min is None or end_min is None:
+                return None
+            return int(start_min),int(end_min)
+
+        for agent in agents:
+            agent_id = str(agent.get('agentId') or '')
+            camp_norm = normalizar_nombre_campana(agent.get('campaign',''))
+            if not agent_id or not camp_norm:
+                continue
+            total_campaign[camp_norm] = total_campaign.get(camp_norm,0) + 1
+            schedules = agent.get('schedules') or {}
+
+            for shift_date in shift_dates:
+                # Una ausencia aprobada elimina la jornada cuyo día de inicio es
+                # esa fecha. Los tramos posteriores a medianoche quedan eliminados
+                # junto con la misma jornada.
+                if (agent_id,shift_date) in absence_dates:
+                    continue
+                try:
+                    shift_dt = datetime.strptime(shift_date,'%Y-%m-%d')
+                except Exception:
+                    continue
+                day = _ROSTER_DAYS[shift_dt.weekday()]
+                schedule = overrides.get((agent_id,shift_date), schedules.get(day,'DD-DD'))
+                bounds = schedule_parts(schedule)
+                if not bounds:
+                    continue
+                start_min,end_min = bounds
+
+                for interval in generar_intervalos_cobertura(start_min,end_min):
+                    inv_min = parse_time_str(interval)
+                    if inv_min is None:
+                        continue
+                    target_dt = shift_dt
+                    if start_min >= end_min and inv_min < end_min:
+                        target_dt = shift_dt + timedelta(days=1)
+                    target_date = target_dt.strftime('%Y-%m-%d')
+                    if target_date not in forecast_dates:
+                        continue
+                    key = (camp_norm,target_date,interval)
+                    coverage[key] = coverage.get(key,0) + 1
+                    presence.setdefault((camp_norm,target_date),set()).add(agent_id)
+
+        result = []
+        for raw in data:
+            row = dict(raw)
+            camp_norm = normalizar_nombre_campana(row.get('Campaña',row.get('Campana','')))
+            date = str(row.get('Fecha',''))[:10]
+            interval = str(row.get('Intervalo','')).strip()
+            row['HC_Actual_Roster'] = max(0,int(coverage.get((camp_norm,date,interval),0)))
+            row['Total_Roster_Campana'] = max(0,int(total_campaign.get(camp_norm,0)))
+            row['Total_Roster_Dia'] = len(presence.get((camp_norm,date),set()))
+            row['Roster_Fuente'] = 'wfm_roster.db'
+            result.append(row)
+        return result
+    except Exception as e:
+        print(f'No se pudo superponer roster vigente ({channel_label}): {e}')
+        # La falla de lectura del roster no debe destruir el dashboard.
+        return [dict(r) for r in data]
+
+
+def _forecast_api_payload(channel, data):
+    """Aplica locks del forecast y después superpone el roster vigente."""
+    controlled = _forecast_apply_control(channel, data)
+    return _roster_live_forecast_overlay(channel, controlled)
+
+
+def _forecast_json_response(channel, data, data_state='snapshot'):
+    response = jsonify(_forecast_api_payload(channel, data))
+    # El navegador no debe conservar una respuesta vieja. La persistencia se
+    # controla en el servidor mediante forecast_cache_*.json.
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['X-WFM-Data-State'] = str(data_state or 'snapshot')
+    cache_path = _cache_path(channel)
+    try:
+        if os.path.exists(cache_path):
+            response.headers['X-WFM-Forecast-Snapshot'] = datetime.fromtimestamp(
+                os.path.getmtime(cache_path)
+            ).isoformat(timespec='seconds')
+    except Exception:
+        pass
+    return response
 
 
 def _roster_vacations(include_past=False):
@@ -3130,7 +3327,7 @@ def get_latest_forecast():
     mode = 'chat' if str(request.args.get('mode', 'llamadas')).lower() == 'chat' else 'llamadas'
     cache_data = _leer_cache_forecast(mode)
     if isinstance(cache_data, list) and cache_data:
-        return jsonify(_forecast_apply_control(mode,cache_data)), 200
+        return _forecast_json_response(mode,cache_data,'wfm_snapshot'), 200
 
     # Serializar el recálculo por canal evita que WFM y Operaciones lancen el
     # mismo forecast pesado al mismo tiempo. Mientras tanto el snapshot anterior
@@ -3138,7 +3335,7 @@ def get_latest_forecast():
     with _FORECAST_REFRESH_LOCKS[mode]:
         cache_data = _leer_cache_forecast(mode)
         if isinstance(cache_data, list) and cache_data:
-            return jsonify(_forecast_apply_control(mode,cache_data)), 200
+            return _forecast_json_response(mode,cache_data,'wfm_snapshot'), 200
 
         excel_path = buscar_archivo_excel()
         if excel_path:
@@ -3166,21 +3363,19 @@ def get_latest_forecast():
                     data = procesar_archivo_llamadas(excel_path, target_sl=sl, target_time=tt, merma=merma_pct, dias_futuros=dias, campaign_settings=campaign_settings)
                 gc.collect()
                 if isinstance(data, list) and data:
-                    return jsonify(_forecast_apply_control(mode,data)), 200
+                    return _forecast_json_response(mode,data,'generated_fallback'), 200
             except Exception as e:
                 # Nunca tirar el tablero operativo si existe un último cálculo bueno.
                 stale = _leer_cache_forecast(mode, allow_stale=True)
                 if isinstance(stale, list) and stale:
-                    response = jsonify(_forecast_apply_control(mode,stale))
-                    response.headers['X-WFM-Data-State'] = 'stale'
+                    response = _forecast_json_response(mode,stale,'stale')
                     response.headers['X-WFM-Refresh-Error'] = str(e)[:180]
                     return response, 200
                 return jsonify({'error': str(e)}), 500
 
         stale = _leer_cache_forecast(mode, allow_stale=True)
         if isinstance(stale, list) and stale:
-            response = jsonify(_forecast_apply_control(mode,stale))
-            response.headers['X-WFM-Data-State'] = 'stale'
+            response = _forecast_json_response(mode,stale,'stale')
             return response, 200
 
     return jsonify([]), 200
@@ -3204,7 +3399,7 @@ def process_data():
             campaign_settings=campaign_settings
         )
         gc.collect()
-        return jsonify(_forecast_apply_control('llamadas',data))
+        return _forecast_json_response('llamadas',data,'wfm_run')
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
@@ -3228,7 +3423,7 @@ def process_chat_data():
             campaign_settings=campaign_settings
         )
         gc.collect()
-        return jsonify(_forecast_apply_control('chat',data))
+        return _forecast_json_response('chat',data,'wfm_run')
     except Exception as e:
         gc.collect()
         return jsonify({'error': str(e)}), 500
