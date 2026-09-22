@@ -4759,16 +4759,39 @@
         }
 
         function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
+        let wfmProcessRunning = false;
         async function loadSourceMeta(){
+            const metaEl=document.getElementById('sourceMeta');
             try {
                 const r=await fetch('/api/status?t='+Date.now(), {cache:'no-store'});
                 const m=await r.json();
-                if(r.ok){
-                    const snap = forecastMode==='chat' ? m.forecast_chat_guardado : m.forecast_llamadas_guardado;
-                    const extra = snap ? ` · Forecast WFM: ${snap}` : '';
-                    document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}${extra}`;
+                if(!r.ok) throw new Error(m?.error || `HTTP ${r.status}`);
+
+                if(m.ok === false || !m.archivo){
+                    const allowed=Array.isArray(m.archivos_permitidos)&&m.archivos_permitidos.length
+                        ? m.archivos_permitidos.join(' · ')
+                        : (m.archivo_esperado||'Data Real Servicios.xlsx · Data Real Hexalud.xlsx · Data Real Retenciones y Experiencias.xlsx');
+                    if(metaEl) metaEl.innerText=`Fuente pendiente · archivos válidos: ${allowed} · ${m.error||'No se encontró el archivo fuente.'}`;
+                    if(!wfmProcessRunning) setRunStatus('Fuente no encontrada','red');
+                    return false;
                 }
-            } catch(e){}
+
+                const snap = forecastMode==='chat' ? m.forecast_chat_guardado : m.forecast_llamadas_guardado;
+                const extra = snap ? ` · Forecast WFM: ${snap}` : '';
+                if(metaEl) metaEl.innerText=`Archivo: ${m.archivo} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}${extra}`;
+
+                // Una respuesta correcta de /api/status confirma que el backend sí
+                // está conectado. No conservar un "Sin conexión" de un error previo.
+                const currentText=String(document.getElementById('runStatusText')?.innerText||'').trim().toLowerCase();
+                if(!wfmProcessRunning && (currentText==='sin conexión' || currentText==='error al cargar' || currentText==='fuente no encontrada')){
+                    setRunStatus('Conectado','green');
+                }
+                return true;
+            } catch(e){
+                if(metaEl) metaEl.innerText=`No se pudo consultar el estado del servidor: ${e.message||'error de conexión'}`;
+                if(!wfmProcessRunning) setRunStatus('Sin conexión','red');
+                return false;
+            }
         }
 
 
@@ -5122,6 +5145,7 @@
 
         async function procesarWFM() {
             const btn = document.getElementById('btnProcesar');
+            wfmProcessRunning = true;
             btn.disabled = true;
             btn.innerText = "⏳ RECALCULANDO...";
             document.getElementById('dashboardError').classList.add('hidden');
@@ -5166,14 +5190,16 @@
                     setRunStatus('Listo', 'green');
                     await loadSourceMeta();
                 } else {
-                    const msg = globalData.error || "Asegúrate de que 'Data Real Hexalud.xlsx' esté cargado.";
+                    const msg = globalData.error || "Carga Data Real Servicios.xlsx, Data Real Hexalud.xlsx o Data Real Retenciones y Experiencias.xlsx.";
                     const box=document.getElementById('dashboardError'); box.innerText='Error: '+msg; box.classList.remove('hidden'); setRunStatus('Falló el cálculo', 'red');
                 }
             } catch (e) {
                 const box=document.getElementById('dashboardError'); box.innerText='Error de conexión: '+e.message; box.classList.remove('hidden'); setRunStatus('Sin conexión', 'red');
             } finally {
+                wfmProcessRunning = false;
                 btn.disabled = false;
                 btn.innerText = "▶ GENERAR FORECAST";
+                loadSourceMeta().catch(()=>{});
             }
         }
 
@@ -8788,7 +8814,7 @@
                     <div class="wfm-quality-grid">
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Filas forecast</div><div class="wfm-quality-value">${Number(quality.forecastRows ?? context.rowCount ?? 0).toLocaleString()}</div></div>
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Roster disponible</div><div class="wfm-quality-value">${quality.rosterAvailable === false ? 'No confirmado' : `${Number(quality.rosterAgents || 0)} agentes`}</div></div>
-                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Data Real Hexalud.xlsx')}</div></div>
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Fuente de datos WFM')}</div></div>
                     </div>
                     <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Frank no inventará ese dato.</div>
                 </section>`;
