@@ -4531,6 +4531,62 @@
         const weekNumberCache = new Map();
         let warmupScheduled = false;
 
+        // Respaldo local durable del último forecast recibido/generado. IndexedDB
+        // permite conservar datasets grandes entre cierres del navegador sin el
+        // límite reducido de localStorage. El servidor sigue siendo la fuente
+        // principal; este respaldo solo evita mostrar 0 si el proceso/archivo de
+        // estado todavía no está disponible durante el arranque.
+        const FORECAST_BROWSER_DB = 'HexaludWFMState';
+        const FORECAST_BROWSER_STORE = 'forecastSnapshots';
+        let forecastBrowserDbPromise = null;
+
+        function openForecastBrowserDb() {
+            if (!('indexedDB' in window)) return Promise.resolve(null);
+            if (forecastBrowserDbPromise) return forecastBrowserDbPromise;
+            forecastBrowserDbPromise = new Promise((resolve) => {
+                try {
+                    const req = indexedDB.open(FORECAST_BROWSER_DB, 1);
+                    req.onupgradeneeded = () => {
+                        const db = req.result;
+                        if (!db.objectStoreNames.contains(FORECAST_BROWSER_STORE)) {
+                            db.createObjectStore(FORECAST_BROWSER_STORE, { keyPath: 'mode' });
+                        }
+                    };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => resolve(null);
+                } catch (_) { resolve(null); }
+            });
+            return forecastBrowserDbPromise;
+        }
+
+        async function saveForecastBrowserSnapshot(mode, rows) {
+            if (!Array.isArray(rows) || !rows.length) return;
+            const db = await openForecastBrowserDb();
+            if (!db) return;
+            await new Promise((resolve) => {
+                try {
+                    const tx = db.transaction(FORECAST_BROWSER_STORE, 'readwrite');
+                    tx.objectStore(FORECAST_BROWSER_STORE).put({mode, savedAt:new Date().toISOString(), rows});
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = () => resolve();
+                    tx.onabort = () => resolve();
+                } catch (_) { resolve(); }
+            });
+        }
+
+        async function loadForecastBrowserSnapshot(mode) {
+            const db = await openForecastBrowserDb();
+            if (!db) return [];
+            return await new Promise((resolve) => {
+                try {
+                    const tx = db.transaction(FORECAST_BROWSER_STORE, 'readonly');
+                    const req = tx.objectStore(FORECAST_BROWSER_STORE).get(mode);
+                    req.onsuccess = () => resolve(Array.isArray(req.result?.rows) ? req.result.rows : []);
+                    req.onerror = () => resolve([]);
+                } catch (_) { resolve([]); }
+            });
+        }
+
 
         function updateAnalysisPresentation(isGeneral) {
             const titleEl = document.querySelector('.analysis-title');
@@ -4676,7 +4732,17 @@
         }
 
         function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
-        async function loadSourceMeta(){ try { const r=await fetch('/api/status?t='+Date.now()); const m=await r.json(); if(r.ok){ document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}`; } } catch(e){} }
+        async function loadSourceMeta(){
+            try {
+                const r=await fetch('/api/status?t='+Date.now(), {cache:'no-store'});
+                const m=await r.json();
+                if(r.ok){
+                    const snap = forecastMode==='chat' ? m.forecast_chat_guardado : m.forecast_llamadas_guardado;
+                    const extra = snap ? ` · Forecast WFM: ${snap}` : '';
+                    document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}${extra}`;
+                }
+            } catch(e){}
+        }
 
 
         function getProp(row, keys, def = '') {
@@ -4889,7 +4955,7 @@
 
             const promise = (async () => {
                 try {
-                    const response = await fetch('/api/latest?mode=' + mode, { cache: 'no-store' });
+                    const response = await fetch('/api/latest?mode=' + mode + '&t=' + Date.now(), { cache: 'no-store' });
                     let data = null;
                     try { data = await response.json(); } catch (_) { data = null; }
                     if (!response.ok) {
@@ -4898,21 +4964,34 @@
                     const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
                     const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
 
-                    // Nunca sustituir el último forecast válido por una respuesta vacía
-                    // durante una actualización automática. Operaciones conserva la
-                    // fotografía anterior hasta que llegue un cálculo nuevo completo.
+                    // El servidor siempre tiene prioridad. Cada respuesta válida se
+                    // conserva también en IndexedDB como red de seguridad local.
                     if (prepared.length) {
                         modeDataCache[mode] = prepared;
+                        saveForecastBrowserSnapshot(mode, prepared).catch(()=>{});
                         return prepared;
                     }
                     if (previous && previous.length) return previous;
 
-                    modeDataCache[mode] = prepared;
-                    return prepared;
+                    const browserSnapshot = await loadForecastBrowserSnapshot(mode);
+                    if (browserSnapshot.length) {
+                        modeDataCache[mode] = browserSnapshot;
+                        console.warn(`Servidor sin snapshot de ${mode}; se usa la última fotografía local guardada.`);
+                        return browserSnapshot;
+                    }
+
+                    modeDataCache[mode] = [];
+                    return [];
                 } catch (error) {
                     if (previous && previous.length) {
                         console.warn(`Se conserva el último forecast válido de ${mode}:`, error);
                         return previous;
+                    }
+                    const browserSnapshot = await loadForecastBrowserSnapshot(mode);
+                    if (browserSnapshot.length) {
+                        modeDataCache[mode] = browserSnapshot;
+                        console.warn(`Se recuperó el forecast local de ${mode} por una falla de servidor:`, error);
+                        return browserSnapshot;
                     }
                     throw error;
                 }
@@ -5026,6 +5105,7 @@
                     const canalName = modeKey === 'chat' ? 'Chat' : 'Llamadas';
                     globalData = globalData.map(d => d.Canal ? d : ({...d, Canal: canalName}));
                     modeDataCache[modeKey] = globalData;
+                    saveForecastBrowserSnapshot(modeKey, globalData).catch(()=>{});
                     erlangResultCache.clear();
                     inicializarFiltrosMultiples();
                     await cargarCampanasConfiguracion();
@@ -6597,7 +6677,20 @@
                 const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'No se pudo cargar el roster.');
-                rosterAgents = Array.isArray(data.agents) ? data.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)})) : [];
+                const incomingAgents = Array.isArray(data.agents) ? data.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)})) : [];
+                if (!incomingAgents.length && hadRoster) {
+                    // Un servidor recién copiado/no inicializado puede responder 200
+                    // con roster vacío. No permitimos que eso destruya la última
+                    // plantilla válida que ya estaba guardada en el navegador.
+                    setRosterSyncStatus('error','Servidor sin roster · se conserva última plantilla');
+                    populateRosterCampaignSelectors();
+                    populateRosterPeopleSelectors();
+                    updateRosterKpis();
+                    populateRosterFilters();
+                    renderRosterTable();
+                    return;
+                }
+                rosterAgents = incomingAgents;
                 rosterStats = data.stats || {};
                 rosterCampaigns = await loadRosterCampaignCatalog(data.campaigns || []);
                 rosterSupervisors = data.supervisors || [];
