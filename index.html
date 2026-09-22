@@ -5090,6 +5090,8 @@
             }
             formData.append('dias', document.getElementById('dias') ? document.getElementById('dias').value : 45);
             formData.append('merma', document.getElementById('merma') ? document.getElementById('merma').value : 30);
+            formData.append('jornada', document.getElementById('jornada') ? document.getElementById('jornada').value : 8);
+            formData.append('nocturno', document.getElementById('chkNocturno')?.checked ? 'true' : 'false');
             
             let url = '/api/process';
             if (forecastMode === 'chat') url = '/api/process_chat';
@@ -5110,7 +5112,7 @@
                     inicializarFiltrosMultiples();
                     await cargarCampanasConfiguracion();
                     debouncedActualizarGrafica();
-                    guardarEstadoParametros();
+                    await guardarEstadoParametros();
                     setRunStatus('Listo', 'green');
                     await loadSourceMeta();
                 } else {
@@ -5284,7 +5286,7 @@
             applyFilterText('Intervalo', selectedIntervalos, allIntervalosOptions, 'Todos', 'intervaloSelectedText');
         }
 
-        function guardarEstadoParametros() {
+        async function guardarEstadoParametros() {
             if (currentMode !== 'ops' && currentMode !== 'operaciones') {
                 const config = {
                     targetSl: document.getElementById('targetSl').value,
@@ -5304,8 +5306,16 @@
                         intervalos: Array.from(selectedIntervalos)
                     }
                 };
-                fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) }).catch(()=>{});
+                try {
+                    const response = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config), cache:'no-store' });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return true;
+                } catch (e) {
+                    console.warn('No se pudo persistir la configuración WFM:', e);
+                    return false;
+                }
             }
+            return true;
         }
 
         function applySavedFilters() {
@@ -5413,13 +5423,42 @@
             });
         }
 
+        function getForecastSnapshotAssumptions(rows, channel = null) {
+            const list = Array.isArray(rows) ? rows : [];
+            let row = null;
+            if (channel) row = list.find(r => String(r?.Canal || '').toLowerCase() === String(channel).toLowerCase());
+            if (!row) row = list.find(r => r && (r.Snapshot_Run_Id || r.Snapshot_Generated_At));
+            if (!row) return null;
+            const jornada = Number(row.Snapshot_Jornada_Horas);
+            const merma = Number(row.Snapshot_Merma_Pct);
+            const factorDescanso = Number(row.Snapshot_Factor_Descanso);
+            const factorAsistencia = Number(row.Snapshot_Factor_Asistencia);
+            const concurrencia = Number(row.Snapshot_Concurrencia);
+            return {
+                runId: String(row.Snapshot_Run_Id || ''),
+                generatedAt: String(row.Snapshot_Generated_At || ''),
+                jornada: Number.isFinite(jornada) && jornada > 0 ? jornada : null,
+                merma: Number.isFinite(merma) ? merma : null,
+                nocturno: row.Snapshot_Nocturno === true || String(row.Snapshot_Nocturno).toLowerCase() === 'true',
+                factorDescanso: Number.isFinite(factorDescanso) && factorDescanso > 0 ? factorDescanso : null,
+                factorAsistencia: Number.isFinite(factorAsistencia) && factorAsistencia > 0 ? factorAsistencia : null,
+                concurrencia: Number.isFinite(concurrencia) && concurrencia > 0 ? concurrencia : null
+            };
+        }
+
+        function isOperationsMode() {
+            return currentMode === 'ops' || currentMode === 'operaciones';
+        }
+
         function backendFteCompatible(lookup, canal, campana, fecha, intervalo, concurrenciaActual) {
             const key = `${canal}|${campana}|${fecha}|${intervalo}`;
             const row = lookup.get(key);
             if (!row) return null;
             // Cuando el mes está cerrado, el FTE/HC acordado prevalece aunque
             // el usuario cambie parámetros de simulación en la barra lateral.
-            if (row.locked) return row.fte;
+            // Operaciones reproduce la corrida oficial, no una simulación nueva.
+            // Por eso siempre conserva el FTE que quedó guardado en el snapshot WFM.
+            if (row.locked || isOperationsMode()) return row.fte;
             const objetivos = getCampaignTargets(campana, canal);
             const sameSl = Math.abs(row.targetSl - objetivos.targetSl) < 1e-9;
             const sameAsa = Math.abs(row.targetAsa - objetivos.targetTime) < 1e-9;
@@ -5430,14 +5469,21 @@
         async function actualizarGrafica() {
             actualizarVisibilidadFiltros(); 
 
-            const durJornada = parseFloat(document.getElementById('jornada') ? document.getElementById('jornada').value : 8) || 8;
-            const usarNocturnoActual = document.getElementById('chkNocturno') ? document.getElementById('chkNocturno').checked : false;
+            // WFM puede simular parámetros; Operaciones debe reproducir exactamente
+            // los supuestos que quedaron congelados en la última corrida oficial.
+            const snapshotAssumptions = isOperationsMode() ? getForecastSnapshotAssumptions(globalData) : null;
+            const uiJornada = parseFloat(document.getElementById('jornada') ? document.getElementById('jornada').value : 8) || 8;
+            const uiNocturno = document.getElementById('chkNocturno') ? document.getElementById('chkNocturno').checked : false;
+            const durJornada = snapshotAssumptions?.jornada || uiJornada;
+            const usarNocturnoActual = snapshotAssumptions ? snapshotAssumptions.nocturno : uiNocturno;
             const targetSlObj = parseFloat(document.getElementById('targetSl') ? document.getElementById('targetSl').value : 80) || 80;
             const targetTimeObj = parseFloat(document.getElementById('targetTime') ? document.getElementById('targetTime').value : 20) || 20;
-            const concurrenciaVal = parseFloat(document.getElementById('concurrencia') ? document.getElementById('concurrencia').value : 3) || 3;
-            const factorDescanso = usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0);
-            const mermaValLocal = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
-            const factorAsistencia = Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
+            const uiConcurrencia = parseFloat(document.getElementById('concurrencia') ? document.getElementById('concurrencia').value : 3) || 3;
+            const concurrenciaVal = snapshotAssumptions?.concurrencia || uiConcurrencia;
+            const factorDescanso = snapshotAssumptions?.factorDescanso || (usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0));
+            const uiMerma = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
+            const mermaValLocal = snapshotAssumptions?.merma ?? uiMerma;
+            const factorAsistencia = snapshotAssumptions?.factorAsistencia || Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
 
             const dfFiltered = [];
             for (let i = 0; i < globalData.length; i++) {
