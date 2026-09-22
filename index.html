@@ -3957,7 +3957,7 @@
                                 <span class="capacity-metric-tag capacity-metric-tag-green">ROSTER</span>
                             </div>
                             <p id="kpiHcRoster" class="capacity-metric-value capacity-current-value font-mono-num">0 HC</p>
-                            <p class="capacity-metric-help">Dotación disponible actualmente en la plantilla seleccionada.</p>
+                            <p id="kpiHcRosterHelp" class="capacity-metric-help">Dotación activa total del canal según Gestión de horarios.</p>
                         </div>
 
                         <div class="capacity-gap-block">
@@ -4531,6 +4531,89 @@
         const weekNumberCache = new Map();
         let warmupScheduled = false;
 
+        // Respaldo local durable del último forecast recibido/generado. IndexedDB
+        // permite conservar datasets grandes entre cierres del navegador sin el
+        // límite reducido de localStorage. El servidor sigue siendo la fuente
+        // principal; este respaldo solo evita mostrar 0 si el proceso/archivo de
+        // estado todavía no está disponible durante el arranque.
+        const FORECAST_BROWSER_DB = 'HexaludWFMState';
+        const FORECAST_BROWSER_STORE = 'forecastSnapshots';
+        let forecastBrowserDbPromise = null;
+
+        function openForecastBrowserDb() {
+            if (!('indexedDB' in window)) return Promise.resolve(null);
+            if (forecastBrowserDbPromise) return forecastBrowserDbPromise;
+            forecastBrowserDbPromise = new Promise((resolve) => {
+                try {
+                    const req = indexedDB.open(FORECAST_BROWSER_DB, 1);
+                    req.onupgradeneeded = () => {
+                        const db = req.result;
+                        if (!db.objectStoreNames.contains(FORECAST_BROWSER_STORE)) {
+                            db.createObjectStore(FORECAST_BROWSER_STORE, { keyPath: 'mode' });
+                        }
+                    };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => resolve(null);
+                } catch (_) { resolve(null); }
+            });
+            return forecastBrowserDbPromise;
+        }
+
+        async function saveForecastBrowserSnapshot(mode, rows) {
+            if (!Array.isArray(rows) || !rows.length) return;
+            const db = await openForecastBrowserDb();
+            if (!db) return;
+            await new Promise((resolve) => {
+                try {
+                    const tx = db.transaction(FORECAST_BROWSER_STORE, 'readwrite');
+                    tx.objectStore(FORECAST_BROWSER_STORE).put({mode, savedAt:new Date().toISOString(), rows});
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = () => resolve();
+                    tx.onabort = () => resolve();
+                } catch (_) { resolve(); }
+            });
+        }
+
+        async function loadForecastBrowserSnapshot(mode) {
+            const db = await openForecastBrowserDb();
+            if (!db) return [];
+            return await new Promise((resolve) => {
+                try {
+                    const tx = db.transaction(FORECAST_BROWSER_STORE, 'readonly');
+                    const req = tx.objectStore(FORECAST_BROWSER_STORE).get(mode);
+                    req.onsuccess = () => resolve(Array.isArray(req.result?.rows) ? req.result.rows : []);
+                    req.onerror = () => resolve([]);
+                } catch (_) { resolve([]); }
+            });
+        }
+
+        async function restoreForecastServerFromBrowser(mode, rows) {
+            if (!Array.isArray(rows) || !rows.length) return null;
+            try {
+                const response = await fetch('/api/forecast/restore-snapshot', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    cache:'no-store',
+                    body:JSON.stringify({mode, rows})
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'No se pudo restaurar el forecast en el servidor.');
+                return data;
+            } catch (error) {
+                console.warn(`No se pudo restaurar el forecast local de ${mode} en el servidor:`, error);
+                return null;
+            }
+        }
+
+        async function fetchServerForecastSnapshot(mode) {
+            const response = await fetch('/api/latest?mode=' + mode + '&t=' + Date.now(), { cache:'no-store' });
+            let data = null;
+            try { data = await response.json(); } catch (_) { data = null; }
+            if (!response.ok) throw new Error((data && data.error) || `HTTP ${response.status}`);
+            const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
+            return Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
+        }
+
 
         function updateAnalysisPresentation(isGeneral) {
             const titleEl = document.querySelector('.analysis-title');
@@ -4676,7 +4759,54 @@
         }
 
         function setRunStatus(text, tone='slate') { const t=document.getElementById('runStatusText'), d=document.getElementById('runStatusDot'); if(t)t.innerText=text; if(d){d.className = tone==='red'?'text-[#FB7185]':tone==='amber'?'text-[#FBBF24]':tone==='green'?'text-[#34D399]':'text-slate-500';} }
-        async function loadSourceMeta(){ try { const r=await fetch('/api/status?t='+Date.now()); const m=await r.json(); if(r.ok){ document.getElementById('sourceMeta').innerText=`Archivo: ${m.archivo||'—'} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}`; } } catch(e){} }
+
+        async function readJsonResponse(response, context='Servidor') {
+            const raw = await response.text();
+            if (!raw || !raw.trim()) {
+                throw new Error(`${context}: respuesta vacía del servidor (HTTP ${response.status}). Reinicia server.py y vuelve a intentar.`);
+            }
+            try {
+                return JSON.parse(raw);
+            } catch (_) {
+                const sample = raw.replace(/\s+/g,' ').slice(0,180);
+                throw new Error(`${context}: respuesta no válida (HTTP ${response.status})${sample ? ` · ${sample}` : ''}`);
+            }
+        }
+
+        let wfmProcessRunning = false;
+        async function loadSourceMeta(){
+            const metaEl=document.getElementById('sourceMeta');
+            try {
+                const r=await fetch('/api/status?t='+Date.now(), {cache:'no-store'});
+                const m=await readJsonResponse(r, 'Estado del servidor');
+                if(!r.ok) throw new Error(m?.error || `HTTP ${r.status}`);
+
+                if(m.ok === false || !m.archivo){
+                    const allowed=Array.isArray(m.archivos_permitidos)&&m.archivos_permitidos.length
+                        ? m.archivos_permitidos.join(' · ')
+                        : (m.archivo_esperado||'Data Real Servicios.xlsx · Data Real Hexalud.xlsx · Data Real Retenciones y Experiencias.xlsx');
+                    if(metaEl) metaEl.innerText=`Fuente pendiente · archivos válidos: ${allowed} · ${m.error||'No se encontró el archivo fuente.'}`;
+                    if(!wfmProcessRunning) setRunStatus('Fuente no encontrada','red');
+                    return false;
+                }
+
+                const snap = forecastMode==='chat' ? m.forecast_chat_guardado : m.forecast_llamadas_guardado;
+                const extra = snap ? ` · Forecast WFM: ${snap}` : '';
+                if(metaEl) metaEl.innerText=`Archivo: ${m.archivo} · Último dato: ${m.ultimo_dato||'—'} · Actualización: ${m.actualizacion||'—'}${extra}`;
+
+                // Una respuesta correcta de /api/status confirma que el backend sí
+                // está conectado. No conservar un "Sin conexión" de un error previo.
+                const currentText=String(document.getElementById('runStatusText')?.innerText||'').trim().toLowerCase();
+                if(!wfmProcessRunning && (currentText==='sin conexión' || currentText==='error al cargar' || currentText==='fuente no encontrada')){
+                    setRunStatus('Conectado','green');
+                }
+                return true;
+            } catch(e){
+                if(metaEl) metaEl.innerText=`No se pudo consultar el estado del servidor: ${e.message||'error de conexión'}`;
+                if(!wfmProcessRunning) setRunStatus('Sin conexión','red');
+                return false;
+            }
+        }
 
 
         function getProp(row, keys, def = '') {
@@ -4889,30 +5019,66 @@
 
             const promise = (async () => {
                 try {
-                    const response = await fetch('/api/latest?mode=' + mode, { cache: force ? 'no-cache' : 'default' });
-                    let data = null;
-                    try { data = await response.json(); } catch (_) { data = null; }
-                    if (!response.ok) {
-                        throw new Error((data && data.error) || `HTTP ${response.status}`);
-                    }
-                    const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
-                    const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
+                    let prepared = await fetchServerForecastSnapshot(mode);
 
-                    // Nunca sustituir el último forecast válido por una respuesta vacía
-                    // durante una actualización automática. Operaciones conserva la
-                    // fotografía anterior hasta que llegue un cálculo nuevo completo.
+                    // El servidor siempre tiene prioridad. Cada respuesta válida ya
+                    // viene enriquecida con HC actual desde wfm_roster.db.
                     if (prepared.length) {
                         modeDataCache[mode] = prepared;
+                        saveForecastBrowserSnapshot(mode, prepared).catch(()=>{});
                         return prepared;
                     }
-                    if (previous && previous.length) return previous;
 
-                    modeDataCache[mode] = prepared;
-                    return prepared;
+                    // Si el servidor perdió únicamente el snapshot de forecast pero
+                    // IndexedDB conserva la última corrida WFM, se restaura primero
+                    // en el servidor. Después se vuelve a pedir /api/latest para que
+                    // el HC actual se calcule contra el roster persistente vigente.
+                    const browserSnapshot = await loadForecastBrowserSnapshot(mode);
+                    if (browserSnapshot.length) {
+                        const recovery = await restoreForecastServerFromBrowser(mode, browserSnapshot);
+                        if (recovery?.restored || recovery?.reason === 'server_has_snapshot') {
+                            prepared = await fetchServerForecastSnapshot(mode);
+                            if (prepared.length) {
+                                modeDataCache[mode] = prepared;
+                                saveForecastBrowserSnapshot(mode, prepared).catch(()=>{});
+                                console.info(`Forecast ${mode} restaurado en servidor y HC actual recalculado desde roster.`);
+                                return prepared;
+                            }
+                        }
+                    }
+
+                    if (previous && previous.length) return previous;
+                    // Último recurso visual: conservar el forecast local, aunque el
+                    // servidor haya rechazado la recuperación. No debe borrar la UI.
+                    if (browserSnapshot.length) {
+                        modeDataCache[mode] = browserSnapshot;
+                        console.warn(`Se conserva el forecast local de ${mode}; no fue posible sincronizarlo con el servidor.`);
+                        return browserSnapshot;
+                    }
+
+                    modeDataCache[mode] = [];
+                    return [];
                 } catch (error) {
                     if (previous && previous.length) {
                         console.warn(`Se conserva el último forecast válido de ${mode}:`, error);
                         return previous;
+                    }
+                    const browserSnapshot = await loadForecastBrowserSnapshot(mode);
+                    if (browserSnapshot.length) {
+                        const recovery = await restoreForecastServerFromBrowser(mode, browserSnapshot);
+                        if (recovery?.restored || recovery?.reason === 'server_has_snapshot') {
+                            try {
+                                const prepared = await fetchServerForecastSnapshot(mode);
+                                if (prepared.length) {
+                                    modeDataCache[mode] = prepared;
+                                    saveForecastBrowserSnapshot(mode, prepared).catch(()=>{});
+                                    return prepared;
+                                }
+                            } catch (_) {}
+                        }
+                        modeDataCache[mode] = browserSnapshot;
+                        console.warn(`Se recuperó solo la fotografía local de ${mode} por una falla de servidor:`, error);
+                        return browserSnapshot;
                     }
                     throw error;
                 }
@@ -4993,10 +5159,12 @@
 
         async function procesarWFM() {
             const btn = document.getElementById('btnProcesar');
+            wfmProcessRunning = true;
             btn.disabled = true;
             btn.innerText = "⏳ RECALCULANDO...";
             document.getElementById('dashboardError').classList.add('hidden');
-            setRunStatus('Leyendo histórico…', 'amber');
+            setRunStatus('Verificando fuente…', 'amber');
+            // Evitar dos lecturas/procesos pesados en paralelo contra el mismo Excel.
             await loadSourceMeta();
             
             const formData = new FormData();
@@ -5011,6 +5179,8 @@
             }
             formData.append('dias', document.getElementById('dias') ? document.getElementById('dias').value : 45);
             formData.append('merma', document.getElementById('merma') ? document.getElementById('merma').value : 30);
+            formData.append('jornada', document.getElementById('jornada') ? document.getElementById('jornada').value : 8);
+            formData.append('nocturno', document.getElementById('chkNocturno')?.checked ? 'true' : 'false');
             
             let url = '/api/process';
             if (forecastMode === 'chat') url = '/api/process_chat';
@@ -5018,7 +5188,7 @@
             try {
                 setRunStatus('Calculando campañas…', 'amber');
                 const response = await fetch(url, { method: 'POST', body: formData });
-                globalData = await response.json();
+                globalData = await readJsonResponse(response, 'Forecast');
                 wfmDataVersion += 1;
                 
                 if (response.ok && Array.isArray(globalData)) {
@@ -5026,22 +5196,25 @@
                     const canalName = modeKey === 'chat' ? 'Chat' : 'Llamadas';
                     globalData = globalData.map(d => d.Canal ? d : ({...d, Canal: canalName}));
                     modeDataCache[modeKey] = globalData;
+                    saveForecastBrowserSnapshot(modeKey, globalData).catch(()=>{});
                     erlangResultCache.clear();
                     inicializarFiltrosMultiples();
                     await cargarCampanasConfiguracion();
                     debouncedActualizarGrafica();
-                    guardarEstadoParametros();
+                    await guardarEstadoParametros();
                     setRunStatus('Listo', 'green');
                     await loadSourceMeta();
                 } else {
-                    const msg = globalData.error || "Asegúrate de que 'Data Real Hexalud.xlsx' esté cargado.";
+                    const msg = globalData.error || "Carga Data Real Servicios.xlsx, Data Real Hexalud.xlsx o Data Real Retenciones y Experiencias.xlsx.";
                     const box=document.getElementById('dashboardError'); box.innerText='Error: '+msg; box.classList.remove('hidden'); setRunStatus('Falló el cálculo', 'red');
                 }
             } catch (e) {
-                const box=document.getElementById('dashboardError'); box.innerText='Error de conexión: '+e.message; box.classList.remove('hidden'); setRunStatus('Sin conexión', 'red');
+                const box=document.getElementById('dashboardError'); box.innerText='Error: '+e.message; box.classList.remove('hidden'); setRunStatus('Error del servidor', 'red');
             } finally {
+                wfmProcessRunning = false;
                 btn.disabled = false;
                 btn.innerText = "▶ GENERAR FORECAST";
+                loadSourceMeta().catch(()=>{});
             }
         }
 
@@ -5204,7 +5377,7 @@
             applyFilterText('Intervalo', selectedIntervalos, allIntervalosOptions, 'Todos', 'intervaloSelectedText');
         }
 
-        function guardarEstadoParametros() {
+        async function guardarEstadoParametros() {
             if (currentMode !== 'ops' && currentMode !== 'operaciones') {
                 const config = {
                     targetSl: document.getElementById('targetSl').value,
@@ -5224,8 +5397,16 @@
                         intervalos: Array.from(selectedIntervalos)
                     }
                 };
-                fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) }).catch(()=>{});
+                try {
+                    const response = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config), cache:'no-store' });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return true;
+                } catch (e) {
+                    console.warn('No se pudo persistir la configuración WFM:', e);
+                    return false;
+                }
             }
+            return true;
         }
 
         function applySavedFilters() {
@@ -5277,6 +5458,11 @@
                     if (config.opsView) window.savedFilters = config.opsView;
                 }
             } catch (e) {}
+
+            // Antes de cargar las proyecciones, recuperar automáticamente el roster
+            // persistente si este servidor arrancó vacío pero el navegador conserva
+            // la última plantilla válida. Así HC actual nunca depende solo de la UI.
+            await ensureServerRosterFromLocalSnapshot({refreshForecast:false});
 
             // Primero cargar el forecast. El selector de campañas se alimenta
             // de esas mismas filas y así evitamos una lectura paralela del Excel.
@@ -5333,13 +5519,42 @@
             });
         }
 
+        function getForecastSnapshotAssumptions(rows, channel = null) {
+            const list = Array.isArray(rows) ? rows : [];
+            let row = null;
+            if (channel) row = list.find(r => String(r?.Canal || '').toLowerCase() === String(channel).toLowerCase());
+            if (!row) row = list.find(r => r && (r.Snapshot_Run_Id || r.Snapshot_Generated_At));
+            if (!row) return null;
+            const jornada = Number(row.Snapshot_Jornada_Horas);
+            const merma = Number(row.Snapshot_Merma_Pct);
+            const factorDescanso = Number(row.Snapshot_Factor_Descanso);
+            const factorAsistencia = Number(row.Snapshot_Factor_Asistencia);
+            const concurrencia = Number(row.Snapshot_Concurrencia);
+            return {
+                runId: String(row.Snapshot_Run_Id || ''),
+                generatedAt: String(row.Snapshot_Generated_At || ''),
+                jornada: Number.isFinite(jornada) && jornada > 0 ? jornada : null,
+                merma: Number.isFinite(merma) ? merma : null,
+                nocturno: row.Snapshot_Nocturno === true || String(row.Snapshot_Nocturno).toLowerCase() === 'true',
+                factorDescanso: Number.isFinite(factorDescanso) && factorDescanso > 0 ? factorDescanso : null,
+                factorAsistencia: Number.isFinite(factorAsistencia) && factorAsistencia > 0 ? factorAsistencia : null,
+                concurrencia: Number.isFinite(concurrencia) && concurrencia > 0 ? concurrencia : null
+            };
+        }
+
+        function isOperationsMode() {
+            return currentMode === 'ops' || currentMode === 'operaciones';
+        }
+
         function backendFteCompatible(lookup, canal, campana, fecha, intervalo, concurrenciaActual) {
             const key = `${canal}|${campana}|${fecha}|${intervalo}`;
             const row = lookup.get(key);
             if (!row) return null;
             // Cuando el mes está cerrado, el FTE/HC acordado prevalece aunque
             // el usuario cambie parámetros de simulación en la barra lateral.
-            if (row.locked) return row.fte;
+            // Operaciones reproduce la corrida oficial, no una simulación nueva.
+            // Por eso siempre conserva el FTE que quedó guardado en el snapshot WFM.
+            if (row.locked || isOperationsMode()) return row.fte;
             const objetivos = getCampaignTargets(campana, canal);
             const sameSl = Math.abs(row.targetSl - objetivos.targetSl) < 1e-9;
             const sameAsa = Math.abs(row.targetAsa - objetivos.targetTime) < 1e-9;
@@ -5349,15 +5564,25 @@
 
         async function actualizarGrafica() {
             actualizarVisibilidadFiltros(); 
+            // El KPI principal de HC actual es el headcount ACTIVO TOTAL del canal.
+            // La cobertura por intervalo sigue usando los horarios efectivos del roster.
+            const rosterChannelTotals = await getRosterChannelTotals(false);
 
-            const durJornada = parseFloat(document.getElementById('jornada') ? document.getElementById('jornada').value : 8) || 8;
-            const usarNocturnoActual = document.getElementById('chkNocturno') ? document.getElementById('chkNocturno').checked : false;
+            // WFM puede simular parámetros; Operaciones debe reproducir exactamente
+            // los supuestos que quedaron congelados en la última corrida oficial.
+            const snapshotAssumptions = isOperationsMode() ? getForecastSnapshotAssumptions(globalData) : null;
+            const uiJornada = parseFloat(document.getElementById('jornada') ? document.getElementById('jornada').value : 8) || 8;
+            const uiNocturno = document.getElementById('chkNocturno') ? document.getElementById('chkNocturno').checked : false;
+            const durJornada = snapshotAssumptions?.jornada || uiJornada;
+            const usarNocturnoActual = snapshotAssumptions ? snapshotAssumptions.nocturno : uiNocturno;
             const targetSlObj = parseFloat(document.getElementById('targetSl') ? document.getElementById('targetSl').value : 80) || 80;
             const targetTimeObj = parseFloat(document.getElementById('targetTime') ? document.getElementById('targetTime').value : 20) || 20;
-            const concurrenciaVal = parseFloat(document.getElementById('concurrencia') ? document.getElementById('concurrencia').value : 3) || 3;
-            const factorDescanso = usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0);
-            const mermaValLocal = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
-            const factorAsistencia = Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
+            const uiConcurrencia = parseFloat(document.getElementById('concurrencia') ? document.getElementById('concurrencia').value : 3) || 3;
+            const concurrenciaVal = snapshotAssumptions?.concurrencia || uiConcurrencia;
+            const factorDescanso = snapshotAssumptions?.factorDescanso || (usarNocturnoActual ? (7.0 / 5.0) : (7.0 / 6.0));
+            const uiMerma = parseFloat(document.getElementById('merma') ? document.getElementById('merma').value : 30) || 0;
+            const mermaValLocal = snapshotAssumptions?.merma ?? uiMerma;
+            const factorAsistencia = snapshotAssumptions?.factorAsistencia || Math.max(0.01, 1.0 - (mermaValLocal / 100.0));
 
             const dfFiltered = [];
             for (let i = 0; i < globalData.length; i++) {
@@ -5557,8 +5782,18 @@
                     hcDispDict[ch] = disp;
                 });
 
+                // Para el KPI principal y las tarjetas consolidadas, usar el
+                // headcount activo total real por canal desde Gestión de horarios.
+                if (rosterChannelTotals) {
+                    hcDispDict['Llamadas'] = Number(rosterChannelTotals.llamadas || 0);
+                    hcDispDict['Chat'] = Number(rosterChannelTotals.chat || 0);
+                }
                 const totalReqGlobal = hcReqDict['Llamadas'] + hcReqDict['Chat'];
-                const totalDispGlobal = hcDispDict['Llamadas'] + hcDispDict['Chat'];
+                const totalDispGlobal = rosterChannelTotals
+                    ? Number(rosterChannelTotals.total || 0)
+                    : (hcDispDict['Llamadas'] + hcDispDict['Chat']);
+                const hcHelpGeneral = document.getElementById('kpiHcRosterHelp');
+                if (hcHelpGeneral) hcHelpGeneral.textContent = 'Dotación activa total de Llamadas + Chat según Gestión de horarios.';
 
                 const hcReqGeneralEl=document.getElementById('kpiHcRequerido');
                 const allGeneralLocked=dfFiltered.length>0&&dfFiltered.every(r=>!!getProp(r,['HC_Bloqueado'],false));
@@ -5809,6 +6044,17 @@
 
             let totalRosterKPI = 0;
             new Set(dfFiltered.map(r => String(getProp(r, ['Campaña', 'Campana'], 'General')))).forEach(camp => { if(rosterPorCampana[camp]) totalRosterKPI += rosterPorCampana[camp]; });
+            // El KPI HC actual debe ser el total activo del canal, no la suma de
+            // máximos por campaña/intervalo (esa suma podía duplicar headcount).
+            if (rosterChannelTotals) {
+                totalRosterKPI = forecastMode === 'chat'
+                    ? Number(rosterChannelTotals.chat || 0)
+                    : Number(rosterChannelTotals.llamadas || 0);
+            }
+            const hcRosterHelp = document.getElementById('kpiHcRosterHelp');
+            if (hcRosterHelp) hcRosterHelp.textContent = forecastMode === 'chat'
+                ? 'Dotación activa total de Chat según Gestión de horarios.'
+                : 'Dotación activa total de Llamadas según Gestión de horarios.';
 
             let hcNominaCalculado = 0;
             for (let c in ftePorCampanaParaKPI) {
@@ -6374,7 +6620,68 @@
         let rosterForecastRefreshTimer = null;
         let rosterForecastRefreshSequence = 0;
         let rosterHistoryCache = [];
+        let rosterChannelTotalsCache = null;
+        let rosterChannelTotalsFetchedAt = 0;
+        let rosterChannelTotalsPromise = null;
+        const ROSTER_CHANNEL_TOTALS_TTL = 10000;
         const ROSTER_UI_CACHE_KEY = 'wfmRosterUiSnapshotV2';
+
+        function rosterChannelTotalsFromAgents(agents) {
+            const seen = { llamadas:new Set(), chat:new Set(), otros:new Set() };
+            (Array.isArray(agents) ? agents : []).forEach(a => {
+                const status = rosterNormalizeStatus(a?.status);
+                if (status === 'Baja') return;
+                const raw = String(a?.channel || '').trim().toLowerCase();
+                const bucket = (raw.includes('chat') || raw.includes('mensaje'))
+                    ? 'chat'
+                    : ((raw.includes('llam') || raw.includes('call')) ? 'llamadas' : 'otros');
+                const key = String(a?.agentId || a?.agent_id || '').trim() || `${a?.fullName||''}|${a?.campaign||''}`;
+                seen[bucket].add(key);
+            });
+            const totals = {
+                llamadas: seen.llamadas.size,
+                chat: seen.chat.size,
+                otros: seen.otros.size
+            };
+            totals.total = totals.llamadas + totals.chat;
+            return totals;
+        }
+
+        async function getRosterChannelTotals(force=false) {
+            const now = Date.now();
+            if (!force && rosterChannelTotalsCache && (now - rosterChannelTotalsFetchedAt) < ROSTER_CHANNEL_TOTALS_TTL) {
+                return rosterChannelTotalsCache;
+            }
+            if (rosterChannelTotalsPromise) return rosterChannelTotalsPromise;
+            rosterChannelTotalsPromise = (async () => {
+                try {
+                    const response = await fetch('/api/roster?includeInactive=false&t=' + Date.now(), {cache:'no-store'});
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'No se pudo consultar el roster activo.');
+                    const totals = rosterChannelTotalsFromAgents(data.agents || []);
+                    rosterChannelTotalsCache = totals;
+                    rosterChannelTotalsFetchedAt = Date.now();
+                    return totals;
+                } catch (error) {
+                    if (Array.isArray(rosterAgents) && rosterAgents.length) {
+                        const totals = rosterChannelTotalsFromAgents(rosterAgents);
+                        rosterChannelTotalsCache = totals;
+                        rosterChannelTotalsFetchedAt = Date.now();
+                        return totals;
+                    }
+                    console.warn('No se pudo obtener el HC total por canal:', error);
+                    return null;
+                } finally {
+                    rosterChannelTotalsPromise = null;
+                }
+            })();
+            return rosterChannelTotalsPromise;
+        }
+
+        function invalidateRosterChannelTotals() {
+            rosterChannelTotalsCache = null;
+            rosterChannelTotalsFetchedAt = 0;
+        }
         const ROSTER_HISTORY_CACHE_KEY = 'wfmRosterHistorySnapshotV2';
 
         function saveRosterUiSnapshot() {
@@ -6397,7 +6704,9 @@
                 if (!raw) return false;
                 const data = JSON.parse(raw);
                 if (!Array.isArray(data?.agents) || !data.agents.length) return false;
-                rosterAgents = data.agents;
+                rosterAgents = data.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)}));
+                rosterChannelTotalsCache = rosterChannelTotalsFromAgents(rosterAgents);
+                rosterChannelTotalsFetchedAt = Date.now();
                 rosterStats = data.stats || {};
                 rosterCampaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
                 rosterSupervisors = Array.isArray(data.supervisors) ? data.supervisors : [];
@@ -6432,6 +6741,68 @@
             }
         }
 
+        function getRosterUiSnapshotPayload() {
+            try {
+                const raw = localStorage.getItem(ROSTER_UI_CACHE_KEY);
+                if (!raw) return null;
+                const data = JSON.parse(raw);
+                if (!Array.isArray(data?.agents) || !data.agents.length) return null;
+                return data;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        let rosterServerRecoveryPromise = null;
+        async function ensureServerRosterFromLocalSnapshot({refreshForecast=false}={}) {
+            if (rosterServerRecoveryPromise) return rosterServerRecoveryPromise;
+            rosterServerRecoveryPromise = (async()=>{
+                const snapshot = getRosterUiSnapshotPayload();
+                if (!snapshot?.agents?.length) return {restored:false,reason:'no_local_snapshot'};
+
+                try {
+                    const check = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
+                    const current = await check.json();
+                    if (!check.ok) throw new Error(current.error || 'No se pudo verificar el roster del servidor.');
+                    if (Array.isArray(current.agents) && current.agents.length) {
+                        return {restored:false,reason:'server_has_roster',serverCount:current.agents.length};
+                    }
+
+                    const history = restoreRosterHistorySnapshot();
+                    const response = await fetch('/api/roster/restore-snapshot', {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        cache:'no-store',
+                        body:JSON.stringify({
+                            savedAt:snapshot.savedAt || '',
+                            agents:snapshot.agents || [],
+                            vacations:snapshot.vacations || [],
+                            history:Array.isArray(history) ? history : [],
+                            actorMode:typeof currentMode !== 'undefined' ? currentMode : 'ops'
+                        })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'No se pudo restaurar el roster persistente.');
+                    if (data.restored) {
+                        modeDataCache.llamadas = null;
+                        modeDataCache.chat = null;
+                        if (refreshForecast && typeof forecastMode !== 'undefined') {
+                            await fetchLatestData(forecastMode, true);
+                        }
+                    }
+                    return data;
+                } catch (error) {
+                    console.warn('No se pudo restaurar automáticamente el roster del servidor:', error);
+                    return {restored:false,reason:'recovery_error',error:error.message};
+                }
+            })();
+            try {
+                return await rosterServerRecoveryPromise;
+            } finally {
+                rosterServerRecoveryPromise = null;
+            }
+        }
+
         function setRosterSyncStatus(state='ready', text='Sincronizado') {
             const el=document.getElementById('rosterSyncStatus');
             if(!el)return;
@@ -6444,22 +6815,23 @@
         }
 
         function scheduleRosterForecastRefresh(delay=350) {
-            // No vaciar el último forecast visible. El servidor marcará el dato
-            // como pendiente de refresco y lo reemplazará únicamente cuando el
-            // nuevo cálculo sea válido.
+            invalidateRosterChannelTotals();
+            // Un cambio de roster no vuelve a pronosticar la demanda. Conserva
+            // exactamente la última corrida WFM y refresca únicamente el HC actual
+            // desde el roster persistente.
             wfmAutopilotLastSignature='';
             wfmAutopilotPayload=null;
             invalidateWfmAssistantContext();
 
             clearTimeout(rosterForecastRefreshTimer);
             const sequence=++rosterForecastRefreshSequence;
-            setRosterSyncStatus('recalculating','Guardado · recalculando');
+            setRosterSyncStatus('recalculating','Guardado · sincronizando HC');
 
             rosterForecastRefreshTimer=setTimeout(async()=>{
                 try{
                     await fetchLatestData(forecastMode,true);
                     if(sequence===rosterForecastRefreshSequence){
-                        setRosterSyncStatus('ready','Proyección actualizada');
+                        setRosterSyncStatus('ready','HC actual sincronizado');
                         setTimeout(()=>{
                             if(sequence===rosterForecastRefreshSequence){
                                 setRosterSyncStatus('ready','Sincronizado');
@@ -6469,7 +6841,7 @@
                 }catch(error){
                     console.warn('Actualización forecast después del roster:',error);
                     if(sequence===rosterForecastRefreshSequence){
-                        setRosterSyncStatus('error','Guardado · falta recalcular');
+                        setRosterSyncStatus('error','Guardado · falta sincronizar HC');
                     }
                 }
             },delay);
@@ -6537,6 +6909,50 @@
             }
         }
 
+        function rosterNormalizeStatus(value) {
+            const status=String(value||'').trim().toLowerCase();
+            if(status==='inactivo' || status==='baja') return 'Baja';
+            return 'Activo';
+        }
+
+        function populateRosterPeopleSelectors(currentSupervisor='', currentCoordinator='') {
+            const supCurrent=String(currentSupervisor||'').trim();
+            const coordCurrent=String(currentCoordinator||'').trim();
+            const supervisors=Array.from(new Set([...rosterSupervisors, ...(supCurrent?[supCurrent]:[])]))
+                .map(x=>String(x||'').trim()).filter(Boolean)
+                .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+            const coordinators=Array.from(new Set([...rosterCoordinators, ...(coordCurrent?[coordCurrent]:[])]))
+                .map(x=>String(x||'').trim()).filter(Boolean)
+                .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+
+            const supOptions=supervisors.map(x=>`<option value="${rosterSafe(x)}">${rosterSafe(x)}</option>`).join('');
+            const coordOptions=coordinators.map(x=>`<option value="${rosterSafe(x)}">${rosterSafe(x)}</option>`).join('');
+
+            const editSup=document.getElementById('rosterEditSupervisor');
+            if(editSup){
+                editSup.innerHTML='<option value="">Selecciona un supervisor</option>'+supOptions;
+                editSup.value=supCurrent;
+            }
+            const editCoord=document.getElementById('rosterEditCoordinator');
+            if(editCoord){
+                editCoord.innerHTML='<option value="">Selecciona un coordinador</option>'+coordOptions;
+                editCoord.value=coordCurrent;
+            }
+
+            const bulkSup=document.getElementById('rosterBulkSupervisor');
+            if(bulkSup){
+                const previous=bulkSup.value||'';
+                bulkSup.innerHTML='<option value="">Sin cambio</option>'+supOptions;
+                bulkSup.value=supervisors.includes(previous)?previous:'';
+            }
+            const bulkCoord=document.getElementById('rosterBulkCoordinator');
+            if(bulkCoord){
+                const previous=bulkCoord.value||'';
+                bulkCoord.innerHTML='<option value="">Sin cambio</option>'+coordOptions;
+                bulkCoord.value=coordinators.includes(previous)?previous:'';
+            }
+        }
+
         async function loadRosterData() {
             const tbody = document.getElementById('rosterTableBody');
             let hadRoster = Array.isArray(rosterAgents) && rosterAgents.length > 0;
@@ -6553,12 +6969,53 @@
                 const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'No se pudo cargar el roster.');
-                rosterAgents = Array.isArray(data.agents) ? data.agents : [];
+                const incomingAgents = Array.isArray(data.agents) ? data.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)})) : [];
+                if (!incomingAgents.length && hadRoster) {
+                    // La plantilla visible proviene del respaldo local, pero las
+                    // proyecciones necesitan que SQLite también tenga ese roster.
+                    // Si el servidor está vacío, recuperarlo automáticamente.
+                    setRosterSyncStatus('recalculating','Restaurando roster en servidor…');
+                    const recovery = await ensureServerRosterFromLocalSnapshot({refreshForecast:true});
+                    if (recovery?.restored || recovery?.reason === 'server_has_roster') {
+                        const retry = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
+                        const retryData = await retry.json();
+                        if (retry.ok && Array.isArray(retryData.agents) && retryData.agents.length) {
+                            rosterAgents = retryData.agents.map(a=>({...a,status:rosterNormalizeStatus(a?.status)}));
+                            rosterChannelTotalsCache = rosterChannelTotalsFromAgents(rosterAgents);
+                            rosterChannelTotalsFetchedAt = Date.now();
+                            rosterStats = retryData.stats || {};
+                            rosterCampaigns = await loadRosterCampaignCatalog(retryData.campaigns || []);
+                            rosterSupervisors = retryData.supervisors || [];
+                            rosterCoordinators = retryData.coordinators || [];
+                            rosterTemporaryChanges = Array.isArray(retryData.temporaryChanges) ? retryData.temporaryChanges : [];
+                            rosterVacations = Array.isArray(retryData.vacations) ? retryData.vacations : [];
+                            populateRosterCampaignSelectors();
+                            populateRosterPeopleSelectors();
+                            updateRosterKpis();
+                            populateRosterFilters();
+                            renderRosterTable();
+                            saveRosterUiSnapshot();
+                            setRosterSyncStatus('ready','Roster restaurado · proyección sincronizada');
+                            return;
+                        }
+                    }
+                    setRosterSyncStatus('error','Servidor sin roster · se conserva última plantilla');
+                    populateRosterCampaignSelectors();
+                    populateRosterPeopleSelectors();
+                    updateRosterKpis();
+                    populateRosterFilters();
+                    renderRosterTable();
+                    return;
+                }
+                rosterAgents = incomingAgents;
+                rosterChannelTotalsCache = rosterChannelTotalsFromAgents(rosterAgents);
+                rosterChannelTotalsFetchedAt = Date.now();
                 rosterStats = data.stats || {};
                 rosterCampaigns = await loadRosterCampaignCatalog(data.campaigns || []);
-                populateRosterCampaignSelectors();
                 rosterSupervisors = data.supervisors || [];
                 rosterCoordinators = data.coordinators || [];
+                populateRosterCampaignSelectors();
+                populateRosterPeopleSelectors();
                 rosterTemporaryChanges = Array.isArray(data.temporaryChanges) ? data.temporaryChanges : [];
                 rosterVacations = Array.isArray(data.vacations) ? data.vacations : [];
                 const tempCount=document.getElementById('rosterTempTabCount');
@@ -6570,6 +7027,11 @@
                 renderRosterTable();
                 saveRosterUiSnapshot();
                 setRosterSyncStatus('ready','Sincronizado · persistente');
+                // El roster ya está confirmado en servidor: invalidar solo la capa
+                // visual del forecast para que /api/latest vuelva a superponer HC actual.
+                modeDataCache.llamadas=null;
+                modeDataCache.chat=null;
+                if (typeof forecastMode !== 'undefined') fetchLatestData(forecastMode,true).catch(()=>{});
             } catch (error) {
                 // Si ya había un roster visible, conservarlo ante una falla temporal
                 // en lugar de reemplazar la gestión de horarios por una pantalla vacía.
@@ -6924,11 +7386,10 @@
             idEl.disabled=!!a;
 
             document.getElementById('rosterEditName').value=a?.fullName||'';
-            document.getElementById('rosterEditSupervisor').value=a?.supervisor||'';
-            document.getElementById('rosterEditCoordinator').value=a?.coordinator||'';
+            populateRosterPeopleSelectors(a?.supervisor||'', a?.coordinator||'');
             populateRosterCampaignSelectors(a?.campaign||'');
             document.getElementById('rosterEditChannel').value=a?.channel||'Llamadas';
-            document.getElementById('rosterEditStatus').value=a?.status||'Activo';
+            document.getElementById('rosterEditStatus').value=rosterNormalizeStatus(a?.status||'Activo');
 
             ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].forEach(d=>{
                 document.getElementById(`rosterDay${d}`).value=a?.schedules?.[d]||'DD-DD';
@@ -7048,6 +7509,7 @@
             if(!rosterSelectedIds.size)return;
             document.getElementById('rosterBulkBackdrop')?.classList.remove('hidden');
             populateRosterCampaignSelectors();
+            populateRosterPeopleSelectors();
             ['rosterBulkSupervisor','rosterBulkCoordinator','rosterBulkCampaign','rosterBulkChannel','rosterBulkStatus'].forEach(id=>{
                 const el=document.getElementById(id); if(el) el.value='';
             });
@@ -8367,7 +8829,7 @@
                     <div class="wfm-quality-grid">
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Filas forecast</div><div class="wfm-quality-value">${Number(quality.forecastRows ?? context.rowCount ?? 0).toLocaleString()}</div></div>
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Roster disponible</div><div class="wfm-quality-value">${quality.rosterAvailable === false ? 'No confirmado' : `${Number(quality.rosterAgents || 0)} agentes`}</div></div>
-                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Data Real Hexalud.xlsx')}</div></div>
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Fuente de datos WFM')}</div></div>
                     </div>
                     <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Frank no inventará ese dato.</div>
                 </section>`;
@@ -8921,7 +9383,7 @@
                     <select id="rosterFilterSupervisor" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los supervisores</option></select>
                     <select id="rosterFilterCoordinator" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los coordinadores</option></select>
                     <select id="rosterFilterChannel" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
-                    <select id="rosterFilterStatus" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los estados</option><option>Activo</option><option>Inactivo</option></select>
+                    <select id="rosterFilterStatus" class="roster-select" onchange="renderRosterTable()"><option value="">Todos los estados</option><option value="Activo">Activo</option><option value="Baja">Baja</option></select>
                     <button type="button" class="roster-toolbar-btn" onclick="resetRosterFilters()">Limpiar filtros</button>
                 </div>
                 <div id="rosterBulkBar" class="roster-bulk hidden">
@@ -8986,11 +9448,11 @@
                     <div class="roster-form-grid">
                         <div class="roster-field"><label>ID agente</label><input id="rosterEditId" class="roster-input" placeholder="A-00001"></div>
                         <div class="roster-field"><label>Nombre completo</label><input id="rosterEditName" class="roster-input" placeholder="Nombre Apellido"></div>
-                        <div class="roster-field"><label>Supervisor</label><input id="rosterEditSupervisor" class="roster-input" placeholder="Supervisor"></div>
-                        <div class="roster-field"><label>Coordinador</label><input id="rosterEditCoordinator" class="roster-input" placeholder="Coordinador"></div>
+                        <div class="roster-field"><label>Supervisor</label><select id="rosterEditSupervisor" class="roster-select"><option value="">Selecciona un supervisor</option></select></div>
+                        <div class="roster-field"><label>Coordinador</label><select id="rosterEditCoordinator" class="roster-select"><option value="">Selecciona un coordinador</option></select></div>
                         <div class="roster-field"><label>Campaña</label><select id="rosterEditCampaign" class="roster-select"><option value="">Selecciona una campaña</option></select></div>
                         <div class="roster-field"><label>Canal</label><select id="rosterEditChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
-                        <div class="roster-field"><label>Estado</label><select id="rosterEditStatus" class="roster-select"><option>Activo</option><option>Inactivo</option></select></div>
+                        <div class="roster-field"><label>Estado</label><select id="rosterEditStatus" class="roster-select"><option>Activo</option><option>Baja</option></select></div>
                     </div>
                     <div class="roster-days-grid">
                         <div class="roster-day"><label>Lunes</label><input id="rosterDayLunes" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
@@ -9064,11 +9526,11 @@
                 <aside class="roster-editor" style="max-width:430px;height:auto;max-height:90%">
                     <div class="roster-editor-head"><div><div class="roster-editor-title">Edición masiva</div><div class="roster-editor-copy">Solo se modificarán los campos que completes.</div></div><button type="button" class="roster-close-editor" onclick="closeRosterBulkEditor()">✕</button></div>
                     <div class="roster-form-grid">
-                        <div class="roster-field full"><label>Supervisor</label><input id="rosterBulkSupervisor" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
-                        <div class="roster-field full"><label>Coordinador</label><input id="rosterBulkCoordinator" class="roster-input" placeholder="Dejar vacío = sin cambio"></div>
+                        <div class="roster-field full"><label>Supervisor</label><select id="rosterBulkSupervisor" class="roster-select"><option value="">Sin cambio</option></select></div>
+                        <div class="roster-field full"><label>Coordinador</label><select id="rosterBulkCoordinator" class="roster-select"><option value="">Sin cambio</option></select></div>
                         <div class="roster-field full"><label>Campaña</label><select id="rosterBulkCampaign" class="roster-select"><option value="">Sin cambio</option></select></div>
                         <div class="roster-field"><label>Canal</label><select id="rosterBulkChannel" class="roster-select"><option value="">Sin cambio</option><option>Llamadas</option><option>Chat</option></select></div>
-                        <div class="roster-field"><label>Estado</label><select id="rosterBulkStatus" class="roster-select"><option value="">Sin cambio</option><option>Activo</option><option>Inactivo</option></select></div>
+                        <div class="roster-field"><label>Estado</label><select id="rosterBulkStatus" class="roster-select"><option value="">Sin cambio</option><option>Activo</option><option>Baja</option></select></div>
                     </div>
                     <div class="roster-editor-actions"><button type="button" class="roster-cancel-btn" onclick="closeRosterBulkEditor()">Cancelar</button><button type="button" class="roster-save-btn" onclick="saveRosterBulkEdit()">Aplicar cambios</button></div>
                 </aside>
