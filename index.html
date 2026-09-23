@@ -4522,6 +4522,44 @@
             try { Chart.register(executiveDeficitHighlighter); } catch (e) {}
         }
         let campaignSettings = { llamadas: {}, chat: {} };
+        let persistedForecastState = {};
+
+        function currentForecastParams(mode = forecastMode) {
+            const modeKey = mode === 'chat' ? 'chat' : 'llamadas';
+            return {
+                targetSl: Number(document.getElementById('targetSl')?.value || 80),
+                targetTime: Number(document.getElementById('targetTime')?.value || 20),
+                merma: Number(document.getElementById('merma')?.value || 30),
+                dias: Number(document.getElementById('dias')?.value || 45),
+                concurrencia: modeKey === 'chat' ? Number(document.getElementById('concurrencia')?.value || 3) : 1,
+                jornada: Number(document.getElementById('jornada')?.value || 8),
+                nocturno: !!document.getElementById('chkNocturno')?.checked,
+                campaignSettings: campaignSettings[modeKey] || {}
+            };
+        }
+
+        function applyPersistedForecastParams(mode) {
+            const modeKey = mode === 'chat' ? 'chat' : 'llamadas';
+            const saved = persistedForecastState?.[modeKey];
+            const p = saved && typeof saved.params === 'object' ? saved.params : null;
+            if (!p) return false;
+            const setValue = (id, value) => {
+                const el = document.getElementById(id);
+                if (el && value !== undefined && value !== null && value !== '') el.value = value;
+            };
+            setValue('targetSl', p.targetSl);
+            setValue('targetTime', p.targetTime);
+            setValue('merma', p.merma);
+            setValue('dias', p.dias);
+            setValue('jornada', p.jornada);
+            if (modeKey === 'chat') setValue('concurrencia', p.concurrencia);
+            const nocturno = document.getElementById('chkNocturno');
+            if (nocturno && p.nocturno !== undefined) nocturno.checked = !!p.nocturno;
+            if (p.campaignSettings && typeof p.campaignSettings === 'object') {
+                campaignSettings[modeKey] = p.campaignSettings;
+            }
+            return true;
+        }
 
         // Cachés del navegador: cambiar de Llamadas a Chat no debe volver a
         // descargar ni reconstruir decenas de miles de filas si ya se cargaron.
@@ -4789,6 +4827,7 @@
                     document.getElementById('contConcurrencia').classList.remove('hidden');
                 }
             }
+            if (mode === 'llamadas' || mode === 'chat') applyPersistedForecastParams(mode);
             fetchLatestData(mode);
         }
 
@@ -5011,6 +5050,8 @@
             }
             formData.append('dias', document.getElementById('dias') ? document.getElementById('dias').value : 45);
             formData.append('merma', document.getElementById('merma') ? document.getElementById('merma').value : 30);
+            formData.append('jornada', document.getElementById('jornada') ? document.getElementById('jornada').value : 8);
+            formData.append('nocturno', document.getElementById('chkNocturno')?.checked ? 'true' : 'false');
             
             let url = '/api/process';
             if (forecastMode === 'chat') url = '/api/process_chat';
@@ -5026,6 +5067,11 @@
                     const canalName = modeKey === 'chat' ? 'Chat' : 'Llamadas';
                     globalData = globalData.map(d => d.Canal ? d : ({...d, Canal: canalName}));
                     modeDataCache[modeKey] = globalData;
+                    persistedForecastState[modeKey] = {
+                        generatedAt: new Date().toISOString(),
+                        rows: globalData.length,
+                        params: currentForecastParams(modeKey)
+                    };
                     erlangResultCache.clear();
                     inicializarFiltrosMultiples();
                     await cargarCampanasConfiguracion();
@@ -5273,7 +5319,11 @@
                             chat: config.campaignSettings.chat || {}
                         };
                     }
-                    
+                    if (config.lastForecast && typeof config.lastForecast === 'object') {
+                        persistedForecastState = config.lastForecast;
+                        applyPersistedForecastParams(forecastMode);
+                    }
+
                     if (config.opsView) window.savedFilters = config.opsView;
                 }
             } catch (e) {}
@@ -6453,13 +6503,13 @@
 
             clearTimeout(rosterForecastRefreshTimer);
             const sequence=++rosterForecastRefreshSequence;
-            setRosterSyncStatus('recalculating','Guardado · recalculando');
+            setRosterSyncStatus('recalculating','Guardado · actualizando cobertura');
 
             rosterForecastRefreshTimer=setTimeout(async()=>{
                 try{
                     await fetchLatestData(forecastMode,true);
                     if(sequence===rosterForecastRefreshSequence){
-                        setRosterSyncStatus('ready','Proyección actualizada');
+                        setRosterSyncStatus('ready','Cobertura actualizada');
                         setTimeout(()=>{
                             if(sequence===rosterForecastRefreshSequence){
                                 setRosterSyncStatus('ready','Sincronizado');
@@ -6469,7 +6519,7 @@
                 }catch(error){
                     console.warn('Actualización forecast después del roster:',error);
                     if(sequence===rosterForecastRefreshSequence){
-                        setRosterSyncStatus('error','Guardado · falta recalcular');
+                        setRosterSyncStatus('error','Guardado · cobertura pendiente');
                     }
                 }
             },delay);
