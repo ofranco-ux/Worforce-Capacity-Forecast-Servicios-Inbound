@@ -29,7 +29,7 @@ if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
 import holidays
 from sklearn.ensemble import RandomForestRegressor
 
-EXCEL_FILENAME = os.environ.get('WFM_EXCEL_FILE', 'Data Real Hexalud.xlsx')
+EXCEL_FILENAME = os.environ.get('WFM_EXCEL_FILE', 'Data Real Servicios.xlsx')
 EXCEL_DEFAULT = os.path.join(BASE_DIR, EXCEL_FILENAME)
 
 # Todo el estado que debe sobrevivir cierres/reinicios vive en un único directorio.
@@ -243,6 +243,37 @@ def _leer_cache_forecast(mode, allow_stale=False):
     except Exception:
         pass
     return None
+
+def _forecast_cache_needs_source_refresh(mode, excel_path=None):
+    """Indica si el Excel fuente cambió después del último forecast persistido.
+
+    Esto permite que un `git pull` que reemplace Data Real Servicios.xlsx invalide
+    automáticamente el snapshot de demanda, sin borrar el último forecast válido.
+    Si el recálculo falla, /api/latest sigue pudiendo devolver el snapshot anterior.
+    """
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    excel_path = excel_path or buscar_archivo_excel()
+    if not excel_path or not os.path.exists(excel_path):
+        return False
+
+    cache_path = _cache_path(mode)
+    if not os.path.exists(cache_path):
+        return True
+
+    try:
+        return os.stat(excel_path).st_mtime_ns > os.stat(cache_path).st_mtime_ns
+    except Exception:
+        return False
+
+
+def _mark_forecast_cache_dirty_if_source_changed(mode, excel_path=None):
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    changed = _forecast_cache_needs_source_refresh(mode, excel_path)
+    if changed:
+        with _FORECAST_CACHE_LOCK:
+            _FORECAST_CACHE_DIRTY[mode] = True
+    return changed
+
 
 def _merge_forecast_historico(mode, nuevo_data):
     """
@@ -539,13 +570,12 @@ def buscar_archivo_excel():
     """Localiza el archivo fuente del forecast.
 
     Prioridad:
-    1) WFM_EXCEL_FILE (por defecto: Data Real Hexalud.xlsx).
-    2) Coincidencia por nombre "Data Real Hexalud".
-    3) Compatibilidad con nombres anteriores (data / servicios / historico).
+    1) WFM_EXCEL_FILE (por defecto: Data Real Servicios.xlsx).
+    2) Coincidencia exacta con el nombre configurado.
+    3) Compatibilidad con nombres anteriores (Data Real Hexalud / data / servicios / historico).
     4) Primer Excel disponible como último recurso.
     """
     try:
-        # Ruta configurada explícitamente / nombre oficial actual.
         if os.path.isfile(EXCEL_DEFAULT):
             return EXCEL_DEFAULT
 
@@ -556,17 +586,16 @@ def buscar_archivo_excel():
         if not archivos:
             return None
 
-        # La comparación case-insensitive permite variaciones de mayúsculas/minúsculas.
         objetivo = os.path.splitext(os.path.basename(EXCEL_FILENAME))[0].strip().lower()
         for f in archivos:
             base = os.path.splitext(f)[0].strip().lower()
-            if base == objetivo or base == 'data real hexalud':
+            if base == objetivo:
                 return os.path.join(BASE_DIR, f)
 
-        # Respaldo para instalaciones que todavía conserven el nombre anterior.
+        # Compatibilidad con instalaciones previas.
         for f in archivos:
             nombre = f.lower()
-            if 'data real hexalud' in nombre:
+            if 'data real servicios' in nombre or 'data real hexalud' in nombre:
                 return os.path.join(BASE_DIR, f)
         for f in archivos:
             nombre = f.lower()
@@ -576,6 +605,51 @@ def buscar_archivo_excel():
         return os.path.join(BASE_DIR, archivos[0])
     except Exception:
         return None
+
+
+def _es_hoja_roster(nombre):
+    low = str(nombre or '').strip().lower()
+    return any(x in low for x in ('plantilla', 'platilla', 'roster', 'horario'))
+
+
+def seleccionar_hoja_canal(xls_file, mode):
+    """Selecciona explícitamente la hoja correcta de Llamadas o Chat.
+
+    Evita que una hoja como "Datos Chat" sea tomada por Llamadas solamente por
+    contener la palabra "datos".
+    """
+    mode = 'chat' if str(mode).lower() == 'chat' else 'llamadas'
+    hojas = list(getattr(xls_file, 'sheet_names', []) or [])
+    if not hojas:
+        return None
+
+    def clean_candidates():
+        return [
+            sh for sh in hojas
+            if not _es_hoja_roster(sh)
+        ]
+
+    candidatas = clean_candidates()
+
+    if mode == 'chat':
+        for token in ('chat', 'mensaje'):
+            for sh in candidatas:
+                if token in sh.lower():
+                    return sh
+        return None
+
+    # Llamadas: excluir de forma explícita cualquier hoja de Chat/Mensajes.
+    candidatas_llamadas = [
+        sh for sh in candidatas
+        if 'chat' not in sh.lower() and 'mensaje' not in sh.lower()
+    ]
+    for token in ('llam', 'histor', 'hist', 'datos', 'data'):
+        for sh in candidatas_llamadas:
+            if token in sh.lower():
+                return sh
+
+    # Último recurso seguro: primera hoja que no sea Chat ni roster.
+    return candidatas_llamadas[0] if candidatas_llamadas else None
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -2890,9 +2964,9 @@ def roster_apply_recommendation():
 
 def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, merma=0.20, dias_futuros=45, campaign_settings=None):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
-    sheet_calls = xls_file.sheet_names[0]
-    for s in xls_file.sheet_names:
-        if 'llam' in s.lower() or 'hist' in s.lower() or 'datos' in s.lower(): sheet_calls = s; break
+    sheet_calls = seleccionar_hoja_canal(xls_file, 'llamadas')
+    if not sheet_calls:
+        raise ValueError("No se encontró una pestaña válida de Llamadas.")
             
     roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Llamadas')
 
@@ -2936,7 +3010,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
     fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 180.0).to_dict()
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
-    campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
+    campanas_unicas = sorted({str(x).strip() for x in df[col_camp].dropna().unique() if str(x).strip() and str(x).strip().lower() != 'nan'})
     predicciones_futuras = {}
 
     for camp in campanas_unicas:
@@ -3035,7 +3109,7 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
                 tot_camp_dia = max(0, roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0) + roster_override_day.get((str(camp), str_fecha), 0))
 
                 data_processed.append({
-                    'Campaña': str(camp), 'Fecha': str_fecha, 'Mes': str_mes,
+                    'Campaña': str(camp), 'Canal': 'Llamadas', 'Fecha': str_fecha, 'Mes': str_mes,
                     'Día_Semana': nombre_dia.capitalize(), 'Intervalo': inter,
                     'Llamadas': calls_int, 'AHT': format_aht_str(aht), 'AHT_Segundos': int(round(aht)),
                     'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
@@ -3058,11 +3132,9 @@ def procesar_archivo_llamadas(file_source, target_sl=80.0, target_time=20.0, mer
 
 def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0.20, concurrencia=3.0, dias_futuros=45, campaign_settings=None):
     xls_file = pd.ExcelFile(file_source, engine='openpyxl')
-    sheet_chat = None
-    for s in xls_file.sheet_names:
-        if ('chat' in s.lower() or 'mensaje' in s.lower()) and ('plantilla' not in s.lower() and 'roster' not in s.lower() and 'platilla' not in s.lower()): 
-            sheet_chat = s; break
-    if not sheet_chat: raise ValueError("No se encontró pestaña Chat.")
+    sheet_chat = seleccionar_hoja_canal(xls_file, 'chat')
+    if not sheet_chat:
+        raise ValueError("No se encontró una pestaña válida de Chat.")
 
     roster_coverage, roster_total_camp, roster_total_dia_camp, roster_override_cov, roster_override_day = _roster_forecast_metrics(xls_file, 'Chat')
 
@@ -3106,7 +3178,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
     fecha_inicio_forecast = max_fecha_real + timedelta(days=1)
     aht_global_campana = df.groupby(col_camp)[col_aht].apply(lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 600.0).to_dict()
     df_diario = df.groupby([col_fecha, col_camp])[col_calls].sum().reset_index()
-    campanas_unicas = list(set(df[col_camp].unique()).union(set(roster_total_camp.keys())))
+    campanas_unicas = sorted({str(x).strip() for x in df[col_camp].dropna().unique() if str(x).strip() and str(x).strip().lower() != 'nan'})
     predicciones_futuras = {}
 
     for camp in campanas_unicas:
@@ -3202,7 +3274,7 @@ def procesar_archivo_chat(file_source, target_sl=80.0, target_time=20.0, merma=0
                 tot_camp_dia = max(0, roster_total_dia_camp.get((str(camp), nombre_dia.capitalize()), 0) + roster_override_day.get((str(camp), str_fecha), 0))
 
                 data_processed.append({
-                    'Campaña': str(camp), 'Fecha': str_fecha, 'Mes': str_mes, 'Día_Semana': nombre_dia.capitalize(),
+                    'Campaña': str(camp), 'Canal': 'Chat', 'Fecha': str_fecha, 'Mes': str_mes, 'Día_Semana': nombre_dia.capitalize(),
                     'Intervalo': inter, 'Llamadas': calls_int, 'AHT': format_aht_str(aht),
                     'AHT_Segundos': int(round(aht)), 'Agentes_Requeridos': req_hc, 'HC_Actual_Roster': hc_roster,
                     'Total_Roster_Campana': tot_camp, 'Total_Roster_Dia': tot_camp_dia,
@@ -3231,20 +3303,8 @@ def get_campaigns():
         return jsonify(cached), 200
     try:
         xls = pd.ExcelFile(excel_path, engine='openpyxl')
-        sheet = None
-        if mode == 'chat':
-            for sh in xls.sheet_names:
-                low = sh.lower()
-                if ('chat' in low or 'mensaje' in low) and all(x not in low for x in ['plantilla', 'roster', 'platilla']):
-                    sheet = sh
-                    break
-        else:
-            sheet = xls.sheet_names[0]
-            for sh in xls.sheet_names:
-                low = sh.lower()
-                if 'llam' in low or 'hist' in low or 'datos' in low:
-                    sheet = sh
-                    break
+        mode = 'chat' if mode == 'chat' else 'llamadas'
+        sheet = seleccionar_hoja_canal(xls, mode)
         if not sheet:
             return jsonify([]), 200
         preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
@@ -3268,10 +3328,9 @@ def get_forecast_status():
     ultimo_dato = None
     try:
         xls = pd.ExcelFile(excel_path, engine='openpyxl')
-        sheet = xls.sheet_names[0]
-        for sh in xls.sheet_names:
-            if 'llam' in sh.lower() or 'hist' in sh.lower() or 'datos' in sh.lower():
-                sheet = sh; break
+        sheet = seleccionar_hoja_canal(xls, 'llamadas')
+        if not sheet:
+            raise ValueError('No se encontró una pestaña válida de Llamadas.')
         preview = pd.read_excel(xls, sheet_name=sheet, engine='openpyxl')
         col_fecha = encontrar_columna(preview, ['fecha', 'date'])
         if col_fecha:
@@ -3362,18 +3421,29 @@ def forecast_control_history():
 @app.route('/api/latest', methods=['GET'])
 def get_latest_forecast():
     mode = 'chat' if str(request.args.get('mode', 'llamadas')).lower() == 'chat' else 'llamadas'
+    excel_path = buscar_archivo_excel()
+    source_changed = _mark_forecast_cache_dirty_if_source_changed(mode, excel_path)
     cache_data = _leer_cache_forecast(mode, allow_stale=True)
-    if isinstance(cache_data, list) and cache_data:
-        live = _forecast_with_live_roster(mode, cache_data)
-        return jsonify(_forecast_apply_control(mode, live)), 200
 
-    # Solo si nunca existió un snapshot válido se reconstruye desde el histórico.
-    # Un cambio de roster ya no dispara este cálculo pesado.
+    # Si el Excel no cambió, responder inmediatamente con el último snapshot válido.
+    if isinstance(cache_data, list) and cache_data and not source_changed:
+        live = _forecast_with_live_roster(mode, cache_data)
+        response = jsonify(_forecast_apply_control(mode, live))
+        response.headers['X-WFM-Data-State'] = 'cache-current'
+        return response, 200
+
+    # Si Data Real Servicios.xlsx cambió (por ejemplo después de git pull),
+    # recalcular automáticamente. El lock evita dos recálculos simultáneos.
     with _FORECAST_REFRESH_LOCKS[mode]:
+        excel_path = buscar_archivo_excel()
+        source_changed = _mark_forecast_cache_dirty_if_source_changed(mode, excel_path)
         cache_data = _leer_cache_forecast(mode, allow_stale=True)
-        if isinstance(cache_data, list) and cache_data:
+
+        if isinstance(cache_data, list) and cache_data and not source_changed:
             live = _forecast_with_live_roster(mode, cache_data)
-            return jsonify(_forecast_apply_control(mode, live)), 200
+            response = jsonify(_forecast_apply_control(mode, live))
+            response.headers['X-WFM-Data-State'] = 'cache-current'
+            return response, 200
 
         try:
             data = _forecast_generate_raw(mode)
@@ -3381,9 +3451,11 @@ def get_latest_forecast():
             if isinstance(data, list) and data:
                 live = _forecast_with_live_roster(mode, data)
                 response = jsonify(_forecast_apply_control(mode, live))
-                response.headers['X-WFM-Data-State'] = 'reconstructed'
+                response.headers['X-WFM-Data-State'] = 'source-refreshed' if source_changed else 'reconstructed'
                 return response, 200
         except Exception as e:
+            # Nunca dejar Operaciones sin información: si el Excel nuevo falla,
+            # conservar el forecast anterior y reportar el error en headers.
             stale = _leer_cache_forecast(mode, allow_stale=True)
             if isinstance(stale, list) and stale:
                 live = _forecast_with_live_roster(mode, stale)

@@ -4188,6 +4188,69 @@
             return forecastMode === 'chat' ? 'chat' : 'llamadas';
         }
 
+        function normalizeChannelLabel(value, fallback = 'Llamadas') {
+            const raw = String(value || '').trim().toLowerCase();
+            if (raw.includes('chat') || raw.includes('mensaje')) return 'Chat';
+            if (raw.includes('llam') || raw.includes('call') || raw.includes('voz')) return 'Llamadas';
+            return fallback;
+        }
+
+        function rowsForForecastMode(rows, mode = forecastMode) {
+            const source = Array.isArray(rows) ? rows : [];
+            if (mode === 'general') return source;
+            const expected = mode === 'chat' ? 'Chat' : 'Llamadas';
+            return source.filter(r => normalizeChannelLabel(r?.Canal, expected) === expected);
+        }
+
+        async function fetchCampaignCatalog(mode, force = false) {
+            mode = mode === 'chat' ? 'chat' : 'llamadas';
+            if (!force && Array.isArray(campaignCatalogCache[mode]) && campaignCatalogCache[mode].length) {
+                return campaignCatalogCache[mode];
+            }
+            if (campaignCatalogPromises[mode]) return campaignCatalogPromises[mode];
+
+            const promise = (async () => {
+                try {
+                    const response = await fetch(`/api/campaigns?mode=${mode}&t=${Date.now()}`, { cache: 'no-store' });
+                    if (!response.ok) return [];
+                    const data = await response.json();
+                    const clean = Array.isArray(data)
+                        ? [...new Set(data.map(x => String(x || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}))
+                        : [];
+                    if (clean.length) campaignCatalogCache[mode] = clean;
+                    return clean;
+                } catch (_) {
+                    return Array.isArray(campaignCatalogCache[mode]) ? campaignCatalogCache[mode] : [];
+                }
+            })();
+
+            campaignCatalogPromises[mode] = promise;
+            try {
+                return await promise;
+            } finally {
+                campaignCatalogPromises[mode] = null;
+            }
+        }
+
+        async function syncCampaignFilterWithSource(mode, force = false) {
+            let campanas = [];
+            if (mode === 'general') {
+                const [calls, chat] = await Promise.all([
+                    fetchCampaignCatalog('llamadas', force),
+                    fetchCampaignCatalog('chat', force)
+                ]);
+                campanas = [...new Set([...(calls || []), ...(chat || [])])].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+            } else {
+                campanas = await fetchCampaignCatalog(mode, force);
+            }
+
+            if (!campanas.length) return;
+            allCampanasOptions = campanas;
+            selectedCampanas = new Set(campanas);
+            renderMenuOptions('Campana', allCampanasOptions, selectedCampanas);
+            actualizarTextosBotones();
+        }
+
         function getCampaignTargets(campana, canal = null) {
             const mode = canal ? modeFromChannel(canal) : (forecastMode === 'chat' ? 'chat' : 'llamadas');
             const baseSl = parseFloat(document.getElementById('targetSl')?.value || 80) || 80;
@@ -4208,49 +4271,22 @@
 
             const previous = select.value;
             const msg = document.getElementById('campaignTargetMessage');
-            let campanas = [];
 
-            // Si el forecast ya está cargado, usarlo primero. Así el selector no
-            // depende de otra lectura del Excel y aparece de inmediato.
-            if (Array.isArray(globalData) && globalData.length) {
-                campanas = [...new Set(globalData
-                    .filter(r => forecastMode === 'llamadas' ? (r.Canal !== 'Chat') : (r.Canal !== 'Llamadas'))
+            // Fuente de verdad: catálogo del Excel actual. Así una campaña histórica
+            // o una campaña de otro canal nunca contamina este selector.
+            let campanas = await fetchCampaignCatalog(forecastMode, false);
+
+            // Respaldo: usar las filas cargadas únicamente si el catálogo no pudo leerse.
+            if (!campanas.length && Array.isArray(globalData) && globalData.length) {
+                campanas = [...new Set(rowsForForecastMode(globalData, forecastMode)
                     .map(r => String(getProp(r, ['Campaña', 'Campana'], '')).trim())
-                    .filter(Boolean))].sort();
-            }
-
-            // Si aún no hay forecast, pedir únicamente el catálogo de campañas.
-            if (!campanas.length) {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000);
-                try {
-                    const response = await fetch('/api/campaigns?mode=' + forecastMode + '&t=' + new Date().getTime(), {
-                        signal: controller.signal,
-                        cache: 'no-store'
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (Array.isArray(data)) campanas = data;
-                    } else {
-                        let detalle = '';
-                        try { detalle = (await response.json()).error || ''; } catch (_) {}
-                        if (msg) msg.innerText = 'No se pudo cargar el catálogo de campañas' + (detalle ? ': ' + detalle : '.');
-                    }
-                } catch (e) {
-                    if (msg) {
-                        msg.innerText = e.name === 'AbortError'
-                            ? 'La carga de campañas tardó demasiado. El dashboard seguirá intentando cargar el forecast.'
-                            : 'No se pudo conectar con el catálogo de campañas.';
-                    }
-                } finally {
-                    clearTimeout(timeoutId);
-                }
+                    .filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
             }
 
             select.innerHTML = '';
             if (!campanas.length) {
                 select.innerHTML = '<option value="">Sin campañas disponibles</option>';
-                if (msg && !msg.innerText) msg.innerText = 'Genera el forecast o verifica el archivo histórico para cargar las campañas.';
+                if (msg && !msg.innerText) msg.innerText = 'Verifica el archivo fuente para cargar las campañas.';
                 return;
             }
 
@@ -4565,6 +4601,8 @@
         // descargar ni reconstruir decenas de miles de filas si ya se cargaron.
         const modeDataCache = { llamadas: null, chat: null };
         const modeFetchPromises = { llamadas: null, chat: null };
+        const campaignCatalogCache = { llamadas: null, chat: null };
+        const campaignCatalogPromises = { llamadas: null, chat: null };
         const erlangResultCache = new Map();
         const weekNumberCache = new Map();
         let warmupScheduled = false;
@@ -4935,7 +4973,11 @@
                         throw new Error((data && data.error) || `HTTP ${response.status}`);
                     }
                     const canalName = mode === 'llamadas' ? 'Llamadas' : 'Chat';
-                    const prepared = Array.isArray(data) ? data.map(d => d.Canal ? d : ({...d, Canal: canalName})) : [];
+                    const prepared = Array.isArray(data)
+                        ? data
+                            .map(d => ({...d, Canal: normalizeChannelLabel(d?.Canal, canalName)}))
+                            .filter(d => d.Canal === canalName)
+                        : [];
 
                     // Nunca sustituir el último forecast válido por una respuesta vacía
                     // durante una actualización automática. Operaciones conserva la
@@ -5001,6 +5043,7 @@
                 if (globalData.length > 0) {
                     if (!isBackground) {
                         inicializarFiltrosMultiples();
+                        await syncCampaignFilterWithSource(mode, false);
                         applySavedFilters();
                     }
                     if (mode !== 'general') await cargarCampanasConfiguracion();
@@ -5080,7 +5123,7 @@
                     setRunStatus('Listo', 'green');
                     await loadSourceMeta();
                 } else {
-                    const msg = globalData.error || "Asegúrate de que 'Data Real Hexalud.xlsx' esté cargado.";
+                    const msg = globalData.error || "Asegúrate de que 'Data Real Servicios.xlsx' esté cargado.";
                     const box=document.getElementById('dashboardError'); box.innerText='Error: '+msg; box.classList.remove('hidden'); setRunStatus('Falló el cálculo', 'red');
                 }
             } catch (e) {
@@ -5108,11 +5151,12 @@
         }
 
         function inicializarFiltrosMultiples() {
-            allMesesOptions = [...new Set(globalData.map(i => String(getProp(i, ['Mes'], ''))))].filter(Boolean).sort(ordenarMesesCronologicamente);
-            allSemanasOptions = [...new Set(globalData.map(i => getWeekNumber(getProp(i, ['Fecha'], ''))))].filter(Boolean).sort();
-            allCampanasOptions = [...new Set(globalData.map(i => String(getProp(i, ['Campaña', 'Campana'], 'General'))))].filter(Boolean).sort();
-            allFechasOptions = [...new Set(globalData.map(i => String(getProp(i, ['Fecha'], '')).split(' ')[0].split('T')[0]))].filter(Boolean).sort();
-            allIntervalosOptions = [...new Set(globalData.map(i => String(getProp(i, ['Intervalo'], '00:00'))))].filter(Boolean).sort();
+            const filterData = rowsForForecastMode(globalData, forecastMode);
+            allMesesOptions = [...new Set(filterData.map(i => String(getProp(i, ['Mes'], ''))))].filter(Boolean).sort(ordenarMesesCronologicamente);
+            allSemanasOptions = [...new Set(filterData.map(i => getWeekNumber(getProp(i, ['Fecha'], ''))))].filter(Boolean).sort();
+            allCampanasOptions = [...new Set(filterData.map(i => String(getProp(i, ['Campaña', 'Campana'], 'General'))))].filter(Boolean).sort();
+            allFechasOptions = [...new Set(filterData.map(i => String(getProp(i, ['Fecha'], '')).split(' ')[0].split('T')[0]))].filter(Boolean).sort();
+            allIntervalosOptions = [...new Set(filterData.map(i => String(getProp(i, ['Intervalo'], '00:00'))))].filter(Boolean).sort();
 
             selectedMeses = new Set(allMesesOptions);
             selectedSemanas = new Set(allSemanasOptions);
@@ -8462,7 +8506,7 @@
                     <div class="wfm-quality-grid">
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Filas forecast</div><div class="wfm-quality-value">${Number(quality.forecastRows ?? context.rowCount ?? 0).toLocaleString()}</div></div>
                         <div class="wfm-quality-item"><div class="wfm-quality-label">Roster disponible</div><div class="wfm-quality-value">${quality.rosterAvailable === false ? 'No confirmado' : `${Number(quality.rosterAgents || 0)} agentes`}</div></div>
-                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Data Real Hexalud.xlsx')}</div></div>
+                        <div class="wfm-quality-item"><div class="wfm-quality-label">Fuente</div><div class="wfm-quality-value">${wfmEsc(quality.sourceFile || 'Data Real Servicios.xlsx')}</div></div>
                     </div>
                     <div class="wfm-v5-section-copy" style="margin-top:8px">Forecast vs Real y adherencia pueden integrarse cuando exista una fuente de actuals intradía; Frank no inventará ese dato.</div>
                 </section>`;
