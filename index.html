@@ -4244,6 +4244,7 @@
                 campanas = await fetchCampaignCatalog(mode, force);
             }
 
+            campanas = [...new Set([...campanas, ...rosterCampaignsForMode(mode)])].sort();
             if (!campanas.length) return;
             allCampanasOptions = campanas;
             selectedCampanas = new Set(campanas);
@@ -4355,6 +4356,33 @@
         }
 
         let globalData = [];
+        // Plantilla activa: misma fuente que Gestión de horarios, independiente del forecast.
+        let activeRosterSnapshot = null;
+        const hcCampaignKey = value => String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ');
+        function rosterCampaignsForMode(mode) {
+            return [...new Set((activeRosterSnapshot || []).filter(a => mode === 'general' ||
+                normalizeChannelLabel(a.channel, 'Llamadas') === (mode === 'chat' ? 'Chat' : 'Llamadas'))
+                .map(a => String(a.campaign || '').trim()).filter(Boolean))];
+        }
+        function currentRosterHC(channel = null) {
+            if (activeRosterSnapshot === null) return null;
+            const selected = new Set([...selectedCampanas].map(hcCampaignKey));
+            return activeRosterSnapshot.filter(a => (!channel || normalizeChannelLabel(a.channel, 'Llamadas') === channel)
+                && selected.has(hcCampaignKey(a.campaign))).length;
+        }
+        async function syncActiveRosterHC() {
+            const response = await fetch('/api/roster?includeInactive=false', {cache:'no-store'});
+            const data = await response.json();
+            if (!response.ok || !Array.isArray(data.agents)) throw new Error('No se pudo confirmar el HC de Gestión de horarios.');
+            activeRosterSnapshot = data.agents.filter(a => String(a.status || '').trim().toLowerCase() === 'activo');
+            // Incorporar campañas sin forecast y conservar selección manual.
+            const hadAll = allCampanasOptions.length > 0 && allCampanasOptions.every(c => selectedCampanas.has(c));
+            allCampanasOptions = [...new Set([...allCampanasOptions, ...rosterCampaignsForMode(forecastMode)])].sort();
+            if (hadAll) selectedCampanas = new Set(allCampanasOptions);
+            renderMenuOptions('Campana', allCampanasOptions, selectedCampanas);
+            actualizarTextosBotones();
+        }
+
         let wfmDataVersion = 0;
         let gapChartInstance = null; 
         let generalChartInstance = null;
@@ -5037,6 +5065,7 @@
                     return;
                 }
 
+                await syncActiveRosterHC();
                 globalData = nextData;
                 wfmDataVersion += 1;
 
@@ -5109,6 +5138,7 @@
                     const modeKey = forecastMode === 'chat' ? 'chat' : 'llamadas';
                     const canalName = modeKey === 'chat' ? 'Chat' : 'Llamadas';
                     globalData = globalData.map(d => d.Canal ? d : ({...d, Canal: canalName}));
+                    await syncActiveRosterHC();
                     modeDataCache[modeKey] = globalData;
                     persistedForecastState[modeKey] = {
                         generatedAt: new Date().toISOString(),
@@ -5154,7 +5184,7 @@
             const filterData = rowsForForecastMode(globalData, forecastMode);
             allMesesOptions = [...new Set(filterData.map(i => String(getProp(i, ['Mes'], ''))))].filter(Boolean).sort(ordenarMesesCronologicamente);
             allSemanasOptions = [...new Set(filterData.map(i => getWeekNumber(getProp(i, ['Fecha'], ''))))].filter(Boolean).sort();
-            allCampanasOptions = [...new Set(filterData.map(i => String(getProp(i, ['Campaña', 'Campana'], 'General'))))].filter(Boolean).sort();
+            allCampanasOptions = [...new Set([...filterData.map(i => String(getProp(i, ['Campaña', 'Campana'], 'General'))), ...rosterCampaignsForMode(forecastMode)])].filter(Boolean).sort();
             allFechasOptions = [...new Set(filterData.map(i => String(getProp(i, ['Fecha'], '')).split(' ')[0].split('T')[0]))].filter(Boolean).sort();
             allIntervalosOptions = [...new Set(filterData.map(i => String(getProp(i, ['Intervalo'], '00:00'))))].filter(Boolean).sort();
 
@@ -5469,6 +5499,12 @@
 
             if (!dfFiltered || dfFiltered.length === 0) {
                 limpiarPantalla();
+                const hc = currentRosterHC(forecastMode === 'general' ? null : forecastMode === 'chat' ? 'Chat' : 'Llamadas');
+                document.getElementById('kpiHcRoster').innerText = hc === null ? 'Sin confirmar' : hc.toLocaleString() + ' HC';
+                if (forecastMode === 'general') {
+                    document.getElementById('consolidatedCallsActual').innerText = (currentRosterHC('Llamadas') ?? 0).toLocaleString();
+                    document.getElementById('consolidatedChatActual').innerText = (currentRosterHC('Chat') ?? 0).toLocaleString();
+                }
                 return;
             }
 
@@ -5636,18 +5672,7 @@
                     }
                     hcReqDict[ch] = hcCanal;
                     
-                    let disp = 0;
-                    let rosterPorCampanaGeneral = {};
-                    dfFiltered.forEach(r => {
-                        if (r.Canal === ch) {
-                            let camp = String(getProp(r, ['Campaña', 'Campana'], 'General'));
-                            let max_val = Math.max(Number(getProp(r, ['Total_Roster_Campana'], 0)), Number(getProp(r, ['Total_Roster_Dia'], 0)), Number(getProp(r, ['HC_Actual_Roster'], 0)));
-                            if (!rosterPorCampanaGeneral[camp] || max_val > rosterPorCampanaGeneral[camp]) rosterPorCampanaGeneral[camp] = max_val;
-                        }
-                    });
-                    new Set(dfFiltered.filter(r => r.Canal === ch).map(r => String(getProp(r, ['Campaña', 'Campana'], 'General')))).forEach(camp => {
-                         if(rosterPorCampanaGeneral[camp]) disp += rosterPorCampanaGeneral[camp];
-                    });
+                    const disp = currentRosterHC(ch) ?? 0;
                     hcDispDict[ch] = disp;
                 });
 
@@ -5894,15 +5919,7 @@
                 ambBox.classList.remove('hidden'); document.getElementById('ambulanceImpact').innerText = `${(extraSeconds/3600).toFixed(1)} horas-persona`;
             } else ambBox.classList.add('hidden'); 
 
-            let rosterPorCampana = {};
-            globalData.forEach(r => {
-                let camp = String(getProp(r, ['Campaña', 'Campana'], 'General'));
-                let max_val = Math.max(Number(getProp(r, ['Total_Roster_Campana'], 0)), Number(getProp(r, ['Total_Roster_Dia'], 0)), Number(getProp(r, ['HC_Actual_Roster'], 0)));
-                if (!rosterPorCampana[camp] || max_val > rosterPorCampana[camp]) rosterPorCampana[camp] = max_val;
-            });
-
-            let totalRosterKPI = 0;
-            new Set(dfFiltered.map(r => String(getProp(r, ['Campaña', 'Campana'], 'General')))).forEach(camp => { if(rosterPorCampana[camp]) totalRosterKPI += rosterPorCampana[camp]; });
+            const totalRosterKPI = currentRosterHC(forecastMode === 'chat' ? 'Chat' : 'Llamadas') ?? 0;
 
             let hcNominaCalculado = 0;
             for (let c in ftePorCampanaParaKPI) {

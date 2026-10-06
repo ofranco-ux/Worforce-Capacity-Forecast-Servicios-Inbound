@@ -814,6 +814,8 @@ def procesar_hoja_roster(df_roster):
     dias_map = {'lunes': 'Lunes', 'martes': 'Martes', 'miércoles': 'Miércoles', 'miercoles': 'Miércoles', 
                 'jueves': 'Jueves', 'viernes': 'Viernes', 'sábado': 'Sábado', 'sabado': 'Sábado', 'domingo': 'Domingo'}
     roster_cov, roster_total_camp, roster_total_dia_camp = {}, {}, {}
+    if df_roster is None or df_roster.empty:
+        return roster_cov, roster_total_camp, roster_total_dia_camp
     col_camp = encontrar_columna(df_roster, ['campaña', 'campana', 'skill', 'servicio'])
     col_agente = encontrar_columna(df_roster, ['agente', 'nombre', 'asesor', 'ejecutivo', 'id'])
     if not col_camp: return roster_cov, roster_total_camp, roster_total_dia_camp
@@ -1266,10 +1268,10 @@ def _roster_fetch_agents(channel=None, include_inactive=True):
         sql = "SELECT * FROM roster_agents WHERE 1=1"
         args = []
         if channel and str(channel).lower() != 'all':
-            sql += " AND lower(channel)=?"
+            sql += " AND lower(trim(channel))=?"
             args.append(str(channel).lower())
         if not include_inactive:
-            sql += " AND lower(status)='activo'"
+            sql += " AND lower(trim(status))='activo'"
         sql += " ORDER BY campaign, supervisor, full_name, agent_id"
         return [_roster_row_dict(r) for r in conn.execute(sql,args).fetchall()]
     finally:
@@ -1904,17 +1906,16 @@ def _forecast_control_history(month_key, channel):
 def _roster_forecast_metrics(xls_file, channel):
     try:
         df_db = _roster_dataframe(channel)
-        if not df_db.empty:
-            cov,total_camp,total_day = procesar_hoja_roster(df_db)
-            override_cov,override_day = _roster_override_deltas(channel,df_db)
-            absence_cov,absence_day = _roster_absence_deltas(channel,df_db)
+        cov,total_camp,total_day = procesar_hoja_roster(df_db)
+        override_cov,override_day = _roster_override_deltas(channel,df_db)
+        absence_cov,absence_day = _roster_absence_deltas(channel,df_db)
 
-            for key,value in absence_cov.items():
-                override_cov[key] = override_cov.get(key,0) + value
-            for key,value in absence_day.items():
-                override_day[key] = override_day.get(key,0) + value
+        for key,value in absence_cov.items():
+            override_cov[key] = override_cov.get(key,0) + value
+        for key,value in absence_day.items():
+            override_day[key] = override_day.get(key,0) + value
 
-            return cov,total_camp,total_day,override_cov,override_day
+        return cov,total_camp,total_day,override_cov,override_day
     except Exception as e:
         print(f'Roster DB fallback ({channel}): {e}')
 
@@ -1948,8 +1949,6 @@ def _live_roster_metrics(mode):
 
     try:
         df_db = _roster_dataframe(channel)
-        if df_db.empty:
-            return None
         cov,total_camp,total_day = procesar_hoja_roster(df_db)
         override_cov,override_day = _roster_override_deltas(channel,df_db)
         absence_cov,absence_day = _roster_absence_deltas(channel,df_db)
