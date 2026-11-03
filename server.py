@@ -1385,21 +1385,134 @@ def _invalidate_roster_dependent_caches():
     # No limpiar _EXCEL_INFO_CACHE: cambiar horarios no modifica el archivo fuente
     # ni el catálogo de campañas, y hacerlo obligaba a releer el Excel tras cada ajuste.
 
+
+# ======================================================================
+# HC ACTUAL desde el tablero de horarios de Operaciones (solo lectura)
+# Este tablero ya NO administra horarios: los consume por API.
+# ======================================================================
+import urllib.request, urllib.parse, urllib.error
+
+HC_SOURCE_URL = os.environ.get('HC_SOURCE_URL', 'https://wfmpromass2026.pythonanywhere.com').rstrip('/')
+HC_SOURCE_TOKEN = os.environ.get('HC_API_TOKEN', '')
+HC_SOURCE_TTL = int(os.environ.get('HC_SOURCE_TTL', '60'))
+HC_SOURCE_TIMEOUT = int(os.environ.get('HC_SOURCE_TIMEOUT', '20'))
+HC_SOURCE_CACHE_FILE = os.path.join(WFM_STATE_DIR, 'hc_source_last_good.json')
+_HC_REMOTE_LOCK = threading.RLock()
+_HC_REMOTE = {'data': None, 'fetched': 0.0, 'hash': '', 'error': '', 'stale': False}
+
+def _hc_remote_get(path, params=None):
+    if not HC_SOURCE_TOKEN:
+        raise RuntimeError('Falta la variable de entorno HC_API_TOKEN para consultar el tablero de horarios.')
+    url = HC_SOURCE_URL + path + ('?' + urllib.parse.urlencode(params) if params else '')
+    req = urllib.request.Request(url, headers={'X-API-Key': HC_SOURCE_TOKEN, 'Accept': 'application/json'})
+    with urllib.request.urlopen(req, timeout=HC_SOURCE_TIMEOUT) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+def _hc_remote_normalize_agent(a):
+    status = 'Baja' if str(a.get('status') or '').strip().lower() in ('baja', 'inactivo') else 'Activo'
+    sched = a.get('schedules') or {}
+    return {
+        'agentId': str(a.get('agentId') or ''),
+        'fullName': a.get('fullName') or '',
+        'supervisor': a.get('supervisor') or '',
+        'coordinator': a.get('coordinator') or '',
+        'campaign': a.get('campaign') or '',
+        'channel': a.get('channel') or 'Llamadas',
+        'status': status,
+        'schedules': {d: (sched.get(d) or 'DD-DD') for d in _ROSTER_DAYS},
+        'source': 'hc_manager',
+        'createdAt': a.get('createdAt'),
+        'updatedAt': a.get('updatedAt'),
+        'updatedBy': a.get('updatedBy') or ''
+    }
+
+def _hc_remote_load():
+    agents = _hc_remote_get('/api/hc/agents', {'status': 'Activo'}).get('agents', [])
+    absences = _hc_remote_get('/api/hc/absences').get('absences', [])
+    overrides = _hc_remote_get('/api/hc/overrides').get('overrides', [])
+    return {
+        'agents': [_hc_remote_normalize_agent(a) for a in agents],
+        'absences': [x for x in absences if str(x.get('status') or '').lower() == 'approved'],
+        'overrides': overrides,
+    }
+
+def _hc_remote_snapshot(force=False):
+    """Snapshot en caché del tablero de horarios. Si la consulta falla usa el último bueno."""
+    global _ROSTER_STATE_GENERATION
+    now = time.time()
+    with _HC_REMOTE_LOCK:
+        if not force and _HC_REMOTE['data'] is not None and now - _HC_REMOTE['fetched'] < HC_SOURCE_TTL:
+            return _HC_REMOTE['data']
+        try:
+            data = _hc_remote_load()
+            digest = hashlib.sha1(json.dumps(data, sort_keys=True, default=str).encode('utf-8')).hexdigest()
+            changed = digest != _HC_REMOTE['hash']
+            _HC_REMOTE.update(data=data, fetched=now, hash=digest, error='', stale=False)
+            try:
+                with open(HC_SOURCE_CACHE_FILE, 'w', encoding='utf-8') as fh:
+                    json.dump({'savedAt': now, 'data': data}, fh)
+            except Exception:
+                pass
+            if changed:
+                with _WFM_ROSTER_LOCK:
+                    _ROSTER_STATE_GENERATION += 1
+                    _ROSTER_METRICS_CACHE['llamadas'] = None
+                    _ROSTER_METRICS_CACHE['chat'] = None
+                with _ASSISTANT_PLAN_CACHE_LOCK:
+                    _ASSISTANT_PLAN_CACHE.clear()
+            return data
+        except Exception as e:
+            _HC_REMOTE['error'] = str(e)
+            _HC_REMOTE['fetched'] = now - HC_SOURCE_TTL + 15  # reintentar en ~15 s
+            if _HC_REMOTE['data'] is None:
+                try:
+                    with open(HC_SOURCE_CACHE_FILE, encoding='utf-8') as fh:
+                        _HC_REMOTE['data'] = json.load(fh)['data']
+                except Exception:
+                    raise RuntimeError(f'No se pudo consultar el tablero de horarios: {e}')
+            _HC_REMOTE['stale'] = True
+            print(f'[HC remoto] usando último HC conocido: {e}')
+            return _HC_REMOTE['data']
+
+def _hc_remote_override_map():
+    """Expande los horarios temporales por rango a {(agent_id, fecha): {'schedule': ...}}."""
+    out = {}
+    for o in _hc_remote_snapshot().get('overrides', []):
+        try:
+            first = datetime.strptime(str(o['start_date'])[:10], '%Y-%m-%d')
+            last = datetime.strptime(str(o['end_date'])[:10], '%Y-%m-%d')
+        except Exception:
+            continue
+        if (last - first).days > 400:
+            continue
+        sched = o.get('schedules') or {}
+        for i in range((last - first).days + 1):
+            day = first + timedelta(days=i)
+            name = _ROSTER_DAYS[day.weekday()]
+            if name in sched:
+                out[(str(o['agent_id']), day.strftime('%Y-%m-%d'))] = {
+                    'agent_id': str(o['agent_id']), 'work_date': day.strftime('%Y-%m-%d'), 'schedule': sched[name]}
+    return out
+
+def _hc_remote_absence_records():
+    recs = []
+    for x in _hc_remote_snapshot().get('absences', []):
+        recs.append({'agent_id': str(x['agent_id']), 'absence_type': x.get('absence_type'),
+                     'start_date': str(x['start_date'])[:10], 'end_date': str(x['end_date'])[:10],
+                     'status': 'approved', 'start_minute': None, 'end_minute': None})
+    return recs
+
 def _roster_fetch_agents(channel=None, include_inactive=True):
-    _roster_db_init()
-    conn = _roster_conn()
-    try:
-        sql = "SELECT * FROM roster_agents WHERE 1=1"
-        args = []
-        if channel and str(channel).lower() != 'all':
-            sql += " AND lower(trim(channel))=?"
-            args.append(str(channel).lower())
-        if not include_inactive:
-            sql += " AND lower(trim(COALESCE(status,''))) NOT IN ('baja','inactivo')"
-        sql += " ORDER BY campaign, supervisor, full_name, agent_id"
-        return [_roster_row_dict(r) for r in conn.execute(sql,args).fetchall()]
-    finally:
-        conn.close()
+    agents = _hc_remote_snapshot().get('agents', [])
+    out = []
+    for a in agents:
+        if channel and str(channel).lower() != 'all' and str(a['channel']).strip().lower() != str(channel).lower():
+            continue
+        if not include_inactive and a['status'] != 'Activo':
+            continue
+        out.append(a)
+    out.sort(key=lambda a: (a['campaign'], a['supervisor'], a['fullName'], a['agentId']))
+    return out
 
 def _roster_dataframe(channel):
     agents = _roster_fetch_agents(channel=channel, include_inactive=False)
@@ -1412,11 +1525,8 @@ def _roster_override_deltas(channel, df_roster):
     coverage_delta,day_delta={},{}
     if df_roster is None or df_roster.empty:return coverage_delta,day_delta
     agents={str(r['Agente']):{'agentId':str(r['Agente']),'campaign':str(r['Campaña']).strip().title(),'schedules':{day:r.get(day,'DD-DD') for day in _ROSTER_DAYS}} for _,r in df_roster.iterrows()}
-    _roster_db_init();conn=_roster_conn()
-    try:
-        records=[dict(r) for r in conn.execute("SELECT o.* FROM roster_overrides o JOIN roster_agents a ON a.agent_id=o.agent_id WHERE lower(a.status)='activo' AND lower(a.channel)=lower(?)",(channel,))]
-    finally:conn.close()
-    overrides={(str(r['agent_id']),r['work_date']):r for r in records};affected=set()
+    overrides={k:v for k,v in _hc_remote_override_map().items() if k[0] in agents}
+    records=list(overrides.values());affected=set()
     for r in records:
         day=datetime.strptime(r['work_date'],'%Y-%m-%d')
         affected.add((str(r['agent_id']),r['work_date']));affected.add((str(r['agent_id']),(day+timedelta(days=1)).strftime('%Y-%m-%d')))
@@ -2470,11 +2580,8 @@ def _roster_absence_deltas(channel, df_roster):
     coverage_delta,day_delta={},{}
     if df_roster is None or df_roster.empty:return coverage_delta,day_delta
     by_agent={str(r['Agente']):{'agentId':str(r['Agente']),'schedules':{day:r.get(day,'DD-DD') for day in _ROSTER_DAYS},'campaign':str(r['Campaña']).strip().title()} for _,r in df_roster.iterrows()}
-    _roster_db_init();conn=_roster_conn()
-    try:
-        records=[dict(r) for r in conn.execute("SELECT v.* FROM roster_absences v JOIN roster_agents a ON a.agent_id=v.agent_id WHERE v.status='approved' AND lower(a.status)='activo' AND lower(a.channel)=lower(?)",(channel,))]
-        overrides={(str(r['agent_id']),r['work_date']):dict(r) for r in conn.execute('SELECT * FROM roster_overrides')}
-    finally:conn.close()
+    records=[r for r in _hc_remote_absence_records() if r['agent_id'] in by_agent]
+    overrides=_hc_remote_override_map()
     blocked={}
     for record in records:
         first=datetime.strptime(record['start_date'],'%Y-%m-%d');last=datetime.strptime(record['end_date'],'%Y-%m-%d')
@@ -3170,45 +3277,42 @@ def schedule_planner_apply():
 
 @app.route('/api/roster', methods=['GET'])
 def roster_list():
+    """HC y plantilla de SOLO LECTURA, tomados del tablero de horarios de Operaciones."""
     try:
+        snap = _hc_remote_snapshot(force=str(request.args.get('refresh','')).lower() in ('1','true'))
         agents = _roster_fetch_agents(request.args.get('channel'), str(request.args.get('includeInactive','true')).lower()!='false')
-        temporary_changes = _roster_temporary_changes(include_expired=False)
-        vacations = _roster_vacations(include_past=False)
-        temp_by_agent = {}
-        for change in temporary_changes:
-            current = temp_by_agent.get(change['agentId'])
-            if current is None or (current.get('state') != 'active' and change.get('state') == 'active'):
-                temp_by_agent[change['agentId']] = change
-        vacation_by_agent = {}
-        for vacation in vacations:
-            if vacation.get('status') not in ('requested','approved'):
-                continue
-            current = vacation_by_agent.get(vacation['agentId'])
-            if current is None:
-                vacation_by_agent[vacation['agentId']] = vacation
-            elif current.get('status') != 'approved' and vacation.get('status') == 'approved':
-                vacation_by_agent[vacation['agentId']] = vacation
-
-        for agent in agents:
-            agent['temporaryChange'] = temp_by_agent.get(agent['agentId'])
-            agent['vacation'] = vacation_by_agent.get(agent['agentId'])
         campaigns = sorted({a['campaign'] for a in agents if a['campaign']})
-        people_catalog = _roster_people_catalog()
-        supervisors = people_catalog['supervisors']
-        coordinators = people_catalog['coordinators']
+        supervisors = sorted({a['supervisor'] for a in agents if a['supervisor']})
+        coordinators = sorted({a['coordinator'] for a in agents if a['coordinator']})
         active = sum(1 for a in agents if a['status']=='Activo')
         last_update = max([a['updatedAt'] for a in agents if a.get('updatedAt')] or [''])
-        approved_vacations = sum(1 for v in vacations if v.get('status')=='approved')
-        requested_vacations = sum(1 for v in vacations if v.get('status')=='requested')
         return jsonify({'agents':agents,'campaigns':campaigns,'supervisors':supervisors,'coordinators':coordinators,
-            'temporaryChanges':temporary_changes,'vacations':vacations,'days':_ROSTER_DAYS,'stats':{
-            'total':len(agents),'active':active,'inactive':len(agents)-active,'campaigns':len(campaigns),
-            'supervisors':len(supervisors),'coordinators':len(coordinators),'temporaryChanges':len(temporary_changes),
-            'approvedVacations':approved_vacations,'requestedVacations':requested_vacations,'lastUpdate':last_update,
-            'persistent':True,'historyPersistent':True
-        }}),200
+            'temporaryChanges':[],'vacations':[],'days':_ROSTER_DAYS,'readOnly':True,
+            'source':{'url':HC_SOURCE_URL,'stale':_HC_REMOTE['stale'],'error':_HC_REMOTE['error'],'fetchedAt':_HC_REMOTE['fetched']},
+            'stats':{'total':len(agents),'active':active,'inactive':len(agents)-active,'campaigns':len(campaigns),
+            'supervisors':len(supervisors),'coordinators':len(coordinators),'temporaryChanges':len(snap.get('overrides',[])),
+            'approvedVacations':len(snap.get('absences',[])),'requestedVacations':0,'lastUpdate':last_update,
+            'persistent':True,'historyPersistent':True}}),200
     except Exception as e:
-        return jsonify({'error':f'No se pudo cargar el roster: {str(e)}'}),500
+        return jsonify({'error':f'No se pudo cargar el HC del tablero de horarios: {str(e)}'}),502
+
+@app.route('/api/hc-source/status', methods=['GET'])
+def hc_source_status():
+    try:
+        snap = _hc_remote_snapshot()
+        return jsonify({'ok':True,'url':HC_SOURCE_URL,'agents':len(snap.get('agents',[])),'absences':len(snap.get('absences',[])),
+            'overrides':len(snap.get('overrides',[])),'stale':_HC_REMOTE['stale'],'error':_HC_REMOTE['error'],'fetchedAt':_HC_REMOTE['fetched']}),200
+    except Exception as e:
+        return jsonify({'ok':False,'error':str(e)}),502
+
+_HORARIOS_RETIRADOS = ('/api/roster/', '/api/schedule-planner/')
+
+@app.before_request
+def _bloquear_gestion_de_horarios():
+    """La gestión de horarios vive en el tablero de Operaciones; aquí ya no se edita."""
+    path = request.path
+    if path.startswith(_HORARIOS_RETIRADOS):
+        return jsonify({'error':'La gestión de horarios se realiza en el tablero de horarios de Operaciones ('+HC_SOURCE_URL+'). Este tablero solo consulta el HC.'}),410
 
 @app.route('/api/roster/agent', methods=['POST'])
 def roster_save_agent():
