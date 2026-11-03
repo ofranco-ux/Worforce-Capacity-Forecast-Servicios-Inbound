@@ -3771,11 +3771,6 @@
                 <span>Control forecast</span>
                 <span id="forecastControlHeaderBadge" class="forecast-control-nav-badge">Mensual</span>
             </button>
-            <button id="btnRosterManager" type="button" class="roster-nav-btn" onclick="openRosterManager()" title="Gestionar horarios">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 3v6M17 3v6M5 10h14v10H5z"/><path d="M8 14h3M13 14h3M8 17h3"/></svg>
-                <span>Gestión de horarios</span>
-            </button>
-            <button type="button" id="btnSchedulePlanner" class="roster-nav-btn" onclick="openSchedulePlanner()" title="Proponer horarios según cobertura"><span>Horarios según necesidad</span></button>
             <span id="tagModoOps" class="hidden ops-badge">Operaciones</span>
         </div>
     </header>
@@ -3998,10 +3993,10 @@
                         <div class="capacity-metric capacity-current-block">
                             <div class="capacity-metric-top">
                                 <span class="capacity-metric-label">HC actual</span>
-                                <span class="capacity-metric-tag capacity-metric-tag-green">GESTIÓN DE HORARIOS</span>
+                                <span class="capacity-metric-tag capacity-metric-tag-green">TABLERO DE OPERACIONES</span>
                             </div>
                             <p id="kpiHcRoster" class="capacity-metric-value capacity-current-value font-mono-num">0 HC</p>
-                            <p class="capacity-metric-help">Agentes activos de Gestión de horarios en las campañas seleccionadas.</p>
+                            <p class="capacity-metric-help">Agentes activos del tablero de horarios de Operaciones en las campañas seleccionadas.</p>
                         </div>
 
                         <div class="capacity-gap-block">
@@ -4423,7 +4418,7 @@
         async function syncActiveRosterHC() {
             const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
             const data = await response.json();
-            if (!response.ok || !Array.isArray(data.agents)) throw new Error('No se pudo confirmar el HC de Gestión de horarios.');
+            if (!response.ok || !Array.isArray(data.agents)) throw new Error('No se pudo confirmar el HC del tablero de horarios de Operaciones.');
             activeRosterSnapshot = data.agents.map(a => ({...a, status:rosterNormalizeStatus(a.status)})).filter(a => a.status === 'Activo');
             // Actualizar HC sin alterar filtros ni selecciones del forecast.
 
@@ -8858,7 +8853,7 @@
               <div class="frank-metrics"><div class="frank-metric frank-metric-alert"><span>Faltante por cubrir</span><strong>${n(summary.deficitHours)}<small> h-agente</small></strong></div><div class="frank-metric"><span>Campañas con faltantes</span><strong>${summary.criticalCampaigns}<small> de ${data.campaigns.length}</small></strong></div><div class="frank-metric"><span>Excedente en otros intervalos</span><strong>${n(summary.surplusHours)}<small> h-agente</small></strong></div></div>
               <p class="frank-caption">Una hora-agente equivale a un agente disponible durante una hora. Los excedentes de otros intervalos no eliminan los faltantes.</p>
               <div class="frank-action-board"><section class="frank-focus"><span class="frank-focus-mark">${top?'!':'✓'}</span><div><strong>${top?'Primero revisa '+esc(top.campaign):'Sin faltantes en este periodo'}</strong><p>${top?`${n(top.deficitHours)} h-agente de faltante. ${esc(top.action)}`:'Revisa la programación de breaks y mantén seguimiento de la disponibilidad.'}</p></div></section>
-              <div class="frank-tools"><p class="frank-eyebrow">SIGUIENTE PASO</p><button type="button" class="frank-button frank-button-primary" onclick="openSchedulePlanner()">Explorar horarios y breaks ↗</button><button type="button" class="frank-button" onclick="exportFrankComments()">⇩ Exportar comentarios</button><button type="button" class="frank-button" onclick="copyFrankSummary(this)">Copiar resumen ejecutivo</button></div></div>
+              <div class="frank-tools"><p class="frank-eyebrow">SIGUIENTE PASO</p><button type="button" class="frank-button" onclick="exportFrankComments()">⇩ Exportar comentarios</button><button type="button" class="frank-button" onclick="copyFrankSummary(this)">Copiar resumen ejecutivo</button></div></div>
               ${frankPriorityMarkup(data)}${frankCoverageMarkup(data)}
               <div class="frank-section-heading"><h3>Detalle por campaña</h3><button type="button" class="frank-filter ${frankOnlyCritical?'is-active':''}" aria-pressed="${frankOnlyCritical}" onclick="toggleFrankCritical()">${frankOnlyCritical?'Mostrar todas':'Solo con faltantes'}</button></div>
               <p class="frank-caption">Ordenadas por horas de faltante, de mayor a menor.</p>
@@ -10029,7 +10024,7 @@
                     <div id="wfmWelcomeContext" class="wfm-welcome-context"></div>
                     <div class="frank-start-options">
 <button type="button" onclick="sendWfmAssistantQuestion('coverage')"><strong>Revisar cobertura</strong><span>Dónde hace falta apoyo y qué priorizar.</span></button>
-<button type="button" onclick="sendWfmAssistantQuestion('simulate')"><strong>Simular horarios</strong><span>Explorar ajustes con los agentes actuales.</span></button>
+
 <button type="button" onclick="sendWfmAssistantQuestion('breaks')"><strong>Revisar breaks</strong><span>Pendientes y necesidades de apoyo.</span></button>
 <button type="button" onclick="sendWfmAssistantQuestion('trends')"><strong>Consultar pronóstico</strong><span>Señales de tendencia del modelo.</span></button>
 <button type="button" onclick="sendWfmAssistantQuestion('followup')"><strong>Dar seguimiento</strong><span>Propuestas guardadas y ajustes aplicados.</span></button>
