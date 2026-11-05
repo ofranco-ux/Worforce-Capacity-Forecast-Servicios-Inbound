@@ -3740,6 +3740,22 @@
 
 .frank-studio .wfm-assistant-head-main>.wfm-mascot{display:none!important}.frank-studio .wfm-assistant-head-actions button{background:#25405f!important;border-color:#46617f!important}
 </style>
+
+<style id="capacity-roster-readonly-style">
+/* Capacity consume horarios; las altas y modificaciones se realizan en Operaciones. */
+#rosterManagerOverlay button[onclick*="downloadRosterTemplate"],
+#rosterManagerOverlay button[onclick*="openRosterPersonEditor"],
+#rosterManagerOverlay button[onclick*="openRosterEditor"],
+#rosterManagerOverlay button[onclick*="importRosterFile"],
+#rosterManagerOverlay #rosterImportFile,
+#rosterManagerOverlay .roster-edit-btn,
+#rosterManagerOverlay button[onclick*="editRoster"],
+#rosterManagerOverlay button[onclick*="saveRoster"],
+#rosterManagerOverlay button[onclick*="deleteRoster"],
+#rosterManagerOverlay button[onclick*="terminateRoster"],
+#rosterManagerOverlay button[onclick*="applyRoster"] { display:none !important; }
+#rosterManagerOverlay .capacity-readonly-notice { display:block; }
+</style>
 </head>
 <body class="light-theme p-3 md:p-5 xl:p-6 min-h-screen">
 
@@ -3996,6 +4012,10 @@
                                 <span class="capacity-metric-tag capacity-metric-tag-green">TABLERO DE OPERACIONES</span>
                             </div>
                             <p id="kpiHcRoster" class="capacity-metric-value capacity-current-value font-mono-num">0 HC</p>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:5px">
+                                <button id="rosterManualRefresh" type="button" onclick="refreshRosterFromSource()" style="font-size:10px;font-weight:700;color:#93c5fd;border:1px solid #31527b;border-radius:7px;padding:5px 9px;background:#0b1b31">↻ Actualizar HC</button>
+                                <span id="capacityRosterSyncLabel" style="font-size:9px;color:#94a3b8">Sincronización automática cada 60 s</span>
+                            </div>
                             <p class="capacity-metric-help">Agentes activos del tablero de horarios de Operaciones en las campañas seleccionadas.</p>
                         </div>
 
@@ -4415,13 +4435,38 @@
                 return selected.has(campaign) && (!channel || a.channel===channel) && (!allowed || allowed.has(campaign));
             }).map(a => String(a.agentId))).size;
         }
-        async function syncActiveRosterHC() {
-            const response = await fetch('/api/roster?includeInactive=true', {cache:'no-store'});
-            const data = await response.json();
-            if (!response.ok || !Array.isArray(data.agents)) throw new Error('No se pudo confirmar el HC del tablero de horarios de Operaciones.');
-            activeRosterSnapshot = data.agents.map(a => ({...a, status:rosterNormalizeStatus(a.status)})).filter(a => a.status === 'Activo');
-            // Actualizar HC sin alterar filtros ni selecciones del forecast.
-
+        let rosterSyncInFlight = null;
+        let rosterLastSyncAt = null;
+        async function syncActiveRosterHC(force=false, redraw=true) {
+            if (rosterSyncInFlight) return rosterSyncInFlight;
+            rosterSyncInFlight = (async () => {
+                const url = '/api/roster?includeInactive=true' + (force ? '&refresh=1' : '');
+                const response = await fetch(url, {cache:'no-store'});
+                const data = await response.json();
+                if (!response.ok || !Array.isArray(data.agents)) throw new Error(data.error || 'No se pudo confirmar el HC del tablero de horarios de Operaciones.');
+                // La API ya entrega únicamente agentes vigentes; el filtro adicional protege el KPI.
+                activeRosterSnapshot = data.agents.map(a => ({...a, status:rosterNormalizeStatus(a.status)})).filter(a => a.status === 'Activo');
+                rosterLastSyncAt = new Date();
+                const stale = !!data.source?.stale;
+                setRosterSyncStatus(stale ? 'error' : 'ready', stale ? 'Sin conexión · último dato válido' : 'HC sincronizado · ' + rosterLastSyncAt.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}));
+                const btn = document.getElementById('rosterManualRefresh');
+                if (btn) { btn.disabled = false; btn.textContent = '↻ Actualizar HC'; }
+                if (redraw) debouncedActualizarGrafica();
+                return data;
+            })().catch(error => {
+                setRosterSyncStatus('error','Error de sincronización · se conserva último HC');
+                const btn = document.getElementById('rosterManualRefresh');
+                if (btn) { btn.disabled = false; btn.textContent = '↻ Reintentar HC'; }
+                throw error;
+            }).finally(() => { rosterSyncInFlight = null; });
+            return rosterSyncInFlight;
+        }
+        async function refreshRosterFromSource() {
+            const btn = document.getElementById('rosterManualRefresh');
+            if (btn) { btn.disabled = true; btn.textContent = 'Actualizando…'; }
+            setRosterSyncStatus('recalculating','Consultando Operaciones…');
+            try { await syncActiveRosterHC(true, true); }
+            catch (error) { console.warn('No se pudo actualizar el HC desde Operaciones:', error); }
         }
 
         let wfmDataVersion = 0;
@@ -5456,6 +5501,10 @@
                 }
             }
             fetchLatestData(forecastMode).finally(() => loadSourceMeta());
+            // Sincronización independiente del forecast: el HC se actualiza cada minuto
+            // sin volver a descargar ni regenerar la proyección.
+            setTimeout(() => syncActiveRosterHC(false, true).catch(()=>{}), 1500);
+            setInterval(() => syncActiveRosterHC(false, true).catch(()=>{}), 60000);
 
             if (mode === 'ops' || mode === 'operaciones') {
                 setInterval(() => {
@@ -9627,6 +9676,9 @@
                     <button type="button" class="roster-head-btn" onclick="closeRosterManager()" aria-label="Cerrar">✕</button>
                 </div>
             </div>
+            <div class="capacity-readonly-notice" style="margin:10px 14px 0;padding:9px 12px;border:1px solid #bfdbfe;border-radius:10px;background:#eff6ff;color:#1e40af;font-size:11px;line-height:1.5">
+                <strong>Consulta de solo lectura.</strong> Los horarios, altas, bajas, vacaciones, incapacidades y cambios temporales se administran exclusivamente en el tablero de Operaciones. Capacity solo consume la información sincronizada.
+            </div>
 
             <div class="roster-kpis">
                 <div id="rosterKpiCardActive" class="roster-kpi"><div class="roster-kpi-label">Agentes activos <span id="rosterKpiScopeActive" class="roster-kpi-filter-note"></span></div><div id="rosterKpiActive" class="roster-kpi-value">0</div><div id="rosterKpiActiveDetail" class="roster-kpi-detail">Plantilla vigente</div></div>
@@ -9646,9 +9698,6 @@
                 <button id="rosterTabHistory" type="button" class="roster-tab" onclick="setRosterView('history')">Historial de cambios</button>
             </div>
 
-            <div style="margin:0 14px 8px;padding:8px 10px;border:1px solid #D7E3EA;border-radius:11px;background:#F7FAFC;color:#647A8E;font-size:8px;line-height:1.45">
-                <strong style="color:#35546A">Carga inicial recomendada:</strong> descarga la plantilla Excel, carga la plantilla completa una sola vez y después administra altas o cambios directamente desde esta pantalla. La misma carga también puede actualizar agentes existentes usando su ID.
-            </div>
 
             <div id="rosterAgentsView" class="contents">
                 <div class="roster-toolbar">
